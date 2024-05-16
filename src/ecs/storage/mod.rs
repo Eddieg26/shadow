@@ -1,5 +1,3 @@
-pub mod bits;
-pub mod blob;
-pub mod ptr;
+pub mod dense;
 pub mod sparse;
 pub mod table;

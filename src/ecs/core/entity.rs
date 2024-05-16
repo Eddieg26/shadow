@@ -1,92 +1,35 @@
-use crate::ecs::storage::sparse::SparseMap;
+use super::allocator::{Allocator, GenId};
+use std::collections::HashMap;
 
-use super::{GenId, IdAllocator};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Hash)]
 pub struct Entity {
     id: usize,
-    generation: u32,
+    gen: usize,
 }
 
 impl Entity {
-    pub fn new(id: usize, generation: u32) -> Self {
-        Self { id, generation }
+    pub fn new(id: usize, gen: usize) -> Entity {
+        Entity { id, gen }
     }
 
     pub fn id(&self) -> usize {
         self.id
     }
 
-    pub fn generation(&self) -> u32 {
-        self.generation
+    pub fn gen(&self) -> usize {
+        self.gen
+    }
+}
+
+impl From<GenId> for Entity {
+    fn from(value: GenId) -> Self {
+        Entity::new(value.id(), value.gen())
     }
 }
 
 impl Into<GenId> for Entity {
     fn into(self) -> GenId {
-        GenId::new(self.id, self.generation)
-    }
-}
-
-pub struct Entities {
-    allocator: IdAllocator,
-    nodes: SparseMap<Entity, EntityNode>,
-}
-
-impl Entities {
-    pub fn new() -> Self {
-        Self {
-            allocator: IdAllocator::new(),
-            nodes: SparseMap::new(),
-        }
-    }
-
-    pub fn create(&mut self) -> Entity {
-        let id = self.allocator.allocate();
-        let node = EntityNode::new(None);
-        let entity = Entity::new(id.id(), id.generation());
-
-        self.nodes.insert(entity, node);
-
-        entity
-    }
-
-    pub fn delete(&mut self, entity: Entity, recursive: bool) -> Vec<Entity> {
-        let mut deleted = Vec::new();
-        if let Some(node) = self.nodes.remove(&entity) {
-            if recursive {
-                for child in node.children {
-                    deleted.extend(self.delete(child, true));
-                }
-            }
-            self.allocator
-                .free(GenId::new(entity.id(), entity.generation()));
-            deleted.push(entity);
-        }
-        deleted
-    }
-
-    pub fn reserve(&mut self, amount: usize) {
-        self.allocator.reserve(amount);
-    }
-
-    pub fn len(&self) -> usize {
-        self.allocator.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.allocator.is_empty()
-    }
-
-    pub fn contains(&self, entity: Entity) -> bool {
-        self.allocator
-            .is_alive(GenId::new(entity.id(), entity.generation()))
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = Entity> + '_ {
-        self.allocator
-            .iter()
-            .map(|id| Entity::new(id.id(), id.generation()))
+        GenId::new(self.id, self.gen)
     }
 }
 
@@ -97,30 +40,27 @@ pub struct EntityNode {
 
 impl EntityNode {
     pub fn new(parent: Option<Entity>) -> Self {
-        Self {
+        EntityNode {
             parent,
-            children: Vec::new(),
+            children: vec![],
         }
     }
 
-    pub fn parent(&self) -> Option<Entity> {
-        self.parent
+    pub fn parent(&self) -> Option<&Entity> {
+        self.parent.as_ref()
     }
 
     pub fn children(&self) -> &[Entity] {
         &self.children
     }
 
-    pub fn children_mut(&mut self) -> &mut [Entity] {
-        &mut self.children
+    pub fn add_child(&mut self, child: Entity) {
+        self.children.push(child);
     }
 
-    pub fn add_child(&mut self, entity: Entity) {
-        self.children.push(entity);
-    }
-
-    pub fn remove_child(&mut self, entity: Entity) {
-        self.children.retain(|e| *e != entity);
+    pub fn remove_child(&mut self, child: Entity) -> Option<Entity> {
+        self.children.retain(|e| *e != child);
+        Some(child)
     }
 
     pub fn set_parent(&mut self, parent: Option<Entity>) {
@@ -128,88 +68,107 @@ impl EntityNode {
     }
 }
 
+pub struct Entities {
+    allocator: Allocator,
+    nodes: HashMap<Entity, EntityNode>,
+}
+
 impl Entities {
-    pub fn add_entity(&mut self, entity: Entity) {
-        self.nodes.insert(
-            entity,
-            EntityNode {
-                parent: None,
-                children: Vec::new(),
-            },
-        );
+    pub fn new() -> Entities {
+        Entities {
+            allocator: Allocator::new(),
+            nodes: HashMap::new(),
+        }
     }
 
-    pub fn set_parent(&mut self, entity: Entity, parent: Option<Entity>) {
-        if let Some(old_parent) = self
-            .nodes
-            .get_mut(&entity)
-            .and_then(|e| {
-                let old = e.parent;
-                e.parent = parent;
-                old
-            })
-            .and_then(|old_parent| self.nodes.get_mut(&old_parent))
-        {
-            old_parent.children.retain(|e| *e != entity);
+    pub fn spawn(&mut self) -> Entity {
+        let entity: Entity = self.allocator.allocate().into();
+        let node = EntityNode::new(None);
+        self.nodes.insert(entity, node);
+
+        entity
+    }
+
+    pub fn spawn_with_parent(&mut self, parent: &Entity) -> Entity {
+        if self.nodes.contains_key(parent) {
+            let entity: Entity = self.allocator.allocate().into();
+            let node = EntityNode::new(Some(*parent));
+            self.nodes.insert(entity, node);
+            self.nodes.get_mut(parent).unwrap().add_child(entity);
+
+            entity
+        } else {
+            self.spawn()
         }
+    }
+
+    pub fn kill(&mut self, entity: &Entity) -> Vec<Entity> {
+        let mut dead = vec![];
+        if let Some(node) = self.nodes.remove(entity) {
+            dead.push(*entity);
+            for child in node.children() {
+                dead.append(&mut self.kill(child));
+            }
+        }
+
+        dead
+    }
+
+    pub fn set_parent(&mut self, child: &Entity, parent: Option<&Entity>) {
+        if !self.nodes.contains_key(child) {
+            return;
+        }
+
+        if let Some(old_parent) = self.nodes.get(child).unwrap().parent().copied() {
+            let old = self.nodes.get_mut(&old_parent).unwrap();
+            old.remove_child(*child);
+        }
+
         if let Some(parent) = parent {
-            if let Some(parent_node) = self.nodes.get_mut(&parent) {
-                parent_node.children.push(entity);
+            if self.nodes.contains_key(parent) {
+                self.nodes.get_mut(parent).unwrap().add_child(*child);
+                self.nodes.get_mut(child).unwrap().set_parent(Some(*parent))
             }
+        } else {
+            self.nodes.get_mut(child).unwrap().set_parent(None);
         }
     }
 
-    pub fn add_child(&mut self, entity: Entity, child: Entity) {
-        if !self.contains(entity) || !self.contains(child) {
+    pub fn add_child(&mut self, parent: &Entity, child: &Entity) {
+        if !self.nodes.contains_key(child) || !self.nodes.contains_key(parent) {
             return;
         }
 
-        {
-            let parent = self.nodes.get_mut(&entity).unwrap();
-            parent.children.push(child);
+        if let Some(old_parent) = self.nodes.get(child).unwrap().parent().copied() {
+            let old = self.nodes.get_mut(&old_parent).unwrap();
+            old.remove_child(*child);
         }
 
-        let old_parent = self.nodes.get_mut(&child).and_then(|e| {
-            let old = e.parent;
-            e.parent = Some(entity);
-            old
-        });
-
-        if let Some(old_parent) = old_parent {
-            if let Some(old_parent) = self.nodes.get_mut(&old_parent) {
-                old_parent.children.retain(|e| *e != child);
-            }
-        }
+        self.nodes.get_mut(parent).unwrap().add_child(*child);
+        self.nodes.get_mut(child).unwrap().set_parent(Some(*parent))
     }
 
-    pub fn remove_child(&mut self, entity: Entity, child: Entity) {
-        if !self.contains(entity) || !self.contains(child) {
-            return;
+    pub fn remove_child(&mut self, parent: &Entity, child: &Entity) -> bool {
+        if !self.nodes.contains_key(child) || !self.nodes.contains_key(parent) {
+            return false;
         }
 
-        if let Some(parent) = self.nodes.get_mut(&entity) {
-            parent.children.retain(|e| *e != child);
+        let old_parent = self.nodes.get(child).unwrap().parent().copied();
+        if Some(*parent) != old_parent {
+            return false;
         }
 
-        if let Some(child) = self.nodes.get_mut(&child) {
-            child.parent = None;
-        }
+        self.nodes.get_mut(parent).unwrap().remove_child(*child);
+        self.nodes.get_mut(child).unwrap().set_parent(None);
+
+        true
     }
 
-    pub fn parent(&self, entity: Entity) -> Option<Entity> {
-        self.nodes.get(&entity).and_then(|e| e.parent)
+    pub fn children(&self, entity: &Entity) -> Option<&[Entity]> {
+        self.nodes.get(entity).and_then(|n| Some(n.children()))
     }
 
-    pub fn children(&self, entity: Entity, recursive: bool) -> Vec<Entity> {
-        let mut children = Vec::new();
-        if let Some(node) = self.nodes.get(&entity) {
-            children.extend(node.children.iter().cloned());
-            if recursive {
-                for child in node.children.iter() {
-                    children.extend(self.children(*child, true));
-                }
-            }
-        }
-        children
+    pub fn parent(&self, entity: &Entity) -> Option<&Entity> {
+        self.nodes.get(entity).and_then(|n| n.parent())
     }
 }

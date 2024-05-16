@@ -1,4 +1,5 @@
 use super::ptr::Ptr;
+use core::panic;
 use std::{alloc::Layout, marker::PhantomData, ptr::NonNull};
 
 pub struct Blob {
@@ -130,21 +131,13 @@ impl Blob {
     pub fn to_vec<T: 'static>(&mut self) -> Vec<T> {
         let mut vec: Vec<T> = Vec::with_capacity(self.len);
 
-        let src = self.data.as_mut_ptr();
-        let dst = vec.as_mut_ptr() as *mut u8;
-
-        unsafe {
-            for index in 0..self.len {
-                let src = src.add(index * self.aligned_layout.size());
-                let dst = dst.add(index * self.aligned_layout.size());
-
-                std::ptr::copy_nonoverlapping(src, dst, self.aligned_layout.size());
-            }
-            self.data.set_len(0);
+        for i in 0..self.len {
+            let ptr = self.offset(i) as *mut T;
+            let data = unsafe { std::ptr::read(ptr) };
+            vec.push(data);
         }
 
-        self.len = 0;
-        self.capacity = 0;
+        self.dealloc();
 
         vec
     }
@@ -161,7 +154,6 @@ impl Blob {
 
         unsafe {
             let dst = self.offset(self.len) as *mut T;
-
             std::ptr::write(dst, value);
         }
 
@@ -203,6 +195,26 @@ impl Blob {
         other.dealloc();
     }
 
+    pub fn remove<T>(&mut self, index: usize) -> Option<T> {
+        if index >= self.len {
+            return None;
+        }
+
+        unsafe {
+            let src = self.offset(index) as *mut T;
+            let data = std::ptr::read(src);
+
+            let dst = self.offset(index);
+            let src = self.offset(index + 1);
+            let len = self.len - index - 1;
+            std::ptr::copy_nonoverlapping(src, dst, len * self.aligned_layout.size());
+
+            self.len -= 1;
+
+            Some(data)
+        }
+    }
+
     pub fn swap_remove(&mut self, index: usize) -> Blob {
         if index >= self.len {
             panic!("Index out of bounds");
@@ -226,20 +238,19 @@ impl Blob {
     }
 
     pub fn replace<T>(&mut self, index: usize, value: T) -> Option<T> {
-        if index < self.len {
-            unsafe {
-                let src = self.offset(index) as *mut T;
-                let mut old = std::ptr::read(src);
-                Some(std::mem::replace(&mut old, value))
-            }
-        } else {
-            None
+        if self.len <= index {
+            panic!("Index out of bounds");
+        }
+        unsafe {
+            let src = self.offset(index) as *mut T;
+            let mut old = std::ptr::read(src);
+            Some(std::mem::replace(&mut old, value))
         }
     }
 
     pub fn ptr<'a>(&'a self) -> Ptr<'a> {
         let data = NonNull::new(self.data.as_ptr() as *mut u8).unwrap();
-        Ptr::new(data, self.aligned_layout, self.len)
+        unsafe { Ptr::new(data, self.aligned_layout, self.len) }
     }
 
     pub fn get<T>(&self, index: usize) -> Option<&T> {
@@ -274,7 +285,11 @@ impl Blob {
     }
 
     fn grow(&mut self) {
-        let new_capacity = self.capacity * 2;
+        let new_capacity = if self.capacity == 0 {
+            1
+        } else {
+            self.capacity * 2
+        };
         self.grow_exact(new_capacity);
     }
 
@@ -283,27 +298,21 @@ impl Blob {
             return;
         }
 
-        let new_layout = Layout::from_size_align(
-            self.aligned_layout.size() * new_capacity,
-            self.aligned_layout.align(),
-        )
-        .unwrap();
-        let new_data = unsafe { std::alloc::alloc(new_layout) };
+        let new_layout = self.aligned_layout;
+        let new_size = new_layout.size() * new_capacity;
 
+        let mut new_data = Vec::with_capacity(new_size);
         unsafe {
-            std::ptr::copy_nonoverlapping(
-                self.data.as_ptr(),
-                new_data,
-                self.aligned_layout.size() * self.len,
-            );
-            self.data.clear();
-            self.data = Vec::from_raw_parts(
-                new_data,
-                self.aligned_layout.size() * self.len,
-                new_layout.size(),
-            );
+            new_data.set_len(new_size);
         }
 
+        let src = self.data.as_ptr();
+        let dst = new_data.as_mut_ptr();
+        unsafe {
+            std::ptr::copy_nonoverlapping(src, dst, self.len * self.aligned_layout.size());
+        }
+
+        self.data = new_data;
         self.capacity = new_capacity;
     }
 
