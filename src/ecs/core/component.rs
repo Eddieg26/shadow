@@ -7,7 +7,7 @@ pub trait Component: 'static {}
 pub struct ComponentId(usize);
 
 impl ComponentId {
-    pub fn new(id: usize) -> Self {
+    pub const fn new(id: usize) -> Self {
         Self(id)
     }
 

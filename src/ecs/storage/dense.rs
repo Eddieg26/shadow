@@ -62,8 +62,10 @@ impl<K: Hash + PartialEq + PartialOrd, V> DenseMap<K, V> {
         if let Some(index) = self.map.remove(&hashed) {
             self.keys.swap_remove(index);
             let value = self.values.swap_remove(index);
-            let hashed = hash(&self.keys[index]);
-            self.map.insert(hashed, index);
+            if index < self.len() {
+                let hashed = hash(&self.keys[index]);
+                self.map.insert(hashed, index);
+            }
 
             Some(value)
         } else {
@@ -96,34 +98,16 @@ impl<K: Hash + PartialEq + PartialOrd, V> DenseMap<K, V> {
     }
 
     pub fn retain(&mut self, f: impl Fn(&K, &V) -> bool) {
-        enum Action<T> {
-            Keep(T),
-            Remove(T),
-        }
-        let mut actions = vec![];
-        for key in &self.keys {
-            let hasher = hash(key);
-            let index = self.map.get(&hasher).unwrap();
-            if f(key, &self.values[*index]) {
-                actions.push(Action::Keep(*index));
+        let mut index = 0usize;
+        while index < self.keys.len() {
+            if !f(&self.keys[index], &self.values[index]) {
+                self.map.remove(&hash(&self.keys[index]));
+                self.keys.remove(index);
+                self.values.remove(index);
             } else {
-                actions.push(Action::Remove(*index));
-            }
-        }
-
-        for action in actions {
-            match action {
-                Action::Keep(_) => {}
-                Action::Remove(index) => {
-                    let key = self.keys.swap_remove(index);
-                    self.values.swap_remove(index);
-                    let hashed = hash(&key);
-                    self.map.remove(&hashed);
-
-                    let key = &self.keys[index];
-                    let hashed = hash(key);
-                    self.map.insert(hashed, index);
-                }
+                let hashed = hash(&self.keys[index]);
+                self.map.insert(hashed, index);
+                index += 1;
             }
         }
     }
@@ -132,6 +116,10 @@ impl<K: Hash + PartialEq + PartialOrd, V> DenseMap<K, V> {
         self.map.clear();
         self.keys.clear();
         self.values.clear();
+    }
+
+    pub fn destruct(self) -> (Vec<K>, Vec<V>, HashMap<u64, usize>) {
+        (self.keys, self.values, self.map)
     }
 }
 
@@ -191,9 +179,10 @@ impl<V: Hash + PartialEq + PartialOrd> DenseSet<V> {
 
         if let Some(index) = self.map.remove(&hashed) {
             self.values.swap_remove(index);
-            let hashed = hash(&self.values[index]);
-            self.map.insert(hashed, index);
-
+            if index < self.len() {
+                let hashed = hash(&self.values[index]);
+                self.map.insert(hashed, index);
+            }
             true
         } else {
             false
@@ -234,5 +223,40 @@ impl<V: Hash + PartialEq + PartialOrd> DenseSet<V> {
     pub fn clear(&mut self) {
         self.map.clear();
         self.values.clear();
+    }
+
+    pub fn destruct(self) -> (Vec<V>, HashMap<u64, usize>) {
+        (self.values, self.map)
+    }
+}
+
+impl<V: Clone + Hash + PartialEq + PartialOrd> DenseSet<V> {
+    pub fn intersection(&self, other: &Self) -> Self {
+        let mut intersection = Self::new();
+        let (values, map) = if self.values.len() < other.values.len() {
+            (&self.values, &other.map)
+        } else {
+            (&other.values, &self.map)
+        };
+
+        for v in values {
+            let hashed = hash(v);
+            if map.contains_key(&hashed) {
+                intersection.insert(v.clone());
+            }
+        }
+
+        intersection
+    }
+}
+
+impl<V: Clone + Hash + PartialEq + PartialOrd> From<&[V]> for DenseSet<V> {
+    fn from(value: &[V]) -> Self {
+        let mut set = DenseSet::new();
+        for v in value {
+            set.insert(v.clone());
+        }
+
+        set
     }
 }
