@@ -281,17 +281,13 @@ impl Event for AddComponents {
 
 pub struct RemoveComponent<C: Component> {
     entity: Entity,
-    components: DenseSet<ComponentType>,
     _marker: std::marker::PhantomData<C>,
 }
 
 impl<C: Component> RemoveComponent<C> {
     pub fn new(entity: Entity) -> Self {
-        let mut components = DenseSet::new();
-        components.insert(ComponentType::new::<C>());
         Self {
             entity,
-            components,
             _marker: std::marker::PhantomData,
         }
     }
@@ -303,20 +299,9 @@ impl<C: Component> Event for RemoveComponent<C> {
 
     fn invoke(&mut self, world: &mut super::World) -> Self::Output {
         let id = world.components.id(&ComponentType::new::<C>());
-        let mut components = self
-            .components
-            .drain()
-            .map(|ty| world.components().id(&ty))
-            .collect::<DenseSet<_>>();
-        let mut removed = world
-            .remove_components(&self.entity, &mut components)
-            .unwrap();
-        let component = removed
-            .remove(&id)
-            .unwrap()
-            .swap_remove(0)
-            .remove::<C>(0)
-            .unwrap();
+        let mut result = world.remove_components(&self.entity, vec![id]).unwrap();
+        let mut column = result.removed_components().unwrap().remove_at(0).unwrap().1;
+        let component = column.remove::<C>(0).unwrap();
         (self.entity, component)
     }
 }
@@ -345,11 +330,9 @@ impl Event for RemoveComponents {
     const PRIORITY: i32 = RemoveComponent::<()>::PRIORITY;
 
     fn invoke(&mut self, world: &mut super::World) -> Self::Output {
-        let mut components = DenseSet::new();
-        let ty = self.components.remove_at(0);
-        components.insert(world.components().id(&ty));
-        if let Some(mut components) = world.remove_components(&self.entity, &mut components) {
-            for (ty, mut column) in components.drain() {
+        let components = DenseSet::new();
+        if let Some(mut result) = world.remove_components(&self.entity, components) {
+            for (ty, mut column) in result.removed_components().unwrap().drain() {
                 let metas = world
                     .components()
                     .meta_at(&ty)

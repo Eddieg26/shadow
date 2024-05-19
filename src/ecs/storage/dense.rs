@@ -221,6 +221,17 @@ impl<K: Hash + PartialEq + PartialOrd, V> DenseMap<K, V> {
     }
 }
 
+impl<K: Hash + PartialEq + PartialOrd, V> FromIterator<(K, V)> for DenseMap<K, V> {
+    fn from_iter<I: IntoIterator<Item = (K, V)>>(iter: I) -> Self {
+        let mut map = DenseMap::new();
+        for (key, value) in iter {
+            map.insert(key, value);
+        }
+
+        map
+    }
+}
+
 impl<K: Clone + Hash + PartialEq + PartialOrd, V: Clone> Clone for DenseMap<K, V> {
     fn clone(&self) -> Self {
         let mut map = DenseMap::new();
@@ -414,6 +425,17 @@ impl<V: Clone + Hash + PartialEq + PartialOrd> DenseSet<V> {
     }
 }
 
+impl<V: Clone + Hash + PartialEq + PartialOrd> Clone for DenseSet<V> {
+    fn clone(&self) -> Self {
+        let mut set = DenseSet::new();
+        for v in self.iter() {
+            set.insert(v.clone());
+        }
+
+        set
+    }
+}
+
 impl<V: Clone + Hash + PartialEq + PartialOrd> From<&[V]> for DenseSet<V> {
     fn from(value: &[V]) -> Self {
         let mut set = DenseSet::new();
@@ -424,6 +446,29 @@ impl<V: Clone + Hash + PartialEq + PartialOrd> From<&[V]> for DenseSet<V> {
         set
     }
 }
+
+impl<V: Clone + Hash + PartialEq + PartialOrd> From<Vec<V>> for DenseSet<V> {
+    fn from(value: Vec<V>) -> Self {
+        let mut set = DenseSet::new();
+        for v in value {
+            set.insert(v.clone());
+        }
+
+        set
+    }
+}
+
+impl<V: Clone + Hash + PartialEq + PartialOrd> From<&Vec<V>> for DenseSet<V> {
+    fn from(value: &Vec<V>) -> Self {
+        let mut set = DenseSet::new();
+        for v in value {
+            set.insert(v.clone());
+        }
+
+        set
+    }
+}
+
 impl<V: Hash + PartialEq + PartialOrd> FromIterator<V> for DenseSet<V> {
     fn from_iter<I: IntoIterator<Item = V>>(iter: I) -> Self {
         let mut set = DenseSet::new();

@@ -35,10 +35,8 @@ fn main() {
     archetypes.add_entity(&entity1);
     archetypes.add_entity(&entity2);
 
-    archetypes.add_component(&entity1, A);
     // archetypes.add_component(&entity1, B);
     // archetypes.add_component(&entity1, C);
-    archetypes.add_components(&entity1, &[B, C]);
 
     // archetypes.add_component(&entity2, A);
     // archetypes.add_component(&entity2, B);

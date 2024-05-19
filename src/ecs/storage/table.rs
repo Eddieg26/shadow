@@ -3,10 +3,7 @@ use crate::ecs::core::{
     internal::{blob::Blob, ptr::Ptr},
     ComponentId, Entity,
 };
-use std::{
-    collections::HashMap,
-    hash::{Hash, Hasher},
-};
+use std::collections::HashMap;
 
 pub struct Column {
     data: Blob,
@@ -25,6 +22,12 @@ impl Column {
         }
     }
 
+    pub fn from_column(column: &Column) -> Self {
+        Column {
+            data: column.data.copy(1),
+        }
+    }
+
     pub fn from_blob(blob: Blob) -> Self {
         Column { data: blob }
     }
@@ -39,6 +42,14 @@ impl Column {
 
     pub fn swap_remove(&mut self, index: usize) -> Blob {
         self.data.swap_remove(index)
+    }
+
+    pub fn remove<T>(&mut self, index: usize) -> Option<T> {
+        self.data.remove(index)
+    }
+
+    pub fn data(&self) -> &Blob {
+        &self.data
     }
 
     pub fn ptr(&self, index: usize) -> Option<Ptr> {
@@ -110,6 +121,10 @@ impl Row {
         }
     }
 
+    pub fn with_columns(columns: DenseMap<ComponentId, Column>) -> Self {
+        Row { columns }
+    }
+
     pub fn with_column(mut self, component: ComponentId, column: Column) -> Self {
         self.columns.insert(component, column);
         self
@@ -151,6 +166,18 @@ impl Row {
             .retain(|component, _| components.contains(component));
     }
 
+    pub fn take(&mut self, columns: &DenseSet<ComponentId>) -> Row {
+        let mut row = Row::new();
+        for component in columns.iter() {
+            if let Some(column) = self.columns.remove(component) {
+                row.columns.insert(*component, column);
+            } else {
+                panic!("Component not found: {}", component);
+            }
+        }
+        row
+    }
+
     pub fn get<T>(&self, component: ComponentId) -> Option<&T> {
         self.columns
             .get(&component)
@@ -173,6 +200,10 @@ impl Row {
         Some(SelectedRow { cells })
     }
 
+    pub fn iter(&self) -> impl Iterator<Item = (&ComponentId, &Column)> {
+        self.columns.iter()
+    }
+
     pub fn keys(&self) -> &[ComponentId] {
         self.columns.keys()
     }
@@ -189,8 +220,14 @@ impl Row {
         self.columns.sort(|a, b| a.0.cmp(&b.0));
     }
 
+    pub fn drain(&mut self) -> impl Iterator<Item = (ComponentId, Column)> + '_ {
+        self.columns.drain()
+    }
+
     pub fn clear(&mut self) {
-        self.columns.clear();
+        for (_, column) in self.columns.iter_mut() {
+            column.clear();
+        }
     }
 }
 
@@ -253,6 +290,18 @@ impl Table {
         }
     }
 
+    pub fn contains(&self, entity: &Entity) -> bool {
+        self.rows.contains(entity)
+    }
+
+    pub fn entities(&self) -> &[Entity] {
+        self.rows.values()
+    }
+
+    pub fn component_ids(&self) -> &[ComponentId] {
+        self.columns.keys()
+    }
+
     pub fn len(&self) -> usize {
         self.rows.len()
     }
@@ -260,78 +309,5 @@ impl Table {
     pub fn clear(&mut self) {
         self.rows.clear();
         self.columns.clear();
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Hash)]
-pub struct TableId(u64);
-
-impl TableId {
-    pub fn new(ids: &[ComponentId]) -> Self {
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        ids.hash(&mut hasher);
-        TableId(hasher.finish())
-    }
-
-    pub fn raw(value: u64) -> Self {
-        TableId(value)
-    }
-
-    pub fn id(&self) -> u64 {
-        self.0
-    }
-}
-
-impl From<u64> for TableId {
-    fn from(id: u64) -> Self {
-        TableId(id)
-    }
-}
-
-pub struct Tables {
-    tables: DenseMap<TableId, Table>,
-}
-
-impl Tables {
-    pub fn new() -> Self {
-        let root_id = TableId::new(&[]);
-        let root = TableBuilder::new().build();
-        let mut tables = DenseMap::new();
-        tables.insert(root_id, root);
-        Tables { tables }
-    }
-
-    pub fn insert(&mut self, id: TableId, table: Table) {
-        self.tables.insert(id, table);
-    }
-
-    pub fn remove(&mut self, id: &TableId) -> Option<Table> {
-        self.tables.remove(id)
-    }
-
-    pub fn get(&self, id: &TableId) -> Option<&Table> {
-        self.tables.get(id)
-    }
-
-    pub fn get_mut(&mut self, id: &TableId) -> Option<&mut Table> {
-        self.tables.get_mut(id)
-    }
-
-    pub fn clear(&mut self) {
-        self.tables.clear();
-    }
-
-    pub fn slice(&self) -> &[Table] {
-        self.tables.values()
-    }
-
-    pub fn select<'a>(&'a self, tables: &'a [TableId]) -> impl Iterator<Item = &Table> {
-        self.tables.iter().filter_map(|(id, table)| {
-            if tables.contains(id) {
-                Some(table)
-            } else {
-                None
-            }
-        })
     }
 }
