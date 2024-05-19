@@ -218,6 +218,16 @@ impl<V: Hash + PartialEq + PartialOrd> DenseSet<V> {
         }
     }
 
+    pub fn sort(&mut self) {
+        self.values.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+        self.map.clear();
+        for (index, value) in self.values.iter().enumerate() {
+            let hashed = hash(value);
+            self.map.insert(hashed, index);
+        }
+    }
+
     pub fn values(&self) -> &[V] {
         &self.values
     }
@@ -242,6 +252,11 @@ impl<V: Hash + PartialEq + PartialOrd> DenseSet<V> {
     pub fn clear(&mut self) {
         self.map.clear();
         self.values.clear();
+    }
+
+    pub fn drain(&mut self) -> impl Iterator<Item = V> + '_ {
+        self.map.clear();
+        self.values.drain(..)
     }
 
     pub fn destruct(self) -> (Vec<V>, HashMap<u64, usize>) {

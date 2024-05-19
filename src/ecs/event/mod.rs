@@ -1,5 +1,6 @@
 use super::{
     core::{internal::blob::Blob, Resource},
+    storage::dense::DenseSet,
     world::World,
 };
 use std::{
@@ -112,6 +113,10 @@ impl<E: Event> EventOutputs<E> {
         std::mem::take(&mut self.outputs)
     }
 
+    pub fn slice(&self) -> &[E::Output] {
+        &self.outputs
+    }
+
     pub fn swap(&mut self, world: &mut World) {
         let outputs = world.resource_mut::<EventOutputs<E>>();
         std::mem::swap(&mut outputs.outputs, &mut self.outputs);
@@ -123,3 +128,63 @@ impl<E: Event> EventOutputs<E> {
 }
 
 impl<E: Event> Resource for EventOutputs<E> {}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct EventInvocation {
+    event: EventType,
+    priority: i32,
+}
+
+impl EventInvocation {
+    pub fn new<E: Event>() -> Self {
+        Self {
+            event: TypeId::of::<E>(),
+            priority: E::PRIORITY,
+        }
+    }
+
+    pub fn priority(&self) -> i32 {
+        self.priority
+    }
+
+    pub fn event(&self) -> EventType {
+        self.event
+    }
+}
+
+impl PartialOrd for EventInvocation {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.priority.partial_cmp(&other.priority)
+    }
+}
+
+pub struct EventInvocations {
+    invocations: DenseSet<EventInvocation>,
+}
+
+impl EventInvocations {
+    pub fn new() -> Self {
+        Self {
+            invocations: DenseSet::new(),
+        }
+    }
+
+    pub fn add<E: Event>(&mut self) {
+        self.invocations.insert(EventInvocation::new::<E>());
+    }
+
+    pub fn contains<E: Event>(&self) -> bool {
+        self.invocations.contains(&EventInvocation::new::<E>())
+    }
+
+    fn sort(&mut self) {
+        self.invocations.sort()
+    }
+
+    pub fn drain(&mut self) -> impl Iterator<Item = EventInvocation> + '_ {
+        self.invocations.sort();
+        self.invocations.drain()
+    }
+}
+
+impl Resource for EventInvocations {}

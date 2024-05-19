@@ -1,7 +1,7 @@
 use super::{
     archetype::Archetypes,
     core::{Component, Components, Entities, LocalResource, LocalResources, Resource, Resources},
-    event::{meta::EventMetas, Event, Events},
+    event::{meta::EventMetas, Event, EventInvocations, Events},
     storage::table::Tables,
 };
 
@@ -19,6 +19,7 @@ impl World {
     pub fn empty() -> Self {
         let mut resources = Resources::new();
         resources.register(EventMetas::new());
+        resources.register(EventInvocations::new());
 
         Self {
             resources,
@@ -73,22 +74,22 @@ impl World {
 }
 
 impl World {
-    pub fn register<C: Component>(&mut self) -> &mut Self{
+    pub fn register<C: Component>(&mut self) -> &mut Self {
         self.components.register::<C>();
         self
     }
 
-    pub fn register_event<E: Event>(&mut self) -> &mut Self{
+    pub fn register_event<E: Event>(&mut self) -> &mut Self {
         self.resource_mut::<EventMetas>().register::<E>();
         self
     }
 
-    pub fn add_resource<R: Resource>(&mut self, resource: R) -> &mut Self{
+    pub fn add_resource<R: Resource>(&mut self, resource: R) -> &mut Self {
         self.resources.register(resource);
         self
     }
 
-    pub fn add_local_resource<R: LocalResource>(&mut self, resource: R) -> &mut Self{
+    pub fn add_local_resource<R: LocalResource>(&mut self, resource: R) -> &mut Self {
         self.local_resources.register(resource);
         self
     }

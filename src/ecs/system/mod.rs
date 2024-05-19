@@ -10,6 +10,8 @@ use crate::ecs::{
 };
 
 pub mod access;
+pub mod schedule;
+pub mod observer;
 
 pub struct System {
     function: Box<dyn for<'a> Fn(&'a World) + Send + Sync>,

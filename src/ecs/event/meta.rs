@@ -1,13 +1,12 @@
 use std::{any::TypeId, sync::Arc};
 
-use super::{ErasedEvent, Event, EventOutputs, EventType};
+use super::{ErasedEvent, Event, EventInvocations, EventOutputs, EventType};
 use crate::ecs::{core::Resource, storage::dense::DenseMap, world::World};
 
 pub struct EventMeta {
     priority: i32,
     invoke: Box<dyn Fn(&mut [ErasedEvent], &mut World) + Send + Sync>,
-    clear: Box<dyn Fn(&mut World) + Send + Sync>,
-    clear_outputs: Box<dyn Fn(&World) + Send + Sync>,
+    clear: Box<dyn Fn(&World) + Send + Sync>,
 }
 
 impl EventMeta {
@@ -18,17 +17,20 @@ impl EventMeta {
                 for event in events.iter_mut() {
                     let mut outputs = EventOutputs::<E>::new();
                     let event = event.cast_mut::<E>().expect("invalid event type");
+                    let mut invoked = false;
                     if !event.skip(world) {
                         outputs.add(event.invoke(world));
+                        invoked = true;
                     }
 
                     outputs.swap(world);
+                    if invoked {
+                        world.resource_mut::<EventInvocations>().add::<E>();
+                    }
                 }
             }),
             clear: Box::new(|world| {
-                world.events_mut().clear();
-            }),
-            clear_outputs: Box::new(|world| {
+                world.events().clear();
                 world.resource_mut::<EventOutputs<E>>().clear();
             }),
         }
@@ -42,12 +44,8 @@ impl EventMeta {
         (self.invoke)(events, world)
     }
 
-    pub fn clear(&self, world: &mut World) {
+    pub fn clear(&self, world: &World) {
         (self.clear)(world)
-    }
-
-    pub fn clear_outputs(&self, world: &World) {
-        (self.clear_outputs)(world)
     }
 }
 
@@ -67,8 +65,11 @@ impl EventMetas {
         self.metas.insert(TypeId::of::<E>(), meta);
     }
 
-    pub fn get(&self, ty: EventType) -> Option<&EventMeta> {
-        self.metas.get(&ty).map(|meta| &**meta)
+    pub fn get(&self, ty: &EventType) -> &EventMeta {
+        self.metas
+            .get(ty)
+            .map(|meta| &**meta)
+            .expect("Event not registered")
     }
 }
 
