@@ -1,10 +1,8 @@
 use super::internal::blob::Blob;
 use crate::ecs::storage::dense::DenseMap;
 use std::hash::{Hash, Hasher};
-
-pub trait BaseResource: 'static {}
-pub trait Resource: BaseResource + 'static {}
-pub trait LocalResource: BaseResource + 'static {}
+pub trait Resource: 'static {}
+pub trait LocalResource: 'static {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ResourceId(u32);
@@ -19,7 +17,7 @@ impl ResourceId {
 pub struct ResourceType(u64);
 
 impl ResourceType {
-    pub fn new<R: BaseResource>() -> Self {
+    pub fn new<R: 'static>() -> Self {
         Self::dynamic(std::any::TypeId::of::<R>())
     }
 
@@ -43,17 +41,17 @@ pub(crate) struct ResourceData {
 }
 
 impl ResourceData {
-    pub fn new<R: BaseResource>(resource: R) -> Self {
+    pub fn new<R: 'static>(resource: R) -> Self {
         let mut data = Blob::new::<R>();
         data.push(resource);
         Self { data }
     }
 
-    pub fn get<R: BaseResource>(&self) -> &R {
+    pub fn get<R: 'static>(&self) -> &R {
         self.data.get::<R>(0).unwrap()
     }
 
-    pub fn get_mut<R: BaseResource>(&self) -> &mut R {
+    pub fn get_mut<R: 'static>(&self) -> &mut R {
         self.data.get_mut::<R>(0).unwrap()
     }
 }
@@ -69,18 +67,18 @@ impl BaseResouces {
         }
     }
 
-    pub fn register<R: BaseResource>(&mut self, resource: R) {
+    pub fn register<R: 'static>(&mut self, resource: R) {
         let resource = ResourceData::new(resource);
         self.resources.insert(ResourceType::new::<R>(), resource);
     }
 
-    pub fn get<R: BaseResource>(&self) -> &R {
+    pub fn cast<R: 'static>(&self) -> &R {
         let ty = ResourceType::new::<R>();
         let res = self.resources.get(&ty).expect("Resource doesn't exist.");
         res.get::<R>()
     }
 
-    pub fn get_mut<R: BaseResource>(&self) -> &mut R {
+    pub fn cast_mut<R: 'static>(&self) -> &mut R {
         let ty = ResourceType::new::<R>();
         let res = self.resources.get(&ty).expect("Resource doesn't exist.");
 
@@ -94,19 +92,17 @@ impl Resources {
     pub fn new() -> Self {
         Self(BaseResouces::new())
     }
-}
 
-impl std::ops::Deref for Resources {
-    type Target = BaseResouces;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
+    pub fn register<R: Resource>(&mut self, resource: R) {
+        self.0.register(resource);
     }
-}
 
-impl std::ops::DerefMut for Resources {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
+    pub fn get<R: Resource>(&self) -> &R {
+        self.0.cast::<R>()
+    }
+
+    pub fn get_mut<R: Resource>(&self) -> &mut R {
+        self.0.cast_mut::<R>()
     }
 }
 
@@ -116,18 +112,16 @@ impl LocalResources {
     pub fn new() -> Self {
         Self(BaseResouces::new())
     }
-}
 
-impl std::ops::Deref for LocalResources {
-    type Target = BaseResouces;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
+    pub fn register<R: LocalResource>(&mut self, resource: R) {
+        self.0.register(resource);
     }
-}
 
-impl std::ops::DerefMut for LocalResources {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
+    pub fn get<R: LocalResource>(&self) -> &R {
+        self.0.cast::<R>()
+    }
+
+    pub fn get_mut<R: LocalResource>(&self) -> &mut R {
+        self.0.cast_mut::<R>()
     }
 }

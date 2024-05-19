@@ -112,6 +112,25 @@ impl<K: Hash + PartialEq + PartialOrd, V> DenseMap<K, V> {
         }
     }
 
+    pub fn sort(&mut self, f: impl Fn(&V, &V) -> std::cmp::Ordering) {
+        self.keys.sort_by(|a, b| {
+            let a = hash(a);
+            let b = hash(b);
+            let value_a = &self.values[*self.map.get(&a).unwrap()];
+            let value_b = &self.values[*self.map.get(&b).unwrap()];
+            f(value_a, value_b)
+        });
+
+        self.map.clear();
+
+        for (index, key) in self.keys.iter().enumerate() {
+            let key = hash(key);
+            self.map.insert(key, index);
+        }
+
+        self.values.sort_by(f);
+    }
+
     pub fn clear(&mut self) {
         self.map.clear();
         self.keys.clear();

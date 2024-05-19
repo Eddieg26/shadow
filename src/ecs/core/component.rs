@@ -1,5 +1,5 @@
 use crate::ecs::storage::dense::DenseMap;
-use std::{alloc::Layout, any::TypeId};
+use std::{alloc::Layout, any::TypeId, hash::{Hash, Hasher}};
 
 pub trait Component: 'static {}
 
@@ -19,6 +19,29 @@ impl ComponentId {
 impl std::fmt::Display for ComponentId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(f)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ComponentType(u64);
+
+impl ComponentType {
+    pub fn new<C: Component>() -> Self {
+        Self::dynamic(std::any::TypeId::of::<C>())
+    }
+
+    pub fn dynamic(type_id: std::any::TypeId) -> Self {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        type_id.hash(&mut hasher);
+        Self(hasher.finish())
+    }
+
+    pub fn raw(type_id: u64) -> Self {
+        Self(type_id)
+    }
+
+    pub fn is<C: Component>(&self) -> bool {
+        self.0 == Self::new::<C>().0
     }
 }
 

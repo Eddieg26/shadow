@@ -1,6 +1,7 @@
 use super::{
     archetype::Archetypes,
-    core::{Components, Entities, LocalResource, LocalResources, Resource, Resources},
+    core::{Component, Components, Entities, LocalResource, LocalResources, Resource, Resources},
+    event::{meta::EventMetas, Event, Events},
     storage::table::Tables,
 };
 
@@ -11,17 +12,22 @@ pub struct World {
     entities: Entities,
     archetypes: Archetypes,
     tables: Tables,
+    events: Events,
 }
 
 impl World {
     pub fn empty() -> Self {
+        let mut resources = Resources::new();
+        resources.register(EventMetas::new());
+
         Self {
-            resources: Resources::new(),
+            resources,
             local_resources: LocalResources::new(),
             components: Components::new(),
             entities: Entities::new(),
             archetypes: Archetypes::new(),
             tables: Tables::new(),
+            events: Events::new(),
         }
     }
 
@@ -55,5 +61,35 @@ impl World {
 
     pub fn tables(&self) -> &Tables {
         &self.tables
+    }
+
+    pub fn events(&self) -> &Events {
+        &self.events
+    }
+
+    pub fn events_mut(&mut self) -> &mut Events {
+        &mut self.events
+    }
+}
+
+impl World {
+    pub fn register<C: Component>(&mut self) -> &mut Self{
+        self.components.register::<C>();
+        self
+    }
+
+    pub fn register_event<E: Event>(&mut self) -> &mut Self{
+        self.resource_mut::<EventMetas>().register::<E>();
+        self
+    }
+
+    pub fn add_resource<R: Resource>(&mut self, resource: R) -> &mut Self{
+        self.resources.register(resource);
+        self
+    }
+
+    pub fn add_local_resource<R: LocalResource>(&mut self, resource: R) -> &mut Self{
+        self.local_resources.register(resource);
+        self
     }
 }
