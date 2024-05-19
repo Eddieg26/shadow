@@ -1,5 +1,5 @@
 use std::{
-    collections::{hash_map::DefaultHasher, HashMap},
+    collections::{hash_map::DefaultHasher, HashMap, HashSet},
     hash::{Hash, Hasher},
 };
 
@@ -42,6 +42,14 @@ impl<K: Hash + PartialEq + PartialOrd, V> DenseMap<K, V> {
             .and_then(|index| self.values.get_mut(*index))
     }
 
+    pub fn get_at(&self, index: usize) -> Option<&V> {
+        self.values.get(index)
+    }
+
+    pub fn get_at_mut(&mut self, index: usize) -> Option<&mut V> {
+        self.values.get_mut(index)
+    }
+
     pub fn insert(&mut self, key: K, value: V) -> Option<V> {
         let hasher = hash(&key);
         if let Some(index) = self.map.get(&hasher) {
@@ -54,6 +62,51 @@ impl<K: Hash + PartialEq + PartialOrd, V> DenseMap<K, V> {
             self.map.insert(hasher, index);
             None
         }
+    }
+
+    pub fn insert_before(&mut self, key: K, value: V, before: K) -> Option<V> {
+        if self.contains(&key) {
+            self.remove(&key);
+        }
+        let hasher = hash(&before);
+        if self.map.contains_key(&hasher) {
+            let index = *self.map.get(&hasher).unwrap();
+            self.map.insert(hash(&key), index);
+            self.keys.insert(index, key);
+            self.values.insert(index, value);
+            self.map.insert(hasher, index + 1);
+            None
+        } else {
+            self.insert(key, value)
+        }
+    }
+
+    pub fn insert_after(&mut self, key: K, value: V, after: K) -> Option<V> {
+        let removed = if self.contains(&key) {
+            self.remove(&key)
+        } else {
+            None
+        };
+
+        let hasher = hash(&after);
+        if self.map.contains_key(&hasher) {
+            let index = *self.map.get(&hasher).unwrap();
+            self.map.insert(hash(&key), index + 1);
+            if index + 1 < self.keys.len() {
+                self.keys.insert(index + 1, key);
+                self.values.insert(index + 1, value);
+            } else {
+                self.keys.push(key);
+                self.values.push(value);
+            }
+            if index + 2 < self.len() {
+                self.map.insert(hash(&self.keys[index + 2]), index + 2);
+            }
+        } else {
+            return self.insert(key, value);
+        }
+
+        removed
     }
 
     pub fn remove(&mut self, key: &K) -> Option<V> {
@@ -73,12 +126,33 @@ impl<K: Hash + PartialEq + PartialOrd, V> DenseMap<K, V> {
         }
     }
 
+    pub fn remove_at(&mut self, index: usize) -> Option<(K, V)> {
+        if index >= self.len() {
+            return None;
+        }
+        let key = self.keys.swap_remove(index);
+        let value = self.values.swap_remove(index);
+        let hashed = hash(&key);
+        self.map.remove(&hashed);
+
+        if index < self.len() {
+            let hashed = hash(&self.keys[index]);
+            self.map.insert(hashed, index);
+        }
+
+        Some((key, value))
+    }
+
     pub fn keys(&self) -> &[K] {
         &self.keys
     }
 
     pub fn values(&self) -> &[V] {
         &self.values
+    }
+
+    pub fn values_mut(&mut self) -> &mut [V] {
+        &mut self.values
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (&K, &V)> {
@@ -112,23 +186,28 @@ impl<K: Hash + PartialEq + PartialOrd, V> DenseMap<K, V> {
         }
     }
 
-    pub fn sort(&mut self, f: impl Fn(&V, &V) -> std::cmp::Ordering) {
+    pub fn sort(&mut self, f: impl Fn((&K, &V), (&K, &V)) -> std::cmp::Ordering) {
         self.keys.sort_by(|a, b| {
-            let a = hash(a);
-            let b = hash(b);
-            let value_a = &self.values[*self.map.get(&a).unwrap()];
-            let value_b = &self.values[*self.map.get(&b).unwrap()];
-            f(value_a, value_b)
+            let key_a = hash(a);
+            let key_b = hash(b);
+            let value_a = &self.values[*self.map.get(&key_a).unwrap()];
+            let value_b = &self.values[*self.map.get(&key_b).unwrap()];
+            f((a, value_a), (b, value_b))
         });
 
         self.map.clear();
 
+        let mut tracker = HashSet::new();
         for (index, key) in self.keys.iter().enumerate() {
             let key = hash(key);
-            self.map.insert(key, index);
+            if let Some(prev) = self.map.insert(key, index) {
+                if !tracker.contains(&prev) {
+                    self.values.swap(prev, index);
+                    tracker.insert(prev);
+                    tracker.insert(index);
+                }
+            }
         }
-
-        self.values.sort_by(f);
     }
 
     pub fn clear(&mut self) {
@@ -139,6 +218,17 @@ impl<K: Hash + PartialEq + PartialOrd, V> DenseMap<K, V> {
 
     pub fn destruct(self) -> (Vec<K>, Vec<V>, HashMap<u64, usize>) {
         (self.keys, self.values, self.map)
+    }
+}
+
+impl<K: Clone + Hash + PartialEq + PartialOrd, V: Clone> Clone for DenseMap<K, V> {
+    fn clone(&self) -> Self {
+        let mut map = DenseMap::new();
+        for (key, value) in self.iter() {
+            map.insert(key.clone(), value.clone());
+        }
+
+        map
     }
 }
 
@@ -182,6 +272,36 @@ impl<V: Hash + PartialEq + PartialOrd> DenseSet<V> {
         }
     }
 
+    pub fn insert_before(&mut self, value: V, before: V) -> bool {
+        let hasher = hash(&before);
+        if self.map.contains_key(&hasher) {
+            let index = *self.map.get(&hasher).unwrap();
+            self.values.insert(index, value);
+            for (i, value) in self.values.iter().enumerate() {
+                let hashed = hash(value);
+                self.map.insert(hashed, i);
+            }
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn insert_after(&mut self, value: V, after: V) -> bool {
+        let hasher = hash(&after);
+        if self.map.contains_key(&hasher) {
+            let index = *self.map.get(&hasher).unwrap();
+            self.values.insert(index + 1, value);
+            for (i, value) in self.values.iter().enumerate() {
+                let hashed = hash(value);
+                self.map.insert(hashed, i);
+            }
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn remove_at(&mut self, index: usize) -> V {
         let value = self.values.swap_remove(index);
         let hashed = hash(&value);
@@ -220,6 +340,16 @@ impl<V: Hash + PartialEq + PartialOrd> DenseSet<V> {
 
     pub fn sort(&mut self) {
         self.values.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+        self.map.clear();
+        for (index, value) in self.values.iter().enumerate() {
+            let hashed = hash(value);
+            self.map.insert(hashed, index);
+        }
+    }
+
+    pub fn sort_by(&mut self, f: impl Fn(&V, &V) -> std::cmp::Ordering) {
+        self.values.sort_by(|a, b| f(a, b));
 
         self.map.clear();
         for (index, value) in self.values.iter().enumerate() {
@@ -289,6 +419,16 @@ impl<V: Clone + Hash + PartialEq + PartialOrd> From<&[V]> for DenseSet<V> {
         let mut set = DenseSet::new();
         for v in value {
             set.insert(v.clone());
+        }
+
+        set
+    }
+}
+impl<V: Hash + PartialEq + PartialOrd> FromIterator<V> for DenseSet<V> {
+    fn from_iter<I: IntoIterator<Item = V>>(iter: I) -> Self {
+        let mut set = DenseSet::new();
+        for v in iter {
+            set.insert(v);
         }
 
         set

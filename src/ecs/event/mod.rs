@@ -42,8 +42,8 @@ impl ErasedEvent {
         }
     }
 
-    pub fn ty(&self) -> EventType {
-        self.ty
+    pub fn ty(&self) -> &EventType {
+        &self.ty
     }
 
     pub fn data(&self) -> &Blob {
@@ -83,6 +83,21 @@ impl Events {
         events.push(ErasedEvent::new(event));
     }
 
+    pub fn drain_by_type<E: Event>(&self) -> Vec<ErasedEvent> {
+        let mut events = self.events.lock().unwrap();
+        let mut drained = Vec::new();
+        let mut index = 0;
+        while index < events.len() {
+            if events[index].ty == TypeId::of::<E>() {
+                drained.push(events.remove(index));
+            } else {
+                index += 1;
+            }
+        }
+
+        drained
+    }
+
     pub fn drain(&self) -> Vec<ErasedEvent> {
         let mut events = self.events.lock().unwrap();
         std::mem::take(&mut *events)
@@ -91,6 +106,11 @@ impl Events {
     pub fn clear(&self) {
         let mut events = self.events.lock().unwrap();
         events.clear();
+    }
+
+    pub fn is_empty(&self) -> bool {
+        let events = self.events.lock().unwrap();
+        events.is_empty()
     }
 }
 

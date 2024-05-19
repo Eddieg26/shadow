@@ -100,19 +100,23 @@ impl<'a> SelectedRow<'a> {
 }
 
 pub struct Row {
-    columns: HashMap<ComponentId, Column>,
+    columns: DenseMap<ComponentId, Column>,
 }
 
 impl Row {
     pub fn new() -> Self {
         Row {
-            columns: HashMap::new(),
+            columns: DenseMap::new(),
         }
     }
 
     pub fn with_column(mut self, component: ComponentId, column: Column) -> Self {
         self.columns.insert(component, column);
         self
+    }
+
+    pub fn add_column(&mut self, component: ComponentId, column: Column) {
+        self.columns.insert(component, column);
     }
 
     pub fn remove_column(&mut self, component: ComponentId) -> Option<Column> {
@@ -127,6 +131,10 @@ impl Row {
                 self.columns.insert(component, column);
             }
         }
+    }
+
+    pub fn remove_at(&mut self, index: usize) -> Option<(ComponentId, Column)> {
+        self.columns.remove_at(index)
     }
 
     pub fn swap_remove(&mut self, index: usize) -> Row {
@@ -157,12 +165,28 @@ impl Row {
 
     pub fn select(&self, index: usize) -> Option<SelectedRow> {
         let mut cells = HashMap::new();
-        for (component, column) in &self.columns {
+        for (component, column) in self.columns.iter() {
             let cell = TableCell { column, index };
             cells.insert(*component, cell);
         }
 
         Some(SelectedRow { cells })
+    }
+
+    pub fn keys(&self) -> &[ComponentId] {
+        self.columns.keys()
+    }
+
+    pub fn values(&self) -> &[Column] {
+        self.columns.values()
+    }
+
+    pub fn len(&self) -> usize {
+        self.columns.len()
+    }
+
+    pub fn sort(&mut self) {
+        self.columns.sort(|a, b| a.0.cmp(&b.0));
     }
 
     pub fn clear(&mut self) {
@@ -173,13 +197,13 @@ impl Row {
 type Columns = Row;
 
 pub struct TableBuilder {
-    columns: HashMap<ComponentId, Column>,
+    columns: DenseMap<ComponentId, Column>,
 }
 
 impl TableBuilder {
     pub fn new() -> Self {
         TableBuilder {
-            columns: HashMap::new(),
+            columns: DenseMap::new(),
         }
     }
 
@@ -188,7 +212,8 @@ impl TableBuilder {
         self
     }
 
-    pub fn build(self) -> Table {
+    pub fn build(mut self) -> Table {
+        self.columns.sort(|a, b| a.0.cmp(&b.0));
         Table {
             columns: Row {
                 columns: self.columns,
@@ -204,6 +229,10 @@ pub struct Table {
 }
 
 impl Table {
+    pub fn new() -> TableBuilder {
+        TableBuilder::new()
+    }
+
     pub fn select(&self, entity: &Entity) -> Option<SelectedRow> {
         self.rows
             .index(entity)
@@ -244,6 +273,10 @@ impl TableId {
         TableId(hasher.finish())
     }
 
+    pub fn raw(value: u64) -> Self {
+        TableId(value)
+    }
+
     pub fn id(&self) -> u64 {
         self.0
     }
@@ -261,9 +294,11 @@ pub struct Tables {
 
 impl Tables {
     pub fn new() -> Self {
-        Tables {
-            tables: DenseMap::new(),
-        }
+        let root_id = TableId::new(&[]);
+        let root = TableBuilder::new().build();
+        let mut tables = DenseMap::new();
+        tables.insert(root_id, root);
+        Tables { tables }
     }
 
     pub fn insert(&mut self, id: TableId, table: Table) {

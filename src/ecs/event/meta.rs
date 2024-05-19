@@ -5,7 +5,7 @@ use crate::ecs::{core::Resource, storage::dense::DenseMap, world::World};
 
 pub struct EventMeta {
     priority: i32,
-    invoke: Box<dyn Fn(&mut [ErasedEvent], &mut World) + Send + Sync>,
+    invoke: Box<dyn Fn(&mut ErasedEvent, &mut World) + Send + Sync>,
     clear: Box<dyn Fn(&World) + Send + Sync>,
 }
 
@@ -13,24 +13,20 @@ impl EventMeta {
     pub fn new<E: Event>() -> Self {
         Self {
             priority: E::PRIORITY,
-            invoke: Box::new(|events, world| {
-                for event in events.iter_mut() {
-                    let mut outputs = EventOutputs::<E>::new();
-                    let event = event.cast_mut::<E>().expect("invalid event type");
-                    let mut invoked = false;
-                    if !event.skip(world) {
-                        outputs.add(event.invoke(world));
-                        invoked = true;
-                    }
+            invoke: Box::new(|event, world| {
+                let mut outputs = EventOutputs::<E>::new();
+                let event = event.cast_mut::<E>().expect("invalid event type");
+                let mut invoked = false;
+                if !event.skip(world) {
+                    outputs.add(event.invoke(world));
+                    invoked = true;
+                }
 
-                    outputs.swap(world);
-                    if invoked {
-                        world.resource_mut::<EventInvocations>().add::<E>();
-                    }
+                if invoked {
+                    world.resource_mut::<EventInvocations>().add::<E>();
                 }
             }),
             clear: Box::new(|world| {
-                world.events().clear();
                 world.resource_mut::<EventOutputs<E>>().clear();
             }),
         }
@@ -40,8 +36,8 @@ impl EventMeta {
         self.priority
     }
 
-    pub fn invoke(&self, events: &mut [ErasedEvent], world: &mut World) {
-        (self.invoke)(events, world)
+    pub fn invoke(&self, event: &mut ErasedEvent, world: &mut World) {
+        (self.invoke)(event, world)
     }
 
     pub fn clear(&self, world: &World) {
@@ -49,6 +45,7 @@ impl EventMeta {
     }
 }
 
+#[derive(Clone)]
 pub struct EventMetas {
     metas: DenseMap<EventType, Arc<EventMeta>>,
 }

@@ -1,6 +1,9 @@
 use super::{
     core::{ComponentId, Entity},
-    storage::dense::{DenseMap, DenseSet},
+    storage::{
+        dense::{DenseMap, DenseSet},
+        table::TableId,
+    },
 };
 use std::{
     collections::{hash_map::DefaultHasher, HashMap},
@@ -39,6 +42,12 @@ impl ArchetypeId {
             ArchetypeEdge::Add => ArchetypeId::add(ids, other),
             ArchetypeEdge::Remove => ArchetypeId::remove(ids, other),
         }
+    }
+}
+
+impl Into<TableId> for ArchetypeId {
+    fn into(self) -> TableId {
+        TableId::raw(self.0)
     }
 }
 
@@ -148,6 +157,10 @@ impl Archetypes {
             entities: DenseMap::new(),
             components: DenseMap::new(),
         }
+    }
+
+    pub fn root_id(&self) -> ArchetypeId {
+        self.root_id
     }
 
     pub fn get(&self, id: &ArchetypeId) -> Option<&Archetype> {

@@ -1,7 +1,15 @@
 use crate::ecs::storage::dense::DenseMap;
-use std::{alloc::Layout, any::TypeId, hash::{Hash, Hasher}};
+use std::{
+    alloc::Layout,
+    any::{Any, TypeId},
+    collections::HashMap,
+    hash::{Hash, Hasher},
+    sync::Arc,
+};
 
-pub trait Component: 'static {}
+pub trait Component: Send + Sync + 'static {}
+
+impl Component for () {}
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ComponentId(usize);
@@ -13,6 +21,14 @@ impl ComponentId {
 
     pub fn id(&self) -> usize {
         self.0
+    }
+}
+
+impl std::ops::Deref for ComponentId {
+    type Target = usize;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
@@ -50,6 +66,7 @@ pub struct ComponentMeta {
     name: &'static str,
     layout: Layout,
     type_id: TypeId,
+    extensions: HashMap<TypeId, Arc<Box<dyn Any + Send + Sync + 'static>>>,
 }
 
 impl ComponentMeta {
@@ -62,6 +79,7 @@ impl ComponentMeta {
             name,
             layout,
             type_id,
+            extensions: HashMap::new(),
         }
     }
 
@@ -76,10 +94,21 @@ impl ComponentMeta {
     pub fn type_id(&self) -> &TypeId {
         &self.type_id
     }
+
+    pub fn add_extension<T: Any + Send + Sync + 'static>(&mut self, extension: T) {
+        self.extensions
+            .insert(TypeId::of::<T>(), Arc::new(Box::new(extension)));
+    }
+
+    pub fn extension<T: Any>(&self) -> Option<&T> {
+        self.extensions
+            .get(&TypeId::of::<T>())
+            .and_then(|ext| ext.downcast_ref::<T>())
+    }
 }
 
 pub struct Components {
-    metas: DenseMap<TypeId, ComponentMeta>,
+    metas: DenseMap<ComponentType, ComponentMeta>,
 }
 
 impl Components {
@@ -89,18 +118,31 @@ impl Components {
         }
     }
 
-    pub fn register<C: Component>(&mut self) {
+    pub fn register<C: Component>(&mut self) -> ComponentId {
         let meta = ComponentMeta::new::<C>();
-        self.metas.insert(*meta.type_id(), meta);
+        self.metas
+            .insert(ComponentType::dynamic(*meta.type_id()), meta);
+
+        ComponentId::new(self.metas.len() - 1)
     }
 
-    pub fn id(&self, type_id: &TypeId) -> Option<ComponentId> {
+    pub fn id(&self, type_id: &ComponentType) -> ComponentId {
         self.metas
             .index(type_id)
             .map(|index| ComponentId::new(index))
+            .expect("Component not found")
     }
 
-    pub fn meta(&self, type_id: &TypeId) -> &ComponentMeta {
-        self.metas.get(type_id).unwrap()
+    pub fn meta(&self, ty: &ComponentType) -> &ComponentMeta {
+        self.metas.get(ty).expect("Component not found")
+    }
+
+    pub fn meta_at(&self, id: &ComponentId) -> &ComponentMeta {
+        self.metas.get_at(**id).expect("Component not found")
+    }
+
+    pub fn add_extension<T: Any + Send + Sync + 'static>(&mut self, id: ComponentId, extension: T) {
+        let meta = self.metas.get_at_mut(*id).expect("Component not found");
+        meta.add_extension(extension);
     }
 }

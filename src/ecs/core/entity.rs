@@ -81,25 +81,12 @@ impl Entities {
         }
     }
 
-    pub fn spawn(&mut self) -> Entity {
+    pub fn spawn(&mut self, parent: Option<&Entity>) -> Entity {
         let entity: Entity = self.allocator.allocate().into();
-        let node = EntityNode::new(None);
-        self.nodes.insert(entity, node);
-
-        entity
-    }
-
-    pub fn spawn_with_parent(&mut self, parent: &Entity) -> Entity {
-        if self.nodes.contains_key(parent) {
-            let entity: Entity = self.allocator.allocate().into();
-            let node = EntityNode::new(Some(*parent));
-            self.nodes.insert(entity, node);
-            self.nodes.get_mut(parent).unwrap().add_child(entity);
-
-            entity
-        } else {
-            self.spawn()
+        if parent.is_some() && self.nodes.contains_key(parent.unwrap()) {
+            self.add_child(parent.unwrap(), &entity);
         }
+        entity
     }
 
     pub fn kill(&mut self, entity: &Entity) -> Vec<Entity> {
@@ -114,12 +101,13 @@ impl Entities {
         dead
     }
 
-    pub fn set_parent(&mut self, child: &Entity, parent: Option<&Entity>) {
+    pub fn set_parent(&mut self, child: &Entity, parent: Option<&Entity>) -> Option<Entity> {
         if !self.nodes.contains_key(child) {
-            return;
+            return None;
         }
 
-        if let Some(old_parent) = self.nodes.get(child).unwrap().parent().copied() {
+        let old_parent = self.nodes.get(child).unwrap().parent().copied();
+        if let Some(old_parent) = old_parent {
             let old = self.nodes.get_mut(&old_parent).unwrap();
             old.remove_child(*child);
         }
@@ -132,6 +120,8 @@ impl Entities {
         } else {
             self.nodes.get_mut(child).unwrap().set_parent(None);
         }
+
+        old_parent
     }
 
     pub fn add_child(&mut self, parent: &Entity, child: &Entity) {
