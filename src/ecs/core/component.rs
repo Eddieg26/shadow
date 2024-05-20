@@ -141,6 +141,11 @@ impl Components {
         self.metas.get_at(**id).expect("Component not found")
     }
 
+    pub fn extension<T: Any>(&self, id: ComponentId) -> &T {
+        let meta = self.metas.get_at(*id).expect("Component not found");
+        meta.extension().expect("Extension not found")
+    }
+
     pub fn add_extension<T: Any + Send + Sync + 'static>(&mut self, id: ComponentId, extension: T) {
         let meta = self.metas.get_at_mut(*id).expect("Component not found");
         meta.add_extension(extension);

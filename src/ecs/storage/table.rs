@@ -1,24 +1,16 @@
-use super::dense::{DenseMap, DenseSet};
-use crate::ecs::core::{
-    internal::{blob::Blob, ptr::Ptr},
-    ComponentId, Entity,
+use crate::ecs::{
+    core::{internal::blob::Blob, Component, ComponentId, Entity},
+    storage::dense::{DenseMap, DenseSet, ImmutableDenseMap},
 };
-use std::collections::HashMap;
 
 pub struct Column {
     data: Blob,
 }
 
 impl Column {
-    pub fn new<T>() -> Self {
+    pub fn new<C>() -> Self {
         Column {
-            data: Blob::new::<T>(),
-        }
-    }
-
-    pub fn with_capacity<T>(capacity: usize) -> Self {
-        Column {
-            data: Blob::with_capacity::<T>(capacity),
+            data: Blob::new::<C>(),
         }
     }
 
@@ -28,44 +20,43 @@ impl Column {
         }
     }
 
-    pub fn from_blob(blob: Blob) -> Self {
-        Column { data: blob }
+    pub fn from_blob(data: Blob) -> Self {
+        Column { data }
     }
 
-    pub fn push<T>(&mut self, value: T) {
+    pub fn cell(&self, index: usize) -> TableCell {
+        TableCell {
+            column: self,
+            index,
+        }
+    }
+
+    pub fn get<C>(&self, index: usize) -> Option<&C> {
+        self.data.get(index)
+    }
+
+    pub fn get_mut<C>(&self, index: usize) -> Option<&mut C> {
+        self.data.get_mut(index)
+    }
+
+    pub fn insert<C>(&mut self, value: C) {
         self.data.push(value);
     }
 
-    pub fn append(&mut self, mut column: Column) {
-        self.data.append(&mut column.data);
+    pub fn push(&mut self, mut value: Blob) {
+        self.data.append(&mut value);
+    }
+
+    pub fn remove<C>(&mut self, index: usize) -> Option<C> {
+        self.data.remove(index)
     }
 
     pub fn swap_remove(&mut self, index: usize) -> Blob {
         self.data.swap_remove(index)
     }
 
-    pub fn remove<T>(&mut self, index: usize) -> Option<T> {
-        self.data.remove(index)
-    }
-
     pub fn data(&self) -> &Blob {
         &self.data
-    }
-
-    pub fn ptr(&self, index: usize) -> Option<Ptr> {
-        if index < self.data.len() {
-            unsafe { Some(self.data.ptr().add(index)) }
-        } else {
-            None
-        }
-    }
-
-    pub fn get<T>(&self, index: usize) -> Option<&T> {
-        self.data.get(index)
-    }
-
-    pub fn get_mut<T>(&self, index: usize) -> Option<&mut T> {
-        self.data.get_mut(index)
     }
 
     pub fn len(&self) -> usize {
@@ -87,42 +78,24 @@ pub struct TableCell<'a> {
 }
 
 impl<'a> TableCell<'a> {
-    pub fn get<T>(&self) -> Option<&T> {
+    pub fn cast<C>(&self) -> Option<&C> {
         self.column.get(self.index)
     }
 
-    pub fn get_mut<T>(&self) -> Option<&mut T> {
+    pub fn cast_mut<C>(&self) -> Option<&mut C> {
         self.column.get_mut(self.index)
     }
 }
 
-pub struct SelectedRow<'a> {
-    cells: HashMap<ComponentId, TableCell<'a>>,
-}
-
-impl<'a> SelectedRow<'a> {
-    pub fn get<T>(&self, component: ComponentId) -> Option<&T> {
-        self.cells.get(&component).and_then(|cell| cell.get())
-    }
-
-    pub fn get_mut<T>(&self, component: ComponentId) -> Option<&mut T> {
-        self.cells.get(&component).and_then(|cell| cell.get_mut())
-    }
-}
-
-pub struct Row {
+pub struct RowLayout {
     columns: DenseMap<ComponentId, Column>,
 }
 
-impl Row {
+impl RowLayout {
     pub fn new() -> Self {
-        Row {
+        RowLayout {
             columns: DenseMap::new(),
         }
-    }
-
-    pub fn with_columns(columns: DenseMap<ComponentId, Column>) -> Self {
-        Row { columns }
     }
 
     pub fn with_column(mut self, component: ComponentId, column: Column) -> Self {
@@ -134,114 +107,81 @@ impl Row {
         self.columns.insert(component, column);
     }
 
-    pub fn remove_column(&mut self, component: ComponentId) -> Option<Column> {
-        self.columns.remove(&component)
-    }
-
-    pub fn append(&mut self, mut row: Row) {
-        for (component, column) in row.columns.drain() {
-            if let Some(found) = self.columns.get_mut(&component) {
-                found.append(column);
-            } else {
-                self.columns.insert(component, column);
-            }
-        }
-    }
-
-    pub fn remove_at(&mut self, index: usize) -> Option<(ComponentId, Column)> {
-        self.columns.remove_at(index)
-    }
-
-    pub fn swap_remove(&mut self, index: usize) -> Row {
-        let mut row = Row::new();
-        for (id, column) in self.columns.iter_mut() {
-            let column = column.swap_remove(index);
-            row.columns.insert(*id, Column::from_blob(column));
-        }
-        row
-    }
-
-    pub fn retain(&mut self, components: &[ComponentId]) {
-        self.columns
-            .retain(|component, _| components.contains(component));
-    }
-
-    pub fn take(&mut self, columns: &DenseSet<ComponentId>) -> Row {
-        let mut row = Row::new();
-        for component in columns.iter() {
-            if let Some(column) = self.columns.remove(component) {
-                row.columns.insert(*component, column);
-            } else {
-                panic!("Component not found: {}", component);
-            }
-        }
-        row
-    }
-
-    pub fn get<T>(&self, component: ComponentId) -> Option<&T> {
-        self.columns
-            .get(&component)
-            .and_then(|column| column.get(0))
-    }
-
-    pub fn get_mut<T>(&self, component: ComponentId) -> Option<&mut T> {
-        self.columns
-            .get(&component)
-            .and_then(|column| column.get_mut(0))
-    }
-
-    pub fn select(&self, index: usize) -> Option<SelectedRow> {
-        let mut cells = HashMap::new();
-        for (component, column) in self.columns.iter() {
-            let cell = TableCell { column, index };
-            cells.insert(*component, cell);
-        }
-
-        Some(SelectedRow { cells })
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = (&ComponentId, &Column)> {
-        self.columns.iter()
-    }
-
-    pub fn keys(&self) -> &[ComponentId] {
-        self.columns.keys()
-    }
-
-    pub fn values(&self) -> &[Column] {
-        self.columns.values()
-    }
-
-    pub fn len(&self) -> usize {
-        self.columns.len()
-    }
-
-    pub fn sort(&mut self) {
+    pub fn build(mut self) -> Row {
         self.columns.sort(|a, b| a.0.cmp(&b.0));
-    }
-
-    pub fn drain(&mut self) -> impl Iterator<Item = (ComponentId, Column)> + '_ {
-        self.columns.drain()
-    }
-
-    pub fn clear(&mut self) {
-        for (_, column) in self.columns.iter_mut() {
-            column.clear();
+        Row {
+            columns: self.columns.to_immutable(),
         }
     }
 }
 
-type Columns = Row;
+pub struct Row {
+    columns: ImmutableDenseMap<ComponentId, Column>,
+}
 
-pub struct TableBuilder {
+impl Row {
+    pub fn new() -> RowLayout {
+        RowLayout::new()
+    }
+
+    pub fn column(&self, component: ComponentId) -> Option<&Column> {
+        self.columns.get(&component)
+    }
+
+    pub fn column_mut(&mut self, component: ComponentId) -> Option<&mut Column> {
+        self.columns.get_mut(&component)
+    }
+
+    pub fn select(&self, component: ComponentId) -> Option<TableCell> {
+        self.columns.get(&component).map(|column| column.cell(0))
+    }
+
+    pub fn set(&mut self, component: ComponentId, column: Column) {
+        self.columns.get_mut(&component).map(|c| *c = column);
+    }
+
+    pub fn remove(&mut self, components: impl Into<DenseSet<ComponentId>>) -> Row {
+        let components = components.into();
+        let mut layout = RowLayout::new();
+        for component in components.iter() {
+            if let Some(column) = self.columns.get_mut(&component) {
+                let data = column.swap_remove(0);
+                layout.add_column(*component, Column::from_blob(data));
+            }
+        }
+
+        layout.build()
+    }
+}
+
+pub struct SelectedRow<'a> {
+    cells: ImmutableDenseMap<ComponentId, TableCell<'a>>,
+}
+
+impl<'a> SelectedRow<'a> {
+    pub fn get<C>(&self, component: ComponentId) -> Option<&C> {
+        self.cells.get(&component).and_then(|cell| cell.cast())
+    }
+
+    pub fn get_mut<C>(&self, component: ComponentId) -> Option<&mut C> {
+        self.cells.get(&component).and_then(|cell| cell.cast_mut())
+    }
+}
+
+pub struct TableLayout {
     columns: DenseMap<ComponentId, Column>,
 }
 
-impl TableBuilder {
+impl TableLayout {
     pub fn new() -> Self {
-        TableBuilder {
+        TableLayout {
             columns: DenseMap::new(),
         }
+    }
+
+    pub fn with_components(mut self, components: ComponentSet) -> Self {
+        self.columns = components.into();
+        self
     }
 
     pub fn with_column(mut self, component: ComponentId, column: Column) -> Self {
@@ -249,65 +189,179 @@ impl TableBuilder {
         self
     }
 
+    pub fn add_column(&mut self, component: ComponentId, column: Column) {
+        self.columns.insert(component, column);
+    }
+
     pub fn build(mut self) -> Table {
         self.columns.sort(|a, b| a.0.cmp(&b.0));
         Table {
-            columns: Row {
-                columns: self.columns,
-            },
-            rows: DenseSet::new(),
+            columns: self.columns.to_immutable(),
+            entities: DenseSet::new(),
         }
     }
 }
 
 pub struct Table {
-    columns: Columns,
-    rows: DenseSet<Entity>,
+    columns: ImmutableDenseMap<ComponentId, Column>,
+    entities: DenseSet<Entity>,
 }
 
 impl Table {
-    pub fn new() -> TableBuilder {
-        TableBuilder::new()
+    pub fn new() -> TableLayout {
+        TableLayout::new()
     }
 
-    pub fn select(&self, entity: &Entity) -> Option<SelectedRow> {
-        self.rows
-            .index(entity)
-            .and_then(|index| self.columns.select(index))
-    }
-
-    pub fn insert(&mut self, entity: Entity, row: Row) {
-        self.rows.insert(entity);
-        self.columns.append(row);
-    }
-
-    pub fn remove(&mut self, entity: &Entity) -> Option<Row> {
-        if let Some(index) = self.rows.index(entity) {
-            self.rows.remove_at(index);
-            Some(self.columns.swap_remove(index))
-        } else {
-            None
-        }
-    }
-
-    pub fn contains(&self, entity: &Entity) -> bool {
-        self.rows.contains(entity)
-    }
-
-    pub fn entities(&self) -> &[Entity] {
-        self.rows.values()
-    }
-
-    pub fn component_ids(&self) -> &[ComponentId] {
+    pub fn components(&self) -> &[ComponentId] {
         self.columns.keys()
     }
 
-    pub fn len(&self) -> usize {
-        self.rows.len()
+    pub fn entities(&self) -> &[Entity] {
+        self.entities.values()
     }
 
-    pub fn clear(&mut self) {
-        self.rows.clear();
-        self.columns.clear();
+    pub fn column(&self, component: ComponentId) -> Option<&Column> {
+        self.columns.get(&component)
+    }
+
+    fn column_mut(&mut self, component: ComponentId) -> Option<&mut Column> {
+        self.columns.get_mut(&component)
+    }
+
+    pub fn select(&self, entity: &Entity) -> Option<SelectedRow> {
+        self.entities.index(entity).map(|index| {
+            let mut cells = DenseMap::new();
+            for (component, column) in self.columns.iter() {
+                let cell = column.cell(index);
+                cells.insert(*component, cell);
+            }
+
+            SelectedRow {
+                cells: cells.to_immutable(),
+            }
+        })
+    }
+
+    pub fn insert(&mut self, entity: &Entity, mut row: Row) {
+        self.entities.insert(*entity);
+        for (component, entity_column) in row.columns.iter_mut() {
+            let column = self.column_mut(*component).expect("Component not found");
+            column.push(entity_column.swap_remove(0));
+        }
+    }
+
+    pub fn remove(&mut self, entity: &Entity) -> Option<ComponentSet> {
+        self.entities.index(entity).map(|index| {
+            self.entities.swap_remove(entity);
+            let mut set = ComponentSet::new();
+            for (id, column) in self.columns.iter_mut() {
+                let data = column.swap_remove(index);
+                set.add_column(*id, Column::from_blob(data));
+            }
+
+            set
+        })
+    }
+
+    pub fn contains(&self, entity: &Entity) -> bool {
+        self.entities.contains(entity)
+    }
+}
+
+pub struct ComponentSet {
+    components: DenseMap<ComponentId, Column>,
+}
+
+impl ComponentSet {
+    pub fn new() -> Self {
+        ComponentSet {
+            components: DenseMap::new(),
+        }
+    }
+
+    pub fn ids(&self) -> &[ComponentId] {
+        self.components.keys()
+    }
+
+    pub fn add_column(&mut self, component: ComponentId, column: Column) -> Option<Column> {
+        self.components.insert(component, column)
+    }
+
+    pub fn insert<C: Component>(&mut self, id: ComponentId, component: C) -> Option<Column> {
+        let mut column = Column::new::<C>();
+        column.insert(component);
+        self.components.insert(id, column)
+    }
+
+    pub fn get(&self, id: &ComponentId) -> Option<&Column> {
+        self.components.get(id)
+    }
+
+    pub fn get_mut(&mut self, id: &ComponentId) -> Option<&mut Column> {
+        self.components.get_mut(id)
+    }
+
+    pub fn components(&self) -> &DenseMap<ComponentId, Column> {
+        &self.components
+    }
+
+    pub fn components_mut(&mut self) -> &mut DenseMap<ComponentId, Column> {
+        &mut self.components
+    }
+
+    pub fn remove_at(&mut self, index: usize) -> Option<(ComponentId, Column)> {
+        self.components.remove_at(index)
+    }
+
+    pub fn remove(&mut self, id: &ComponentId) -> Option<Column> {
+        self.components.remove(id)
+    }
+
+    pub fn remove_component<C: Component>(&mut self, id: &ComponentId) -> Option<C> {
+        self.components
+            .get_mut(id)
+            .and_then(|column| column.remove(0))
+    }
+
+    pub fn sort(&mut self) {
+        self.components.sort(|a, b| a.0.cmp(&b.0));
+    }
+
+    pub fn drain(&mut self) -> impl Iterator<Item = (ComponentId, Column)> + '_ {
+        self.components.drain()
+    }
+
+    pub fn len(&self) -> usize {
+        self.components.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.components.len() == 0
+    }
+
+    pub fn layout(&self) -> TableLayout {
+        let mut layout = TableLayout::new();
+        for (id, column) in self.components.iter() {
+            layout.add_column(*id, Column::from_column(column));
+        }
+
+        layout
+    }
+}
+
+impl Into<Row> for ComponentSet {
+    fn into(mut self) -> Row {
+        let mut layout = RowLayout::new();
+        for (id, column) in self.components.drain() {
+            layout.add_column(id, column);
+        }
+
+        layout.build()
+    }
+}
+
+impl Into<DenseMap<ComponentId, Column>> for ComponentSet {
+    fn into(self) -> DenseMap<ComponentId, Column> {
+        self.components
     }
 }

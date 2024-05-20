@@ -219,6 +219,10 @@ impl<K: Hash + PartialEq + PartialOrd, V> DenseMap<K, V> {
     pub fn destruct(self) -> (Vec<K>, Vec<V>, HashMap<u64, usize>) {
         (self.keys, self.values, self.map)
     }
+
+    pub fn to_immutable(self) -> ImmutableDenseMap<K, V> {
+        ImmutableDenseMap::new(self)
+    }
 }
 
 impl<K: Hash + PartialEq + PartialOrd, V> FromIterator<(K, V)> for DenseMap<K, V> {
@@ -403,6 +407,19 @@ impl<V: Hash + PartialEq + PartialOrd> DenseSet<V> {
     pub fn destruct(self) -> (Vec<V>, HashMap<u64, usize>) {
         (self.values, self.map)
     }
+
+    pub fn to_immutable(self) -> ImmutableDenseSet<V> {
+        ImmutableDenseSet::new(self)
+    }
+}
+
+impl<V: Hash + PartialEq + PartialOrd> Default for DenseSet<V> {
+    fn default() -> Self {
+        Self {
+            map: Default::default(),
+            values: Default::default(),
+        }
+    }
 }
 
 impl<V: Clone + Hash + PartialEq + PartialOrd> DenseSet<V> {
@@ -477,5 +494,123 @@ impl<V: Hash + PartialEq + PartialOrd> FromIterator<V> for DenseSet<V> {
         }
 
         set
+    }
+}
+
+pub struct ImmutableDenseSet<V: Hash + PartialEq + PartialOrd> {
+    set: DenseSet<V>,
+}
+
+impl<V: Hash + PartialEq + PartialOrd> ImmutableDenseSet<V> {
+    pub fn new(set: DenseSet<V>) -> Self {
+        ImmutableDenseSet { set }
+    }
+
+    pub fn contains(&self, value: &V) -> bool {
+        self.set.contains(value)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &V> {
+        self.set.iter()
+    }
+
+    pub fn len(&self) -> usize {
+        self.set.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.set.is_empty()
+    }
+
+    pub fn values(&self) -> &[V] {
+        self.set.values()
+    }
+}
+
+impl<V: Clone + Hash + PartialEq + PartialOrd> Clone for ImmutableDenseSet<V> {
+    fn clone(&self) -> Self {
+        ImmutableDenseSet::new(self.set.clone())
+    }
+}
+
+impl<V: Clone + Hash + PartialEq + PartialOrd> From<&DenseSet<V>> for ImmutableDenseSet<V> {
+    fn from(set: &DenseSet<V>) -> Self {
+        ImmutableDenseSet::new(set.clone())
+    }
+}
+
+impl<V: Hash + PartialEq + PartialOrd> From<DenseSet<V>> for ImmutableDenseSet<V> {
+    fn from(set: DenseSet<V>) -> Self {
+        ImmutableDenseSet::new(set)
+    }
+}
+
+pub struct ImmutableDenseMap<K: Hash + PartialEq + PartialOrd, V> {
+    map: DenseMap<K, V>,
+}
+
+impl<K: Hash + PartialEq + PartialOrd, V> ImmutableDenseMap<K, V> {
+    pub fn new(map: DenseMap<K, V>) -> Self {
+        ImmutableDenseMap { map }
+    }
+
+    pub fn contains(&self, key: &K) -> bool {
+        self.map.contains(key)
+    }
+
+    pub fn get(&self, key: &K) -> Option<&V> {
+        self.map.get(key)
+    }
+
+    pub fn get_mut(&mut self, key: &K) -> Option<&mut V> {
+        self.map.get_mut(key)
+    }
+
+    pub fn get_at(&self, index: usize) -> Option<&V> {
+        self.map.get_at(index)
+    }
+
+    pub fn get_at_mut(&mut self, index: usize) -> Option<&mut V> {
+        self.map.get_at_mut(index)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&K, &V)> {
+        self.map.iter()
+    }
+
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = (&K, &mut V)> {
+        self.map.iter_mut()
+    }
+
+    pub fn keys(&self) -> &[K] {
+        self.map.keys()
+    }
+
+    pub fn values(&self) -> &[V] {
+        self.map.values()
+    }
+
+    pub fn len(&self) -> usize {
+        self.map.len()
+    }
+}
+
+impl<K: Clone + Hash + PartialEq + PartialOrd, V: Clone> Clone for ImmutableDenseMap<K, V> {
+    fn clone(&self) -> Self {
+        ImmutableDenseMap::new(self.map.clone())
+    }
+}
+
+impl<K: Clone + Hash + PartialEq + PartialOrd, V: Clone> From<&DenseMap<K, V>>
+    for ImmutableDenseMap<K, V>
+{
+    fn from(map: &DenseMap<K, V>) -> Self {
+        ImmutableDenseMap::new(map.clone())
+    }
+}
+
+impl<K: Hash + PartialEq + PartialOrd, V> From<DenseMap<K, V>> for ImmutableDenseMap<K, V> {
+    fn from(map: DenseMap<K, V>) -> Self {
+        ImmutableDenseMap::new(map)
     }
 }

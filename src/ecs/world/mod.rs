@@ -3,15 +3,15 @@ use self::events::{
     RemoveComponent, RemoveComponents, SetParent, Spawn,
 };
 use super::{
-    archetype::{Archetypes, RowMoveResult},
+    archetype::{ArchetypeMove, Archetypes},
     core::{
-        Component, ComponentId, Components, Entities, Entity, LocalResource, LocalResources,
-        Resource, Resources,
+        Component, ComponentId, ComponentType, Components, Entities, Entity, LocalResource,
+        LocalResources, Resource, Resources,
     },
     event::{meta::EventMetas, Event, EventInvocations, Events},
     storage::{
         dense::{DenseMap, DenseSet},
-        table::{Column, Row},
+        table::ComponentSet,
     },
 };
 
@@ -120,36 +120,61 @@ impl World {
         entity
     }
 
-    pub fn despawn(&mut self, entity: &Entity) -> DenseMap<Entity, Row> {
+    pub fn despawn(&mut self, entity: &Entity) -> DenseMap<Entity, ComponentSet> {
         let mut despawned = DenseMap::new();
         for entity in self.entities.kill(entity) {
-            if let Some((_, row)) = self.archetypes.remove_entity(&entity) {
-                despawned.insert(entity, row);
+            if let Some((_, set)) = self.archetypes.remove_entity(&entity) {
+                despawned.insert(entity, set);
             }
         }
 
         despawned
     }
 
+    pub fn has_component<C: Component>(&self, entity: &Entity) -> bool {
+        let id = self.components.id(&ComponentType::new::<C>());
+        self.archetypes.has_component(entity, &id)
+    }
+
+    pub fn has_components(&self, entity: &Entity, components: &[ComponentType]) -> bool {
+        let ids = components
+            .iter()
+            .map(|ty| self.components.id(&ty))
+            .collect::<DenseSet<_>>();
+        self.archetypes.has_components(entity, ids)
+    }
+
+    pub fn add_component<C: Component>(
+        &mut self,
+        entity: &Entity,
+        component: C,
+    ) -> Option<ArchetypeMove> {
+        let id = self.components.id(&ComponentType::new::<C>());
+        self.archetypes.add_component(entity, &id, component)
+    }
+
     pub fn add_components(
         &mut self,
         entity: &Entity,
-        mut components: DenseMap<ComponentId, Column>,
-    ) -> Option<RowMoveResult> {
-        components.sort(|a, b| a.0.cmp(&b.0));
-        self.archetypes
-            .add_components(entity, Row::with_columns(components))
+        components: ComponentSet,
+    ) -> Option<ArchetypeMove> {
+        self.archetypes.add_components(entity, components)
+    }
+
+    pub fn remove_component(
+        &mut self,
+        entity: &Entity,
+        component: &ComponentId,
+    ) -> Option<ArchetypeMove> {
+        self.archetypes.remove_component(entity, component)
     }
 
     pub fn remove_components(
         &mut self,
         entity: &Entity,
         components: impl Into<DenseSet<ComponentId>>,
-    ) -> Option<RowMoveResult> {
-        let mut components = components.into();
-        components.sort();
-        self.archetypes
-            .remove_components(entity, components.clone())
+    ) -> Option<ArchetypeMove> {
+        self.archetypes.remove_components(entity, components.into())
     }
 
     pub fn set_parent(&mut self, entity: &Entity, parent: Option<&Entity>) -> Option<Entity> {
