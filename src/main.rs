@@ -35,7 +35,15 @@ impl Event for TestEvent {
 }
 
 pub struct Update;
-impl Phase for Update {}
+impl Phase for Update {
+    fn name() -> &'static str {
+        todo!()
+    }
+
+    fn run(&mut self, world: &World, schdeules: &ecs::system::schedule::Schedules) {
+        todo!()
+    }
+}
 
 fn main() {
     let mut world = World::new();

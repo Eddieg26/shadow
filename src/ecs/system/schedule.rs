@@ -1,11 +1,56 @@
+use crate::ecs::{storage::dense::DenseMap, world::World};
+
+use super::{IntoSystem, System};
 use std::any::TypeId;
 
-use super::{observer::EventObservers, IntoSystem, System};
-use crate::ecs::{
-    event::{meta::EventMetas, Event},
-    storage::dense::DenseMap,
-    world::World,
-};
+pub trait ScheduleId: Send + Sync + 'static {
+    const NAME: &'static str;
+}
+
+pub struct DefaultId;
+
+impl ScheduleId for DefaultId {
+    const NAME: &'static str = "default";
+}
+
+pub trait IntoScheduleTag<M> {
+    fn into_tag() -> ScheduleTag;
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct ScheduleTag {
+    name: &'static str,
+    ty: TypeId,
+}
+
+impl ScheduleTag {
+    pub fn new<S: ScheduleId>() -> Self {
+        Self {
+            name: S::NAME,
+            ty: TypeId::of::<S>(),
+        }
+    }
+
+    pub fn name(&self) -> &'static str {
+        self.name
+    }
+
+    pub fn ty(&self) -> TypeId {
+        self.ty
+    }
+}
+
+impl PartialOrd for ScheduleTag {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.name.partial_cmp(other.name)
+    }
+}
+
+impl<S: ScheduleId> IntoScheduleTag<S> for S {
+    fn into_tag() -> ScheduleTag {
+        ScheduleTag::new::<S>()
+    }
+}
 
 pub struct Schedule {
     systems: Vec<System>,
@@ -13,69 +58,74 @@ pub struct Schedule {
 
 impl Schedule {
     pub fn new() -> Self {
-        Self {
-            systems: Vec::new(),
-        }
+        Self { systems: vec![] }
     }
 
-    pub fn add_system<M>(&mut self, system: impl IntoSystem<M>) -> &mut Self {
+    pub fn default() -> Self {
+        Self::new()
+    }
+
+    pub fn add_system<M>(&mut self, system: impl IntoSystem<M>) {
         self.systems.push(system.into_system());
-        self
     }
 
-    pub fn append(&mut self, mut schedule: Schedule) -> &mut Self {
-        self.systems.append(&mut schedule.systems);
-        self
+    pub fn append(&mut self, schedule: Schedule) {
+        self.systems.extend(schedule.systems);
     }
 
     pub fn run(&self, world: &World) {
-        for system in self.systems.iter() {
-            system.run(world);
-        }
+        self.systems.iter().for_each(|system| system.run(world));
     }
 }
 
 pub trait Phase: Send + Sync + 'static {
-    fn run(&mut self, runner: impl Fn()) {
-        runner();
-    }
+    fn name() -> &'static str;
+
+    fn run(&mut self, world: &World, schdeules: &Schedules);
 }
 
-pub struct PhaseRunner {
+pub trait IntoPhaseTag<P> {
+    fn into_tag() -> PhaseTag;
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+
+pub struct PhaseTag {
+    name: &'static str,
     ty: TypeId,
-    run_phase: Box<dyn FnMut(&World, &Schedule)>,
 }
 
-impl PhaseRunner {
-    fn new<P: Phase>(mut phase: P) -> Self {
+impl PhaseTag {
+    pub fn new<P: Phase>() -> Self {
         Self {
+            name: P::name(),
             ty: TypeId::of::<P>(),
-            run_phase: Box::new(move |world, s| phase.run(|| s.run(world))),
         }
     }
 
-    pub fn ty(&self) -> &TypeId {
-        &self.ty
+    pub fn name(&self) -> &'static str {
+        self.name
     }
 
-    pub fn run(&mut self, world: &mut World, schedule: &Schedule, observers: &EventObservers) {
-        (self.run_phase)(world, schedule);
-        self.flush(world, observers);
+    pub fn ty(&self) -> TypeId {
+        self.ty
     }
+}
 
-    fn flush(&self, world: &mut World, observers: &EventObservers) {
-        let metas = world.resource::<EventMetas>().clone();
-        for mut event in world.events().drain() {
-            let meta = metas.get(&event.ty());
-            meta.invoke(&mut event, world)
-        }
+impl PartialOrd for PhaseTag {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.name.partial_cmp(other.name)
+    }
+}
 
-        observers.run(world);
+impl<P: Phase> IntoPhaseTag<P> for P {
+    fn into_tag() -> PhaseTag {
+        PhaseTag::new::<P>()
     }
 }
 
 pub struct Schedules {
-    schedules: DenseMap<TypeId, Schedule>,
+    schedules: DenseMap<ScheduleTag, Schedule>,
 }
 
 impl Schedules {
@@ -85,36 +135,24 @@ impl Schedules {
         }
     }
 
-    pub fn add_schedule<P: Phase>(&mut self, schedule: Schedule) -> &mut Self {
-        let ty = TypeId::of::<P>();
-        let runner = self.schedules.get_mut(&ty).expect("Phase not found");
-        runner.append(schedule);
-        self
+    pub fn add(&mut self, tag: impl Into<ScheduleTag>, schedule: Schedule) {
+        let tag = tag.into();
+        if let Some(existing) = self.schedules.get_mut(&tag) {
+            existing.append(schedule);
+        } else {
+            self.schedules.insert(tag, schedule);
+        }
     }
 
-    pub fn add_system<M, P: Phase>(&mut self, system: impl IntoSystem<M>) -> &mut Self {
-        let ty = TypeId::of::<P>();
-        let runner = self.schedules.get_mut(&ty).expect("Phase not found");
-        runner.add_system(system);
-        self
+    pub fn run(&self, tag: impl Into<ScheduleTag>, world: &World) {
+        if let Some(schedule) = self.schedules.get(&tag.into()) {
+            schedule.run(world);
+        }
     }
-
-    pub fn get<P: Phase>(&self) -> Option<&Schedule> {
-        let ty = TypeId::of::<P>();
-        self.schedules.get(&ty)
-    }
-
-    pub fn schedule(&self, phase: &TypeId) -> Option<&Schedule> {
-        self.schedules.get(&phase)
-    }
-}
-
-pub trait PhaseOrder: 'static {
-    fn phases() -> Phases;
 }
 
 pub struct Phases {
-    phases: DenseMap<TypeId, PhaseRunner>,
+    phases: DenseMap<PhaseTag, Schedules>,
 }
 
 impl Phases {
@@ -124,43 +162,77 @@ impl Phases {
         }
     }
 
-    pub fn add<P: Phase>(&mut self, phase: P) -> &mut Self {
-        let ty = TypeId::of::<P>();
-        self.phases.insert(ty, PhaseRunner::new(phase));
-        self
+    pub fn add<P: Phase>(&mut self, tag: impl Into<ScheduleTag>, schedule: Schedule) {
+        let phase = PhaseTag::new::<P>();
+        if let Some(existing) = self.phases.get_mut(&phase) {
+            existing.add(tag, schedule);
+        } else {
+            let mut schedules = Schedules::new();
+            schedules.add(tag, schedule);
+            self.phases.insert(phase, schedules);
+        }
     }
 
-    pub fn add_before<P: Phase, B: Phase>(&mut self, phase: P) -> &mut Self {
-        let a = TypeId::of::<P>();
-        let b = TypeId::of::<B>();
-        let phase = PhaseRunner::new(phase);
-        self.phases.insert_before(a, phase, b);
-        self
+    pub fn run(&self, phase: impl Into<PhaseTag>, tag: impl Into<ScheduleTag>, world: &World) {
+        if let Some(schedules) = self.phases.get(&phase.into()) {
+            schedules.run(tag, world);
+        }
+    }
+}
+
+pub struct PhaseRunner {
+    runner: Box<dyn Fn(&World, &Schedules)>,
+}
+
+impl PhaseRunner {
+    pub fn new<P: Phase>(phase: P) -> Self {
+        Self {
+            runner: Box::new(move |world, schedules| {
+                let mut phase = phase;
+                phase.run(world, schedules);
+            }),
+        }
     }
 
-    pub fn add_after<P: Phase, B: Phase>(&mut self, phase: P) -> &mut Self {
-        let a = TypeId::of::<P>();
-        let b = TypeId::of::<B>();
-        let phase = PhaseRunner::new(phase);
-        self.phases.insert_before(a, phase, b);
-        self
+    pub fn run(&self, world: &World, schedules: &Schedules) {
+        (self.runner)(world, schedules);
+    }
+}
+
+pub struct PhaseOrder {
+    phases: DenseMap<PhaseTag, PhaseRunner>,
+}
+
+impl PhaseOrder {
+    pub fn new() -> Self {
+        Self {
+            phases: DenseMap::new(),
+        }
     }
 
-    pub fn run(&mut self, world: &mut World, schedules: &Schedules, observers: &EventObservers) {
-        for phase in self.phases.values_mut() {
-            if let Some(schedule) = schedules.schedule(&phase.ty()) {
-                phase.run(world, schedule, observers);
+    pub fn add<P: Phase>(&mut self, phase: P) {
+        let tag = PhaseTag::new::<P>();
+        self.phases
+            .insert(tag, PhaseRunner::new(phase));
+    }
+
+    pub fn add_before<P: Phase, B: Phase>(&mut self, phase: P) {
+        let before = PhaseTag::new::<B>();
+        let ty = PhaseTag::new::<P>();
+        self.phases.insert_before(ty, PhaseRunner::new(phase), before);
+    }
+
+    pub fn add_after<P: Phase, B: Phase>(&mut self, phase: P) {
+        let after = PhaseTag::new::<B>();
+        let ty = PhaseTag::new::<P>();
+        self.phases.insert_after(ty, PhaseRunner::new(phase), after);
+    }
+
+    pub fn run(&mut self, world: &mut World, phases: Phases) {
+        for tag in self.phases.keys() {
+            if let Some(runner) = self.phases.get(tag) {
+                runner.run(world, phases.phases.get(tag).unwrap());
             }
-        }
-    }
-
-    pub fn flush_event<E: Event>(&self, world: &mut World, observers: &EventObservers) {
-        let metas = world.resource::<EventMetas>().clone();
-        for mut event in world.events().drain_by_type::<E>() {
-            let meta = metas.get(event.ty());
-            meta.invoke(&mut event, world)
-        }
-
-        observers.run(world);
+        } 
     }
 }

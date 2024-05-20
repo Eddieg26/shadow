@@ -33,25 +33,25 @@ impl Ecs {
         }
     }
 
-    pub fn phase_order<P: PhaseOrder>(&mut self) -> &mut Self {
-        self.phases = P::phases();
-        self
-    }
+    // pub fn phase_order<P: PhaseOrder>(&mut self) -> &mut Self {
+    //     self.phases = P::phases();
+    //     self
+    // }
 
-    pub fn add_phase<P: Phase>(&mut self, phase: P) -> &mut Self {
-        self.phases.add(phase);
-        self
-    }
+    // pub fn add_phase<P: Phase>(&mut self, phase: P) -> &mut Self {
+    //     self.phases.add(phase);
+    //     self
+    // }
 
-    pub fn add_phase_before<P: Phase, B: Phase>(&mut self, phase: P) -> &mut Self {
-        self.phases.add_before::<P, B>(phase);
-        self
-    }
+    // pub fn add_phase_before<P: Phase, B: Phase>(&mut self, phase: P) -> &mut Self {
+    //     self.phases.add_before::<P, B>(phase);
+    //     self
+    // }
 
-    pub fn add_phase_after<P: Phase, B: Phase>(&mut self, phase: P) -> &mut Self {
-        self.phases.add_after::<P, B>(phase);
-        self
-    }
+    // pub fn add_phase_after<P: Phase, B: Phase>(&mut self, phase: P) -> &mut Self {
+    //     self.phases.add_after::<P, B>(phase);
+    //     self
+    // }
 
     pub fn add_system<P: Phase, M>(&mut self, system: impl IntoSystem<M>) -> &mut Self {
         self.schedules.add_system::<M, P>(system);
