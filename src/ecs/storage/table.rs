@@ -287,6 +287,11 @@ impl ComponentSet {
         self.components.insert(component, column)
     }
 
+    pub fn with<C: Component>(mut self, id: ComponentId, component: C) -> Self {
+        self.insert(id, component);
+        self
+    }
+
     pub fn insert<C: Component>(&mut self, id: ComponentId, component: C) -> Option<Column> {
         let mut column = Column::new::<C>();
         column.insert(component);
@@ -337,6 +342,10 @@ impl ComponentSet {
 
     pub fn is_empty(&self) -> bool {
         self.components.len() == 0
+    }
+
+    pub fn has(&self, id: &ComponentId) -> bool {
+        self.components.contains(id)
     }
 
     pub fn layout(&self) -> TableLayout {

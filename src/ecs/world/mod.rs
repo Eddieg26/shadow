@@ -122,13 +122,17 @@ impl World {
 
     pub fn despawn(&mut self, entity: &Entity) -> DenseMap<Entity, ComponentSet> {
         let mut despawned = DenseMap::new();
-        for entity in self.entities.kill(entity) {
+        for entity in self.entities.despawn(entity) {
             if let Some((_, set)) = self.archetypes.remove_entity(&entity) {
                 despawned.insert(entity, set);
             }
         }
 
         despawned
+    }
+
+    pub fn query(&self, components: &[ComponentId]) -> Vec<super::archetype::ArchetypeId>{
+        self.archetypes.query(components)
     }
 
     pub fn has_component<C: Component>(&self, entity: &Entity) -> bool {

@@ -212,6 +212,11 @@ impl Archetypes {
         for id in ids {
             if let Some(archetype_ids) = self.components.get(id) {
                 for id in archetype_ids.iter() {
+                    let archetype = self.archetypes.get(id).unwrap();
+                    if archetype.entities().is_empty() {
+                        continue;
+                    }
+
                     if let Some(count) = archetypes.get_mut(id) {
                         (*count) += 1;
                     } else {
@@ -228,6 +233,10 @@ impl Archetypes {
     pub fn add_entity(&mut self, entity: &Entity) {
         let root_id = self.root_id;
         self.entities.insert(*entity, root_id);
+        self.archetypes
+            .get_mut(&root_id)
+            .unwrap()
+            .insert(entity, Row::new().build());
     }
 
     pub fn remove_entity(&mut self, entity: &Entity) -> Option<(ArchetypeId, ComponentSet)> {
@@ -279,15 +288,19 @@ impl Archetypes {
         let (archetype, mut components) = self.remove_entity(entity)?;
         let mut added = DenseSet::new();
         let mut removed = ComponentSet::new();
+        let mut unique = DenseSet::new();
         set.drain().for_each(|(id, column)| {
             added.insert(id);
+            if components.has(&id) {
+                unique.insert(id);
+            }
             components.add_column(id, column).map(|c| {
                 removed.add_column(id, c);
             });
         });
         components.sort();
 
-        let edge = EdgeId::from(added.values());
+        let edge = EdgeId::from(unique.values());
         let ty = MoveType::Add(added, removed);
         self.move_entity(entity, &archetype, &edge, components, ty)
     }
@@ -317,7 +330,7 @@ impl Archetypes {
             });
         });
 
-        let edge = EdgeId::from(ids.values());
+        let edge = EdgeId::from(removed.components().keys());
         let ty = MoveType::Remove(removed);
         self.move_entity(entity, &archetype, &edge, components, ty)
     }
@@ -356,6 +369,8 @@ impl Archetypes {
     ) -> ArchetypeId {
         let id = ArchetypeId::new(components.ids());
         let mut next = Archetype::new(id, components.layout().build());
+
+        self.add_archetypes(components.ids(), id);
         next.insert(entity, components.into());
 
         let reverse = ty.reverse();
@@ -377,26 +392,23 @@ impl Archetypes {
             MoveType::Add(added, removed) => (added, removed, EdgeType::Add),
             MoveType::Remove(removed) => (DenseSet::new(), removed, EdgeType::Remove),
         };
-        let next = if let Some(next) = self.next_archetype(from, edge, EdgeType::Remove) {
+
+        let next = if let Some(next) = self.next_archetype(from, edge, ty) {
             next.insert(entity, components.into());
             next.id()
         } else {
-            let next_id = self.new_edge(entity, from, &edge, components, EdgeType::Remove);
+            let next_id = self.new_edge(entity, from, &edge, components, ty);
             self.archetypes
                 .get_mut(from)?
-                .insert_edge(*edge, next_id, EdgeType::Remove);
-
-            match ty {
-                EdgeType::Add => self.add_archetypes(added.values(), next_id),
-                EdgeType::Remove => self.add_archetypes(removed.ids(), next_id),
-            }
-
+                .insert_edge(*edge, next_id, ty);
             next_id
         };
 
         let _move = ArchetypeMove::new(*from, next)
             .with_removed(removed)
             .with_added(added);
+
+        self.entities.insert(*entity, next);
 
         Some(_move)
     }
