@@ -1,2 +1,2 @@
 [workspace]
-members = ["shadow-ecs"]
+members = ["shadow-ecs", "shadow-game"]

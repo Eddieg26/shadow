@@ -5,3 +5,10 @@ version = 3
 [[package]]
 name = "shadow-ecs"
 version = "0.1.0"
+
+[[package]]
+name = "shadow-game"
+version = "0.1.0"
+dependencies = [
+ "shadow-ecs",
+]
