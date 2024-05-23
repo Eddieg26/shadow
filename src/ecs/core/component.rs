@@ -11,37 +11,10 @@ pub trait Component: Send + Sync + 'static {}
 
 impl Component for () {}
 
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub struct ComponentId(usize);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ComponentId(u64);
 
 impl ComponentId {
-    pub const fn new(id: usize) -> Self {
-        Self(id)
-    }
-
-    pub fn id(&self) -> usize {
-        self.0
-    }
-}
-
-impl std::ops::Deref for ComponentId {
-    type Target = usize;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl std::fmt::Display for ComponentId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ComponentType(u64);
-
-impl ComponentType {
     pub fn new<C: Component>() -> Self {
         Self::dynamic(std::any::TypeId::of::<C>())
     }
@@ -108,7 +81,7 @@ impl ComponentMeta {
 }
 
 pub struct Components {
-    metas: DenseMap<ComponentType, ComponentMeta>,
+    metas: DenseMap<ComponentId, ComponentMeta>,
 }
 
 impl Components {
@@ -119,35 +92,28 @@ impl Components {
     }
 
     pub fn register<C: Component>(&mut self) -> ComponentId {
+        let id = ComponentId::new::<C>();
         let meta = ComponentMeta::new::<C>();
-        self.metas
-            .insert(ComponentType::dynamic(*meta.type_id()), meta);
+        self.metas.insert(id, meta);
 
-        ComponentId::new(self.metas.len() - 1)
+        id
     }
 
-    pub fn id(&self, type_id: &ComponentType) -> ComponentId {
-        self.metas
-            .index(type_id)
-            .map(|index| ComponentId::new(index))
-            .expect("Component not found")
+    pub fn meta(&self, id: &ComponentId) -> &ComponentMeta {
+        self.metas.get(id).expect("Component not found")
     }
 
-    pub fn meta(&self, ty: &ComponentType) -> &ComponentMeta {
-        self.metas.get(ty).expect("Component not found")
-    }
-
-    pub fn meta_at(&self, id: &ComponentId) -> &ComponentMeta {
-        self.metas.get_at(**id).expect("Component not found")
-    }
-
-    pub fn extension<T: Any>(&self, id: ComponentId) -> &T {
-        let meta = self.metas.get_at(*id).expect("Component not found");
+    pub fn extension<T: Any>(&self, id: &ComponentId) -> &T {
+        let meta = self.metas.get(id).expect("Component not found");
         meta.extension().expect("Extension not found")
     }
 
-    pub fn add_extension<T: Any + Send + Sync + 'static>(&mut self, id: ComponentId, extension: T) {
-        let meta = self.metas.get_at_mut(*id).expect("Component not found");
+    pub fn add_extension<T: Any + Send + Sync + 'static>(
+        &mut self,
+        id: &ComponentId,
+        extension: T,
+    ) {
+        let meta = self.metas.get_mut(id).expect("Component not found");
         meta.add_extension(extension);
     }
 }

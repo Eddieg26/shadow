@@ -2,11 +2,11 @@ use super::{
     core::{Component, ComponentId, Entity},
     storage::{
         dense::{DenseMap, DenseSet},
-        table::{ComponentSet, Row, Table},
+        table::{ComponentSet, Row, SelectedRow, Table},
     },
 };
 use std::{
-    collections::{hash_map::DefaultHasher, HashMap},
+    collections::{hash_map::DefaultHasher, HashMap, HashSet},
     hash::{Hash, Hasher},
 };
 
@@ -137,6 +137,14 @@ impl Archetype {
         self.components.values()
     }
 
+    pub fn component<C: Component>(&self, entity: &Entity) -> Option<&C> {
+        self.table.component(entity)
+    }
+
+    pub fn component_mut<C: Component>(&self, entity: &Entity) -> Option<&mut C> {
+        self.table.component_mut(entity)
+    }
+
     pub fn entities(&self) -> &[Entity] {
         self.table.entities()
     }
@@ -157,6 +165,10 @@ impl Archetype {
                 self.remove_edges.insert(id.into(), target);
             }
         }
+    }
+
+    pub fn select(&self, entity: &Entity) -> Option<SelectedRow> {
+        self.table.select(entity)
     }
 
     pub fn insert(&mut self, entity: &Entity, row: Row) {
@@ -207,13 +219,15 @@ impl Archetypes {
         self.archetypes.get(id)
     }
 
-    pub fn query(&self, ids: &[ComponentId]) -> Vec<ArchetypeId> {
+    pub fn query(&self, ids: &[ComponentId], exclude: &HashSet<ComponentId>) -> Vec<ArchetypeId> {
         let mut archetypes = DenseMap::new();
         for id in ids {
             if let Some(archetype_ids) = self.components.get(id) {
                 for id in archetype_ids.iter() {
                     let archetype = self.archetypes.get(id).unwrap();
-                    if archetype.entities().is_empty() {
+                    if archetype.entities().is_empty()
+                        || exclude.iter().any(|id| archetype.has_component(id))
+                    {
                         continue;
                     }
 
@@ -227,6 +241,7 @@ impl Archetypes {
         }
 
         archetypes.retain(|_, count| *count >= ids.len());
+
         archetypes.destruct().0
     }
 

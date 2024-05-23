@@ -1,5 +1,6 @@
 use std::{
     collections::{hash_map::DefaultHasher, HashMap, HashSet},
+    fmt::Debug,
     hash::{Hash, Hasher},
 };
 
@@ -225,6 +226,22 @@ impl<K: Hash + PartialEq + PartialOrd, V> DenseMap<K, V> {
     }
 }
 
+impl<K: Hash + PartialEq + PartialOrd, V> Default for DenseMap<K, V> {
+    fn default() -> Self {
+        Self {
+            map: Default::default(),
+            keys: Default::default(),
+            values: Default::default(),
+        }
+    }
+}
+
+impl<K: Hash + PartialEq + PartialOrd +Debug, V: Debug> Debug for DenseMap<K, V> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_map().entries(self.iter()).finish()
+    }
+}
+
 impl<K: Hash + PartialEq + PartialOrd, V> FromIterator<(K, V)> for DenseMap<K, V> {
     fn from_iter<I: IntoIterator<Item = (K, V)>>(iter: I) -> Self {
         let mut map = DenseMap::new();
@@ -340,6 +357,22 @@ impl<V: Hash + PartialEq + PartialOrd> DenseSet<V> {
             true
         } else {
             false
+        }
+    }
+
+    pub fn remove(&mut self, value: &V) -> Option<V> {
+        let hashed = hash(value);
+
+        if let Some(index) = self.map.remove(&hashed) {
+            let value = self.values.swap_remove(index);
+            if index < self.len() {
+                let hashed = hash(&self.values[index]);
+                self.map.insert(hashed, index);
+            }
+
+            Some(value)
+        } else {
+            None
         }
     }
 

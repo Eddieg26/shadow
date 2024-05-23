@@ -10,8 +10,9 @@ use crate::ecs::{
 };
 
 pub mod access;
-pub mod schedule;
+pub mod graph;
 pub mod observer;
+pub mod systems;
 
 pub struct System {
     function: Box<dyn for<'a> Fn(&'a World) + Send + Sync>,
@@ -43,12 +44,10 @@ impl System {
         &self.writes
     }
 
-    pub(crate) fn befores_mut(&mut self) -> &mut Vec<System> {
-        &mut self.before
-    }
-
-    pub(crate) fn afters_mut(&mut self) -> &mut Vec<System> {
-        &mut self.after
+    pub(crate) fn systems(&mut self) -> (Vec<System>, Vec<System>) {
+        let before = std::mem::take(&mut self.before);
+        let after = std::mem::take(&mut self.after);
+        (before, after)
     }
 
     pub fn run(&self, world: &World) {

@@ -3,19 +3,22 @@ use self::events::{
     RemoveComponent, RemoveComponents, SetParent, Spawn,
 };
 use super::{
-    archetype::{ArchetypeMove, Archetypes},
+    archetype::{ArchetypeId, ArchetypeMove, Archetypes},
     core::{
-        Component, ComponentId, ComponentType, Components, Entities, Entity, LocalResource,
-        LocalResources, Resource, Resources,
+        Component, ComponentId, Components, Entities, Entity, LocalResource, LocalResources,
+        Resource, Resources,
     },
-    event::{meta::EventMetas, Event, EventInvocations, Events},
+    event::{Event, Events},
     storage::{
         dense::{DenseMap, DenseSet},
         table::ComponentSet,
     },
+    system::observer::{EventObservers, IntoObserver},
 };
+use std::{any::TypeId, collections::HashSet};
 
 pub mod events;
+pub mod query;
 
 pub struct World {
     resources: Resources,
@@ -24,30 +27,29 @@ pub struct World {
     entities: Entities,
     archetypes: Archetypes,
     events: Events,
+    observers: EventObservers,
 }
 
 impl World {
     pub fn new() -> Self {
         let mut resources = Resources::new();
-        let mut event_metas = EventMetas::new();
-        event_metas.register::<Spawn>();
-        event_metas.register::<Despawn>();
-        event_metas.register::<SetParent>();
-        event_metas.register::<AddChildren>();
-        event_metas.register::<RemoveChildren>();
-        event_metas.register::<AddComponents>();
-        event_metas.register::<RemoveComponents>();
-
-        resources.register(event_metas);
-        resources.register(EventInvocations::new());
+        let mut events = Events::new();
+        resources.add(events.register::<Spawn>());
+        resources.add(events.register::<Despawn>());
+        resources.add(events.register::<SetParent>());
+        resources.add(events.register::<AddChildren>());
+        resources.add(events.register::<RemoveChildren>());
+        resources.add(events.register::<AddComponents>());
+        resources.add(events.register::<RemoveComponents>());
 
         Self {
             resources,
+            events,
             local_resources: LocalResources::new(),
             components: Components::new(),
             entities: Entities::new(),
             archetypes: Archetypes::new(),
-            events: Events::new(),
+            observers: EventObservers::new(),
         }
     }
 
@@ -82,33 +84,35 @@ impl World {
     pub fn events(&self) -> &Events {
         &self.events
     }
-
-    pub fn events_mut(&mut self) -> &mut Events {
-        &mut self.events
-    }
 }
 
 impl World {
     pub fn register<C: Component>(&mut self) -> &mut Self {
         let id = self.components.register::<C>();
         self.components
-            .add_extension(id, ComponentEvents::new::<C>());
+            .add_extension(&id, ComponentEvents::new::<C>());
         self.register_event::<AddComponent<C>>()
             .register_event::<RemoveComponent<C>>()
     }
 
     pub fn register_event<E: Event>(&mut self) -> &mut Self {
-        self.resource_mut::<EventMetas>().register::<E>();
+        let outputs = self.events.register::<E>();
+        self.add_resource(outputs);
         self
     }
 
     pub fn add_resource<R: Resource>(&mut self, resource: R) -> &mut Self {
-        self.resources.register(resource);
+        self.resources.add(resource);
         self
     }
 
     pub fn add_local_resource<R: LocalResource>(&mut self, resource: R) -> &mut Self {
         self.local_resources.register(resource);
+        self
+    }
+
+    pub fn observe<E: Event, M>(&mut self, observer: impl IntoObserver<E, M>) -> &mut Self {
+        self.observers.add_observer(observer);
         self
     }
 }
@@ -131,20 +135,21 @@ impl World {
         despawned
     }
 
-    pub fn query(&self, components: &[ComponentId]) -> Vec<super::archetype::ArchetypeId>{
-        self.archetypes.query(components)
+    pub fn query(
+        &self,
+        components: &[ComponentId],
+        exclude: &HashSet<ComponentId>,
+    ) -> Vec<ArchetypeId> {
+        self.archetypes.query(components, exclude)
     }
 
     pub fn has_component<C: Component>(&self, entity: &Entity) -> bool {
-        let id = self.components.id(&ComponentType::new::<C>());
+        let id = ComponentId::new::<C>();
         self.archetypes.has_component(entity, &id)
     }
 
-    pub fn has_components(&self, entity: &Entity, components: &[ComponentType]) -> bool {
-        let ids = components
-            .iter()
-            .map(|ty| self.components.id(&ty))
-            .collect::<DenseSet<_>>();
+    pub fn has_components(&self, entity: &Entity, components: &[ComponentId]) -> bool {
+        let ids = components.into();
         self.archetypes.has_components(entity, ids)
     }
 
@@ -153,7 +158,7 @@ impl World {
         entity: &Entity,
         component: C,
     ) -> Option<ArchetypeMove> {
-        let id = self.components.id(&ComponentType::new::<C>());
+        let id = ComponentId::new::<C>();
         self.archetypes.add_component(entity, &id, component)
     }
 
@@ -183,5 +188,33 @@ impl World {
 
     pub fn set_parent(&mut self, entity: &Entity, parent: Option<&Entity>) -> Option<Entity> {
         self.entities.set_parent(entity, parent)
+    }
+
+    pub fn flush(&mut self) {
+        let mut events = self.events.drain();
+
+        while !events.is_empty() {
+            for mut event in events {
+                let meta = self.events.meta_dynamic(event.ty());
+                meta.invoke(&mut event, self);
+            }
+
+            self.observers.run(self);
+            events = self.events.drain();
+        }
+    }
+
+    pub fn flush_events<E: Event>(&mut self) {
+        let mut events = self.events.remove::<E>();
+        let ty = TypeId::of::<E>();
+        let meta = self.events.meta_dynamic(&ty);
+        while !events.is_empty() {
+            for mut event in events {
+                meta.invoke(&mut event, self);
+            }
+
+            self.observers.run_type::<E>(self);
+            events = self.events.remove::<E>();
+        }
     }
 }

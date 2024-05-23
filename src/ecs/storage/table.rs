@@ -228,6 +228,20 @@ impl Table {
         self.columns.get_mut(&component)
     }
 
+    pub fn component<C: Component>(&self, entity: &Entity) -> Option<&C> {
+        let index = self.entities.index(entity)?;
+        self.columns
+            .get(&ComponentId::new::<C>())
+            .and_then(|c| c.get(index))
+    }
+
+    pub fn component_mut<C: Component>(&self, entity: &Entity) -> Option<&mut C> {
+        let index = self.entities.index(entity)?;
+        self.columns
+            .get(&ComponentId::new::<C>())
+            .and_then(|c| c.get_mut(index))
+    }
+
     pub fn select(&self, entity: &Entity) -> Option<SelectedRow> {
         self.entities.index(entity).map(|index| {
             let mut cells = DenseMap::new();

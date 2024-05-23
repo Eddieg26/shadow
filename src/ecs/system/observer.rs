@@ -4,21 +4,21 @@ use super::{
 };
 use crate::ecs::{
     core::internal::blob::Blob,
-    event::{meta::EventMetas, Event, EventInvocations, EventOutputs, EventType},
+    event::{Event, EventOutputs, EventType},
     storage::dense::DenseMap,
     world::World,
 };
 use std::any::TypeId;
 
 pub struct Observer<E: Event> {
-    function: Box<dyn Fn(&[E::Output], &World)>,
+    function: Box<dyn Fn(&[E::Output], &World) + Send + Sync + 'static>,
     reads: Vec<WorldAccessType>,
     writes: Vec<WorldAccessType>,
 }
 
 impl<E: Event> Observer<E> {
     pub fn new(
-        function: impl Fn(&[E::Output], &World) + 'static,
+        function: impl Fn(&[E::Output], &World) + Send + Sync + 'static,
         reads: Vec<WorldAccessType>,
         writes: Vec<WorldAccessType>,
     ) -> Self {
@@ -59,18 +59,17 @@ impl<E: Event> Observers<E> {
 pub struct ErasedObservers {
     ty: EventType,
     observers: Blob,
-    observe: Box<dyn Fn(&Blob, &World)>,
+    observe: Box<dyn Fn(&Blob, &World) + Send + Sync + 'static>,
 }
 
 impl ErasedObservers {
     pub fn new<E: Event>() -> Self {
         Self {
             ty: TypeId::of::<E>(),
-            observers: Blob::new::<E>(),
+            observers: Blob::new::<Observer<E>>(),
             observe: Box::new(|blob, world| {
-                let observers = blob.get::<Observers<E>>(0).unwrap();
                 let outputs = world.resource_mut::<EventOutputs<E>>().drain();
-                for observer in observers.observers.iter() {
+                for observer in blob.iter::<Observer<E>>() {
                     observer.run(&outputs, world);
                 }
             }),
@@ -135,10 +134,20 @@ impl EventObservers {
     }
 
     pub fn run(&self, world: &World) {
-        for invocation in world.resource_mut::<EventInvocations>().drain() {
+        for invocation in world.events().invocations() {
             if let Some(observers) = self.observers.get(&invocation.event()) {
                 observers.observe(world);
-                let meta = world.resource::<EventMetas>().get(&invocation.event());
+                let meta = world.events().meta_dynamic(&invocation.event());
+                meta.clear(world);
+            }
+        }
+    }
+
+    pub fn run_type<E: Event>(&self, world: &World) {
+        if let Some(invocation) = world.events().invocation_type::<E>() {
+            if let Some(observers) = self.observers.get(&invocation.event()) {
+                observers.observe(world);
+                let meta = world.events().meta_dynamic(&invocation.event());
                 meta.clear(world);
             }
         }
@@ -151,7 +160,7 @@ pub trait IntoObserver<E: Event, M> {
 
 impl<E: Event, F> IntoObserver<E, ()> for F
 where
-    F: Fn(&[E::Output]) + 'static,
+    F: Fn(&[E::Output]) + Send + Sync + 'static,
 {
     fn into_observer(self) -> Observer<E> {
         Observer::new(
@@ -174,7 +183,7 @@ macro_rules! impl_into_observer {
     ($($arg:ident),*) => {
         impl<Ev: Event, F, $($arg: SystemArg),*> IntoObserver<Ev, (F, $($arg),*)> for F
         where
-            for<'a> F: Fn(&[Ev::Output], $($arg),*) + Fn(&[Ev::Output], $(ArgItem<'a, $arg>),*) + 'static,
+            for<'a> F: Fn(&[Ev::Output], $($arg),*) + Fn(&[Ev::Output], $(ArgItem<'a, $arg>),*) + Send + Sync +'static,
         {
             fn into_observer(self) -> Observer<Ev> {
                 let mut reads = vec![];

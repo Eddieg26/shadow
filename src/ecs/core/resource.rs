@@ -67,7 +67,7 @@ impl BaseResouces {
         }
     }
 
-    pub fn register<R: 'static>(&mut self, resource: R) {
+    pub fn add<R: 'static>(&mut self, resource: R) {
         let resource = ResourceData::new(resource);
         self.resources.insert(ResourceType::new::<R>(), resource);
     }
@@ -93,8 +93,9 @@ impl Resources {
         Self(BaseResouces::new())
     }
 
-    pub fn register<R: Resource>(&mut self, resource: R) {
-        self.0.register(resource);
+    pub fn add<R: Resource>(&mut self, resource: R) -> &mut Self {
+        self.0.add(resource);
+        self
     }
 
     pub fn get<R: Resource>(&self) -> &R {
@@ -114,7 +115,7 @@ impl LocalResources {
     }
 
     pub fn register<R: LocalResource>(&mut self, resource: R) {
-        self.0.register(resource);
+        self.0.add(resource);
     }
 
     pub fn get<R: LocalResource>(&self) -> &R {

@@ -1,10 +1,10 @@
-use crate::ecs::core::{ComponentType, ResourceType};
+use crate::ecs::core::{ComponentId, ResourceType};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum WorldAccessType {
     None,
     World,
-    Component(ComponentType),
+    Component(ComponentId),
     Resource(ResourceType),
     LocalResource(ResourceType),
 }
