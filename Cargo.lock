@@ -3,5 +3,5 @@
 version = 3
 
 [[package]]
-name = "shadow"
+name = "shadow-ecs"
 version = "0.1.0"
