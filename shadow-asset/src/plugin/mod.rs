@@ -1,6 +1,7 @@
 use self::{
-    actions::{
-        AssetLoaded, AssetMetas, ImportAsset, ImportFolder, LoadAsset, SettingsLoaded, UnloadAsset,
+    events::{
+        AssetLoaded, AssetMetas, ImportAsset, ImportFolder, LoadAsset, ProcessAsset,
+        SettingsLoaded, UnloadAsset,
     },
     observers::{on_import_assets, on_import_folder, on_load_assets},
 };
@@ -10,12 +11,12 @@ use crate::{
     database::AssetDatabase,
     loader::AssetLoader,
 };
-use shadow_game::game::{
+use shadow_game::{
+    game::Game,
     plugin::{Plugin, PluginContext},
-    Game,
 };
 
-pub mod actions;
+pub mod events;
 pub mod observers;
 
 pub struct AssetPlugin;
@@ -41,6 +42,7 @@ impl AssetPluginExt for Game {
             .register_event::<ImportAsset<A>>()
             .register_event::<LoadAsset<A>>()
             .register_event::<AssetLoaded<A>>()
+            .register_event::<ProcessAsset<A>>()
             .register_event::<UnloadAsset<A>>()
     }
 
@@ -53,3 +55,7 @@ impl AssetPluginExt for Game {
             .observe::<LoadAsset<L::Asset>, _>(on_load_assets::<L>())
     }
 }
+
+//AssetDatabase
+//ImportAssets
+//LoadAssets

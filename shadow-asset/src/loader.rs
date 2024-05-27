@@ -38,6 +38,5 @@ pub trait AssetLoader: 'static {
     type Settings: Settings;
 
     fn load(ctx: &mut LoadContext<Self::Settings>) -> io::Result<Self::Asset>;
-    fn unload(asset: &Self::Asset);
     fn extensions() -> &'static [&'static str];
 }

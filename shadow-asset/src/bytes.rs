@@ -3,6 +3,16 @@ pub trait AsBytes: Sized {
     fn from_bytes(bytes: &[u8]) -> Option<Self>;
 }
 
+impl AsBytes for () {
+    fn as_bytes(&self) -> Vec<u8> {
+        vec![]
+    }
+
+    fn from_bytes(_bytes: &[u8]) -> Option<Self> {
+        Some(())
+    }
+}
+
 impl AsBytes for u8 {
     fn as_bytes(&self) -> Vec<u8> {
         vec![*self]

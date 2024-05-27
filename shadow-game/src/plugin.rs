@@ -1,12 +1,12 @@
-use std::any::TypeId;
-
-use super::{runner::GameRunner, scene::Scene, schedule::Phase, Game, GamePhaseExt};
+use super::{scene::Scene, schedule::Phase};
+use crate::game::{Game, GamePhaseExt, GameRunner};
 use shadow_ecs::ecs::{
     core::{Component, LocalResource, Resource},
     event::Event,
     storage::dense::DenseMap,
     system::{observer::IntoObserver, IntoSystem},
 };
+use std::any::TypeId;
 
 pub struct PluginContext<'a> {
     game: &'a mut Game,

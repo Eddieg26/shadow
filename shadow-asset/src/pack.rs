@@ -10,7 +10,7 @@ pub struct AssetPack<A: Asset, S: Settings> {
 }
 
 impl<A: Asset, S: Settings> AssetPack<A, S> {
-    pub fn new(bytes: &[u8]) -> Option<Self> {
+    pub fn parse(bytes: &[u8]) -> Option<Self> {
         let asset_len = u32::from_bytes(&bytes[0..4])? as usize;
         let asset = A::from_bytes(&bytes[4..4 + asset_len])?;
 

@@ -1,6 +1,7 @@
-use self::{
+use crate::plugin::{Plugin, PluginContext};
+
+use super::{
     plugin::Plugins,
-    runner::GameRunner,
     scene::{Scene, SceneTracker, Scenes},
     schedule::{Execute, Init, MainSchedule, Phase, Shutdown},
 };
@@ -10,11 +11,6 @@ use shadow_ecs::ecs::{
     system::{observer::IntoObserver, IntoSystem},
     world::World,
 };
-
-pub mod plugin;
-pub mod runner;
-pub mod scene;
-pub mod schedule;
 
 pub struct Game {
     world: World,
@@ -31,7 +27,7 @@ impl Game {
             plugins: Plugins::new(),
             schedule: MainSchedule::new(),
             scenes: Scenes::new(),
-            runner: Box::new(runner::default_runner),
+            runner: Box::new(default_runner),
         }
     }
 
@@ -86,7 +82,7 @@ impl Game {
         self
     }
 
-    pub fn add_plugin<P: plugin::Plugin>(&mut self, plugin: P) -> &mut Self {
+    pub fn add_plugin<P: Plugin>(&mut self, plugin: P) -> &mut Self {
         self.plugins.add_plugin(plugin);
         self
     }
@@ -98,12 +94,12 @@ impl Game {
 
     pub fn run(&mut self) {
         let mut plugins = self.plugins.dependencies();
-        let mut ctx = plugin::PluginContext::new(self);
+        let mut ctx = PluginContext::new(self);
         plugins.start(&mut ctx);
         plugins.run(&mut ctx);
         plugins.finish(&mut ctx);
 
-        let runner = std::mem::replace(&mut self.runner, Box::new(runner::default_runner));
+        let runner = std::mem::replace(&mut self.runner, Box::new(default_runner));
         let mut game = std::mem::take(self);
         game.add_resource(SceneTracker::new());
         game.schedule.build();
@@ -210,4 +206,20 @@ impl GamePhaseExt for Game {
         self.schedule.insert_after::<P, Q>();
         self
     }
+}
+
+pub trait GameRunner {
+    fn run(&self, game: GameInstance);
+}
+
+impl<F: Fn(GameInstance)> GameRunner for F {
+    fn run(&self, game: GameInstance) {
+        self(game)
+    }
+}
+
+pub fn default_runner(mut game: GameInstance) {
+    game.init();
+    game.update();
+    game.shutdown();
 }

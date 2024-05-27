@@ -11,6 +11,8 @@ pub trait Asset: AsBytes + Send + Sync + 'static {}
 
 pub trait Settings: AsBytes + Default + Send + Sync + 'static {}
 
+impl Settings for () {}
+
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct AssetId(u64);
 

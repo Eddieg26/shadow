@@ -1,4 +1,4 @@
-use super::actions::{AssetLoaded, AssetMetas, ImportAsset, LoadAsset, SettingsLoaded};
+use super::events::{AssetLoaded, AssetMetas, ImportAsset, LoadAsset, SettingsLoaded};
 use crate::{
     asset::{AssetId, AssetInfo, AssetMetadata},
     bytes::AsBytes,
@@ -148,7 +148,7 @@ pub fn on_load_assets<L: AssetLoader>() -> Observer<LoadAsset<L::Asset>> {
                 };
 
                 let (asset, settings, dependencies) =
-                    match AssetPack::<L::Asset, L::Settings>::new(&bytes) {
+                    match AssetPack::<L::Asset, L::Settings>::parse(&bytes) {
                         Some(pack) => pack.take(),
                         None => {
                             database.failed(*id);

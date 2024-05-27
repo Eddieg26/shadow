@@ -76,7 +76,7 @@ impl EventMeta {
             invoke: Box::new(|event, world| {
                 let mut outputs = Vec::<E::Output>::new();
                 let event = event.cast_mut::<E>().expect("Invalid event type");
-                if let Some(output) = event.invoke(world){
+                if let Some(output) = event.invoke(world) {
                     outputs.push(output);
                 }
                 world.resource_mut::<EventOutputs<E>>().extend(outputs);
@@ -200,18 +200,23 @@ impl<E: Event> EventOutputs<E> {
 
     pub fn add(&mut self, output: E::Output) {
         self.outputs.push(output);
-        self.invocations
-            .write()
-            .unwrap()
-            .insert(EventInvocation::new::<E>());
+        if self.outputs.len() == 1 {
+            self.invocations
+                .write()
+                .unwrap()
+                .insert(EventInvocation::new::<E>());
+        }
     }
 
     pub fn extend(&mut self, outputs: Vec<E::Output>) {
+        let is_empty = self.outputs.is_empty();
         self.outputs.extend(outputs);
-        self.invocations
-            .write()
-            .unwrap()
-            .insert(EventInvocation::new::<E>());
+        if !is_empty {
+            self.invocations
+                .write()
+                .unwrap()
+                .insert(EventInvocation::new::<E>());
+        }
     }
 
     pub fn drain(&mut self) -> Vec<E::Output> {
