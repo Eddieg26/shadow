@@ -37,7 +37,7 @@ impl Event for Spawn {
     type Output = Entity;
     const PRIORITY: i32 = i32::MAX - 1000;
 
-    fn invoke(&mut self, world: &mut super::World) -> Self::Output {
+    fn invoke(&mut self, world: &mut super::World) -> Option<Self::Output> {
         let entity = world.spawn(self.parent);
         if matches!(self.parent, Some(_)) {
             world.events().add(SetParent::new(entity, self.parent));
@@ -47,7 +47,7 @@ impl Event for Spawn {
             components.add_column(id, column);
         }
         world.add_components(&entity, components);
-        entity
+        Some(entity)
     }
 }
 
@@ -65,7 +65,7 @@ impl Event for Despawn {
     type Output = Vec<Entity>;
     const PRIORITY: i32 = i32::MIN + 1000;
 
-    fn invoke(&mut self, world: &mut super::World) -> Self::Output {
+    fn invoke(&mut self, world: &mut super::World) -> Option<Self::Output> {
         let mut entities = vec![];
         for (entity, mut set) in world.despawn(&self.entity).drain() {
             entities.push(entity);
@@ -74,7 +74,11 @@ impl Event for Despawn {
                 meta.remove(world, &entity, &mut column);
             }
         }
-        entities
+        if entities.is_empty() {
+            None
+        } else {
+            Some(entities)
+        }
     }
 }
 
@@ -128,9 +132,9 @@ impl Event for SetParent {
     type Output = ParentUpdate;
     const PRIORITY: i32 = Spawn::PRIORITY - 1000;
 
-    fn invoke(&mut self, world: &mut super::World) -> Self::Output {
+    fn invoke(&mut self, world: &mut super::World) -> Option<Self::Output> {
         let old_parent = world.set_parent(&self.entity, self.parent.as_ref());
-        ParentUpdate::new(self.entity, self.parent, old_parent)
+        Some(ParentUpdate::new(self.entity, self.parent, old_parent))
     }
 }
 
@@ -149,14 +153,17 @@ impl Event for AddChildren {
     type Output = Vec<ParentUpdate>;
     const PRIORITY: i32 = SetParent::PRIORITY - 1000;
 
-    fn invoke(&mut self, world: &mut super::World) -> Self::Output {
-        self.children
+    fn invoke(&mut self, world: &mut super::World) -> Option<Self::Output> {
+        let updates = self
+            .children
             .iter()
             .map(|child| {
                 let old_parent = world.set_parent(child, Some(&self.parent));
                 ParentUpdate::new(*child, Some(self.parent), old_parent)
             })
-            .collect::<Vec<_>>()
+            .collect::<Vec<_>>();
+
+        Some(updates)
     }
 }
 
@@ -183,14 +190,17 @@ impl Event for RemoveChildren {
     type Output = Vec<ParentUpdate>;
     const PRIORITY: i32 = AddChildren::PRIORITY - 1000;
 
-    fn invoke(&mut self, world: &mut super::World) -> Self::Output {
-        self.children
+    fn invoke(&mut self, world: &mut super::World) -> Option<Self::Output> {
+        let updates = self
+            .children
             .iter()
             .map(|child| {
                 let old_parent = world.set_parent(child, None);
                 ParentUpdate::new(*child, None, old_parent)
             })
-            .collect::<Vec<_>>()
+            .collect::<Vec<_>>();
+
+        Some(updates)
     }
 }
 
@@ -212,11 +222,11 @@ impl<C: Component> Event for AddComponent<C> {
     type Output = Entity;
     const PRIORITY: i32 = Spawn::PRIORITY - 1000;
 
-    fn invoke(&mut self, world: &mut super::World) -> Self::Output {
-        let component = self.component.take().expect("Component not found");
-        world.add_component(&self.entity, component);
+    fn invoke(&mut self, world: &mut super::World) -> Option<Self::Output> {
+        let component = self.component.take()?;
+        let _ = world.add_component(&self.entity, component)?;
 
-        self.entity
+        Some(self.entity)
     }
 }
 
@@ -246,7 +256,7 @@ impl Event for AddComponents {
     type Output = Entity;
     const PRIORITY: i32 = AddComponent::<()>::PRIORITY;
 
-    fn invoke(&mut self, world: &mut super::World) -> Self::Output {
+    fn invoke(&mut self, world: &mut super::World) -> Option<Self::Output> {
         let mut components = ComponentSet::new();
         for (id, column) in self.components.drain() {
             components.add_column(id, column);
@@ -254,8 +264,8 @@ impl Event for AddComponents {
             let metas = world.components().extension::<ComponentEvents>(&id);
             metas.add(world, &self.entity);
         }
-        world.add_components(&self.entity, components);
-        self.entity
+        let _ = world.add_components(&self.entity, components)?;
+        Some(self.entity)
     }
 }
 
@@ -277,11 +287,11 @@ impl<C: Component> Event for RemoveComponent<C> {
     type Output = (Entity, C);
     const PRIORITY: i32 = AddComponent::<C>::PRIORITY - 1000;
 
-    fn invoke(&mut self, world: &mut super::World) -> Self::Output {
+    fn invoke(&mut self, world: &mut super::World) -> Option<Self::Output> {
         let id = ComponentId::new::<C>();
-        let mut _move = world.remove_component(&self.entity, &id).unwrap();
-        let component = _move.removed_mut().remove_component::<C>(&id).unwrap();
-        (self.entity, component)
+        let mut _move = world.remove_component(&self.entity, &id)?;
+        let component = _move.removed_mut().remove_component::<C>(&id)?;
+        Some((self.entity, component))
     }
 }
 
@@ -308,10 +318,10 @@ impl Event for RemoveComponents {
     type Output = Entity;
     const PRIORITY: i32 = RemoveComponent::<()>::PRIORITY;
 
-    fn invoke(&mut self, world: &mut super::World) -> Self::Output {
+    fn invoke(&mut self, world: &mut super::World) -> Option<Self::Output> {
         let components = std::mem::take(&mut self.components);
-        let mut _move = world.remove_components(&self.entity, components);
-        self.entity
+        let _move = world.remove_components(&self.entity, components)?;
+        Some(self.entity)
     }
 }
 

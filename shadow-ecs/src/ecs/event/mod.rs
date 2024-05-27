@@ -18,11 +18,7 @@ pub trait Event: Send + Sync + 'static {
         Self::PRIORITY
     }
 
-    fn skip(&self, _: &World) -> bool {
-        false
-    }
-
-    fn invoke(&mut self, world: &mut World) -> Self::Output;
+    fn invoke(&mut self, world: &mut World) -> Option<Self::Output>;
 }
 
 pub type EventType = TypeId;
@@ -79,9 +75,9 @@ impl EventMeta {
             priority: E::PRIORITY,
             invoke: Box::new(|event, world| {
                 let mut outputs = Vec::<E::Output>::new();
-                let event = event.cast_mut::<E>().expect("invalid event type");
-                if !event.skip(world) {
-                    outputs.push(event.invoke(world));
+                let event = event.cast_mut::<E>().expect("Invalid event type");
+                if let Some(output) = event.invoke(world){
+                    outputs.push(output);
                 }
                 world.resource_mut::<EventOutputs<E>>().extend(outputs);
             }),

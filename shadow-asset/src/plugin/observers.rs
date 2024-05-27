@@ -3,7 +3,7 @@ use crate::{
     asset::{AssetId, AssetInfo, AssetMetadata},
     bytes::AsBytes,
     config::AssetConfig,
-    database::{AssetDatabase, AssetStatus, LoadedResult},
+    database::{AssetDatabase, LoadedResult},
     loader::{AssetLoader, LoadContext},
     pack::AssetPack,
 };
