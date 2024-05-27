@@ -104,6 +104,7 @@ impl EventMeta {
     }
 }
 
+#[derive(Clone)]
 pub struct Events {
     events: Arc<Mutex<Vec<ErasedEvent>>>,
     metas: HashMap<EventType, Arc<EventMeta>>,

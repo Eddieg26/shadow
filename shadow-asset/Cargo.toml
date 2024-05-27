@@ -1,0 +1,11 @@
+[package]
+name = "shadow-asset"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+shadow-ecs = { path = "../shadow-ecs", version = "0.1.0" }
+shadow-game = { path = "../shadow-game", version = "0.1.0" }
+ulid = "1.1.2"

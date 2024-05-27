@@ -1,7 +1,28 @@
 use std::{
+    any::Any,
     sync::{mpsc::Sender, Arc, Condvar, Mutex, MutexGuard},
     thread::{sleep, JoinHandle},
 };
+
+pub struct Task {
+    thread: Option<JoinHandle<()>>,
+}
+
+impl Task {
+    pub fn new(executor: impl FnOnce() + Send + Sync + 'static) -> Self {
+        Self {
+            thread: Some(std::thread::spawn(executor)),
+        }
+    }
+
+    pub fn join(&mut self) -> Result<(), Box<(dyn Any + Send + 'static)>> {
+        if let Some(thread) = self.thread.take() {
+            thread.join()
+        } else {
+            Ok(())
+        }
+    }
+}
 
 struct Worker {
     id: usize,

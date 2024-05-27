@@ -35,6 +35,22 @@ impl Game {
         }
     }
 
+    pub fn resource<R: Resource>(&self) -> &R {
+        self.world.resource::<R>()
+    }
+
+    pub fn resource_mut<R: Resource>(&mut self) -> &mut R {
+        self.world.resource_mut::<R>()
+    }
+
+    pub fn local_resource<R: LocalResource>(&self) -> &R {
+        self.world.local_resource::<R>()
+    }
+
+    pub fn local_resource_mut<R: LocalResource>(&mut self) -> &mut R {
+        self.world.local_resource_mut::<R>()
+    }
+
     pub fn register<C: Component>(&mut self) -> &mut Self {
         self.world.register::<C>();
         self

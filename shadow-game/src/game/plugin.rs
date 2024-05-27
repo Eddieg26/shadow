@@ -140,6 +140,6 @@ pub trait Plugin: 'static {
         Plugins::new()
     }
     fn start(&mut self, _ctx: &mut PluginContext) {}
-    fn run(&mut self, ctx: &mut PluginContext);
+    fn run(&mut self, _ctx: &mut PluginContext) {}
     fn finish(&mut self, _ctx: &mut PluginContext) {}
 }
