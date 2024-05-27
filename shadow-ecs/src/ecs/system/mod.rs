@@ -14,6 +14,8 @@ pub mod graph;
 pub mod observer;
 pub mod systems;
 
+pub use systems::*;
+
 pub struct System {
     function: Box<dyn for<'a> Fn(&'a World) + Send + Sync>,
     reads: Vec<WorldAccessType>,

@@ -28,6 +28,7 @@ impl GraphNode for System {
 pub struct Systems {
     graph: Graph<System>,
     runner: SystemRunner,
+    mode: RunMode,
 }
 
 impl Systems {
@@ -38,6 +39,7 @@ impl Systems {
                 RunMode::Parallel => SystemRunner::new(ParallelRunner),
             },
             graph: Graph::new(),
+            mode,
         }
     }
 
@@ -53,13 +55,17 @@ impl Systems {
 
         let id = self.graph.insert(system);
 
-        after_ids
-            .iter()
-            .for_each(|a| self.graph.add_depenency(id, *a));
+        if matches!(self.mode, RunMode::Parallel) {
+            after_ids
+                .iter()
+                .for_each(|a| self.graph.add_depenency(id, *a));
+        }
 
         for before in before {
             let before_id = self.graph.insert(before);
-            self.graph.add_depenency(before_id, id);
+            if matches!(self.mode, RunMode::Parallel) {
+                self.graph.add_depenency(before_id, id);
+            }
         }
 
         id
