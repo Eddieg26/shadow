@@ -9,11 +9,13 @@ use ulid::Ulid;
 
 pub trait Asset: AsBytes + Send + Sync + 'static {}
 
+impl Asset for () {}
+
 pub trait Settings: AsBytes + Default + Send + Sync + 'static {}
 
 impl Settings for () {}
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct AssetId(u64);
 
 impl AssetId {
@@ -63,7 +65,7 @@ impl AsBytes for AssetType {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct AssetDependency {
     id: AssetId,
     ty: AssetType,

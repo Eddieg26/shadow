@@ -3,9 +3,9 @@ use crate::{
     asset::{AssetId, AssetInfo, AssetMetadata},
     bytes::AsBytes,
     config::AssetConfig,
-    database::{AssetDatabase, LoadedResult},
     loader::{AssetLoader, LoadContext},
     pack::AssetPack,
+    tracker::AssetTrackers,
 };
 use shadow_ecs::ecs::{
     event::Events,
@@ -130,19 +130,19 @@ pub fn on_load_assets<L: AssetLoader>() -> Observer<LoadAsset<L::Asset>> {
                     config: &AssetConfig,
                     events: &Events,
                     metas: &AssetMetas,
-                    database: &AssetDatabase| {
+                    trackers: &AssetTrackers| {
         let ids = ids.iter().map(|id| *id).collect::<Vec<_>>();
         let config = config.clone();
         let events = events.clone();
         let metas = metas.clone();
-        let database = database.clone();
+        let trackers = trackers.clone();
         Task::new(move || {
             for id in &ids {
                 let path = config.cached_asset_path(id);
                 let bytes = match std::fs::read(&path) {
                     Ok(bytes) => bytes,
                     Err(_) => {
-                        database.failed(*id);
+                        trackers.fail(id);
                         continue;
                     }
                 };
@@ -151,7 +151,7 @@ pub fn on_load_assets<L: AssetLoader>() -> Observer<LoadAsset<L::Asset>> {
                     match AssetPack::<L::Asset, L::Settings>::parse(&bytes) {
                         Some(pack) => pack.take(),
                         None => {
-                            database.failed(*id);
+                            trackers.fail(id);
                             continue;
                         }
                     };
@@ -159,17 +159,18 @@ pub fn on_load_assets<L: AssetLoader>() -> Observer<LoadAsset<L::Asset>> {
                 events.add(AssetLoaded::new(*id, asset));
                 events.add(SettingsLoaded::new(*id, settings));
 
-                let LoadedResult {
-                    unloaded, finished, ..
-                } = database.loaded(*id, dependencies);
+                let result = match trackers.load(*id, &dependencies) {
+                    Some(result) => result,
+                    None => continue,
+                };
 
-                for dependency in unloaded.iter() {
+                for dependency in result.unloaded() {
                     if let Some(meta) = metas.get_dyn(dependency.ty()) {
                         meta.load(&events, dependency.id());
                     }
                 }
 
-                for dep in finished {
+                for dep in result.finished() {
                     if let Some(meta) = metas.get_dyn(dep.ty()) {
                         meta.process(&events, dep.id());
                     }

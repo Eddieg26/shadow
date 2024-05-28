@@ -1,8 +1,8 @@
 use crate::{
     asset::{Asset, AssetId, AssetPath, AssetSettings, AssetType, Assets, Settings},
     config::AssetConfig,
-    database::{AssetDatabase, AssetStatus},
     loader::AssetLoader,
+    tracker::{AssetStatus, AssetTrackers},
 };
 use shadow_ecs::ecs::{
     core::Resource,
@@ -79,14 +79,14 @@ impl<A: Asset> Event for LoadAsset<A> {
         let id = match &self.path {
             AssetPath::Id(id) => *id,
             AssetPath::Path(path) => {
-                if let Some(id) = world.resource::<AssetDatabase>().get_path_id(path) {
+                if let Some(id) = world.resource::<AssetTrackers>().get_path_id(path) {
                     id
                 } else {
                     let config = world.resource::<AssetConfig>();
                     if let Ok(info) = config.load_asset_info(&path) {
-                        let database = world.resource_mut::<AssetDatabase>();
-                        database.set_path_id(path.clone(), info.id());
-                        database.load::<A>(info.id());
+                        let trackers = world.resource_mut::<AssetTrackers>();
+                        trackers.set_path_id(path.clone(), info.id());
+                        trackers.add::<A>(info.id());
                         info.id()
                     } else {
                         return None;
@@ -189,9 +189,9 @@ impl<A: Asset> Event for ProcessAsset<A> {
     type Output = AssetId;
 
     fn invoke(&mut self, world: &mut World) -> Option<Self::Output> {
-        let database = world.resource::<AssetDatabase>();
+        let trackers = world.resource::<AssetTrackers>();
         let assets = world.resource::<Assets<A>>();
-        if database.get_status(&self.id) == AssetStatus::Loaded && assets.contains(&self.id) {
+        if trackers.status(&self.id) == AssetStatus::Loaded && assets.contains(&self.id) {
             Some(self.id)
         } else {
             None

@@ -1,8 +1,4 @@
-use shadow_game::{
-    game::Game,
-    plugin::{Plugin, PluginContext, Plugins},
-    schedule::{PostUpdate, Start, Update},
-};
+use shadow_game::plugin::{Plugin, PluginContext, Plugins};
 
 pub struct TestPluginA;
 
@@ -40,15 +36,4 @@ impl Plugin for TestPluginB {
     fn finish(&mut self, ctx: &mut PluginContext) {
         println!("TestPluginB::finish");
     }
-}
-
-fn main() {
-    let mut game = Game::new();
-    game.add_plugin(TestPluginB);
-
-    game.add_system(Start, || println!("Hello, World!"));
-    game.add_system(Update, || println!("Update, World!"));
-    game.add_system(PostUpdate, || println!("Goodbye, World!"));
-
-    game.run();
 }

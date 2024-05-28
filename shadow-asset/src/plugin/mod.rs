@@ -8,8 +8,8 @@ use self::{
 use crate::{
     asset::{Asset, AssetSettings, Assets},
     config::AssetConfig,
-    database::AssetDatabase,
     loader::AssetLoader,
+    tracker::AssetTrackers,
 };
 use shadow_game::{
     game::Game,
@@ -25,7 +25,7 @@ impl Plugin for AssetPlugin {
     fn start(&mut self, ctx: &mut PluginContext) {
         ctx.add_resource(AssetConfig::new("assets", "cache"));
         ctx.add_resource(AssetMetas::new());
-        ctx.add_resource(AssetDatabase::new());
+        ctx.add_resource(AssetTrackers::new());
         ctx.register_event::<ImportFolder>();
         ctx.observe::<ImportFolder, _>(on_import_folder);
     }
@@ -55,7 +55,3 @@ impl AssetPluginExt for Game {
             .observe::<LoadAsset<L::Asset>, _>(on_load_assets::<L>())
     }
 }
-
-//AssetDatabase
-//ImportAssets
-//LoadAssets

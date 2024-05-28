@@ -47,26 +47,26 @@ fn q(query: Query<&TestComponentA, Not<TestComponentB>>) {
     }
 }
 
-fn main() {
-    let mut world = World::new();
-    let mut systems = Systems::new(RunMode::Sequential);
+// fn main() {
+//     let mut world = World::new();
+//     let mut systems = Systems::new(RunMode::Sequential);
 
-    world
-        .register::<TestComponentA>()
-        .register::<TestComponentB>()
-        .register::<TestComponentC>()
-        .add_resource(TestResource)
-        .observe::<Spawn, _>(observe_create);
+//     world
+//         .register::<TestComponentA>()
+//         .register::<TestComponentB>()
+//         .register::<TestComponentC>()
+//         .add_resource(TestResource)
+//         .observe::<Spawn, _>(observe_create);
 
-    systems.add_system(test_a);
-    systems.add_system(test_b);
-    systems.add_system(test_c);
-    systems.build();
-    systems.run(&world);
-    world.flush();
+//     systems.add_system(test_a);
+//     systems.add_system(test_b);
+//     systems.add_system(test_c);
+//     systems.build();
+//     systems.run(&world);
+//     world.flush();
 
-    let mut systems = Systems::new(RunMode::Sequential);
-    systems.add_system(q);
-    systems.build();
-    systems.run(&world);
-}
+//     let mut systems = Systems::new(RunMode::Sequential);
+//     systems.add_system(q);
+//     systems.build();
+//     systems.run(&world);
+// }

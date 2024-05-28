@@ -236,7 +236,7 @@ impl<K: Hash + PartialEq + PartialOrd, V> Default for DenseMap<K, V> {
     }
 }
 
-impl<K: Hash + PartialEq + PartialOrd +Debug, V: Debug> Debug for DenseMap<K, V> {
+impl<K: Hash + PartialEq + PartialOrd + Debug, V: Debug> Debug for DenseMap<K, V> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_map().entries(self.iter()).finish()
     }
@@ -527,6 +527,12 @@ impl<V: Hash + PartialEq + PartialOrd> FromIterator<V> for DenseSet<V> {
         }
 
         set
+    }
+}
+
+impl<K: Hash + PartialEq + PartialOrd + Debug> Debug for DenseSet<K> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_set().entries(self.iter()).finish()
     }
 }
 
