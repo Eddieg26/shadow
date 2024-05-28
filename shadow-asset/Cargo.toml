@@ -9,3 +9,5 @@ edition = "2021"
 shadow-ecs = { path = "../shadow-ecs", version = "0.1.0" }
 shadow-game = { path = "../shadow-game", version = "0.1.0" }
 ulid = { worspace = true }
+serde = { worspace = true, features = ["derive"] }
+toml = { worspace = true }

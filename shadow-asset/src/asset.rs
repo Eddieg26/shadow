@@ -11,11 +11,29 @@ pub trait Asset: AsBytes + Send + Sync + 'static {}
 
 impl Asset for () {}
 
-pub trait Settings: AsBytes + Default + Send + Sync + 'static {}
+pub trait Settings:
+    serde::Serialize + serde::de::DeserializeOwned + AsBytes + Default + Send + Sync + 'static
+{
+}
 
-impl Settings for () {}
+#[derive(Default, Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct DefaultSettings(u8);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+impl AsBytes for DefaultSettings {
+    fn as_bytes(&self) -> Vec<u8> {
+        Vec::new()
+    }
+
+    fn from_bytes(_: &[u8]) -> Option<Self> {
+        Some(DefaultSettings(0))
+    }
+}
+
+impl Settings for DefaultSettings {}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub struct AssetId(u64);
 
 impl AssetId {
@@ -42,7 +60,9 @@ impl AsBytes for AssetId {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub struct AssetType(u64);
 
 impl AssetType {
@@ -65,7 +85,9 @@ impl AsBytes for AssetType {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub struct AssetDependency {
     id: AssetId,
     ty: AssetType,
@@ -130,6 +152,7 @@ impl From<&str> for AssetPath {
     }
 }
 
+#[derive(serde::Serialize)]
 pub struct AssetMetadata<S: Settings> {
     id: AssetId,
     settings: S,
@@ -174,6 +197,79 @@ impl<S: Settings> Default for AssetMetadata<S> {
             id: AssetId::new(),
             settings: S::default(),
         }
+    }
+}
+
+impl<'de, S: Settings> serde::Deserialize<'de> for AssetMetadata<S> {
+    fn deserialize<D>(deserializer: D) -> Result<AssetMetadata<S>, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(serde::Deserialize)]
+        #[serde(field_identifier, rename_all = "lowercase")]
+        enum Field {
+            Id,
+            Settings,
+        }
+
+        struct Visitor<S: Settings>(std::marker::PhantomData<S>);
+        impl<'de, S: Settings> serde::de::Visitor<'de> for Visitor<S> {
+            type Value = AssetMetadata<S>;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(formatter, "a tuple of AssetId and Settings")
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<AssetMetadata<S>, A::Error>
+            where
+                A: serde::de::SeqAccess<'de>,
+            {
+                let id = seq
+                    .next_element()?
+                    .ok_or_else(|| serde::de::Error::invalid_length(0, &"a tuple of length 2"))?;
+                let settings = seq
+                    .next_element()?
+                    .ok_or_else(|| serde::de::Error::invalid_length(1, &"a tuple of length 2"))?;
+                Ok(AssetMetadata::new(id, settings))
+            }
+
+            fn visit_map<V: serde::de::MapAccess<'de>>(
+                self,
+                mut map: V,
+            ) -> Result<Self::Value, V::Error> {
+                let mut id = None;
+                let mut settings = None;
+
+                while let Some(key) = map.next_key()? {
+                    match key {
+                        Field::Id => {
+                            if id.is_some() {
+                                return Err(serde::de::Error::duplicate_field("id"));
+                            }
+                            id = Some(map.next_value()?);
+                        }
+                        Field::Settings => {
+                            if settings.is_some() {
+                                return Err(serde::de::Error::duplicate_field("settings"));
+                            }
+                            settings = Some(map.next_value()?);
+                        }
+                    }
+                }
+
+                let id = id.ok_or_else(|| serde::de::Error::missing_field("id"))?;
+                let settings =
+                    settings.ok_or_else(|| serde::de::Error::missing_field("settings"))?;
+
+                Ok(AssetMetadata { id, settings })
+            }
+        }
+
+        deserializer.deserialize_struct(
+            "AssetMetadata",
+            &["id", "settings"],
+            Visitor(std::marker::PhantomData),
+        )
     }
 }
 

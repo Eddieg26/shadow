@@ -1,7 +1,8 @@
 use basic::PlainText;
 use shadow_asset::{
-    asset::{AssetId, AssetMetadata, AssetSettings, Assets},
+    asset::{AssetId, AssetMetadata, AssetSettings, Assets, DefaultSettings},
     bytes::AsBytes,
+    pack::AssetPack,
     plugin::{
         events::{AssetLoaded, ImportAsset, LoadAsset},
         AssetPlugin, AssetPluginExt,
@@ -28,6 +29,10 @@ fn main() {
             }
         })
         .run();
+
+    // let bytes = std::fs::read("cache/7569663888696199759").unwrap();
+    // let pack = AssetPack::<PlainText, ()>::parse(&bytes).unwrap();
+    // println!("Pack: {:?}", &pack.asset().text);
 
     // let meta = AssetMetadata::<()>::default();
     // println!("Id: {:?}", meta.id());

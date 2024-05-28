@@ -63,8 +63,10 @@ impl AssetConfig {
         if let Some(parent) = meta_path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let bytes = metadata.as_bytes();
-        std::fs::write(&meta_path, bytes)?;
+        let data = toml::to_string_pretty(metadata).map_err(|_| {
+            io::Error::new(io::ErrorKind::InvalidData, "Failed to serialize metadata")
+        })?;
+        std::fs::write(&meta_path, &data)?;
         Ok(meta_path)
     }
 

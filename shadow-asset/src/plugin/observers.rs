@@ -63,9 +63,11 @@ pub fn on_import_assets<L: AssetLoader>() -> Observer<ImportAsset<L::Asset>> {
                 let meta_path = config.meta_path(path);
                 let metadata = {
                     if let Ok(bytes) = std::fs::read(&meta_path) {
-                        match AssetMetadata::<L::Settings>::from_bytes(&bytes) {
-                            Some(data) => data,
-                            None => {
+                        match toml::from_str::<AssetMetadata<L::Settings>>(
+                            &String::from_utf8_lossy(&bytes),
+                        ) {
+                            Ok(metadata) => metadata,
+                            Err(_) => {
                                 let data = AssetMetadata::<L::Settings>::default();
                                 let _ = config.save_metadata(&path, &data);
                                 data
@@ -82,32 +84,15 @@ pub fn on_import_assets<L: AssetLoader>() -> Observer<ImportAsset<L::Asset>> {
                     AssetInfo::calculate_checksum(&asset_bytes, &metadata.settings().as_bytes());
 
                 let info_path = config.asset_info_path(path);
-                let info = {
-                    if let Ok(bytes) = std::fs::read(&info_path) {
-                        match AssetInfo::from_bytes(&bytes) {
-                            Some(data) => {
-                                if data.id() != metadata.id() {
-                                    let data = AssetInfo::new(metadata.id(), 0);
-                                    let _ = config.save_asset_info(&path, &data);
-                                    data
-                                } else {
-                                    data
-                                }
-                            }
-                            None => {
-                                let data = AssetInfo::new(metadata.id(), 0);
-                                let _ = config.save_asset_info(&path, &data);
-                                data
-                            }
-                        }
-                    } else {
-                        let data = AssetInfo::new(metadata.id(), 0);
-                        let _ = config.save_asset_info(&path, &data);
-                        data
-                    }
+                let update_cache = match std::fs::read(&info_path) {
+                    Ok(bytes) => match AssetInfo::from_bytes(&bytes) {
+                        Some(data) => data.id() != metadata.id() || data.checksum() != checksum,
+                        None => true,
+                    },
+                    Err(_) => true,
                 };
 
-                if info.checksum() != checksum {
+                if update_cache {
                     let data = AssetInfo::new(metadata.id(), checksum);
                     let _ = config.save_asset_info(&path, &data);
 

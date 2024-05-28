@@ -1,4 +1,4 @@
-use shadow_asset::{asset::Asset, bytes::AsBytes, loader::AssetLoader};
+use shadow_asset::{asset::{Asset, DefaultSettings}, bytes::AsBytes, loader::AssetLoader};
 use shadow_game::plugin::{Plugin, PluginContext, Plugins};
 
 pub struct TestPluginA;
@@ -65,7 +65,7 @@ impl Asset for PlainText {}
 
 impl AssetLoader for PlainText {
     type Asset = PlainText;
-    type Settings = ();
+    type Settings = DefaultSettings;
 
     fn load(
         ctx: &mut shadow_asset::loader::LoadContext<Self::Settings>,

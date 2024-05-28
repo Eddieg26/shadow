@@ -45,6 +45,14 @@ impl<A: Asset, S: Settings> AssetPack<A, S> {
         bytes
     }
 
+    pub fn asset(&self) -> &A {
+        &self.asset
+    }
+
+    pub fn settings(&self) -> &S {
+        &self.settings
+    }
+
     pub fn take(self) -> (A, S, Vec<AssetDependency>) {
         (self.asset, self.settings, self.dependencies)
     }
