@@ -211,7 +211,7 @@ impl<E: Event> EventOutputs<E> {
     pub fn extend(&mut self, outputs: Vec<E::Output>) {
         let is_empty = self.outputs.is_empty();
         self.outputs.extend(outputs);
-        if !is_empty {
+        if is_empty {
             self.invocations
                 .write()
                 .unwrap()

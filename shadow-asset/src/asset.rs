@@ -100,6 +100,7 @@ impl AsBytes for AssetDependency {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum AssetPath {
     Id(AssetId),
     Path(PathBuf),
@@ -242,6 +243,14 @@ impl<A: Asset> Assets<A> {
 
     pub fn get_mut(&mut self, id: &AssetId) -> Option<&mut A> {
         self.assets.get_mut(id)
+    }
+
+    pub fn get_unchecked(&self, id: &AssetId) -> &A {
+        self.assets.get(id).unwrap()
+    }
+
+    pub fn get_unchecked_mut(&mut self, id: &AssetId) -> &mut A {
+        self.assets.get_mut(id).unwrap()
     }
 
     pub fn remove(&mut self, id: &AssetId) -> Option<A> {

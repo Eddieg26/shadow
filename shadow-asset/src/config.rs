@@ -43,7 +43,11 @@ impl AssetConfig {
 
     pub fn asset_info_path(&self, asset_path: &Path) -> PathBuf {
         let mut hasher = DefaultHasher::new();
-        asset_path.hash(&mut hasher);
+        match Self::normalize_path(asset_path).strip_prefix(&self.assets) {
+            Ok(path) => path.hash(&mut hasher),
+            Err(_) => asset_path.hash(&mut hasher),
+        }
+
         let hash = hasher.finish().to_string();
         let mut info_path = self.cache.join("lib");
         info_path.push(hash);
@@ -60,7 +64,7 @@ impl AssetConfig {
             std::fs::create_dir_all(parent)?;
         }
         let bytes = metadata.as_bytes();
-        std::fs::write(&meta_path, &bytes)?;
+        std::fs::write(&meta_path, bytes)?;
         Ok(meta_path)
     }
 
@@ -82,6 +86,15 @@ impl AssetConfig {
             "Failed to load asset info",
         ))?;
         Ok(info)
+    }
+
+    pub fn normalize_path(path: &Path) -> PathBuf {
+        if let Some(path) = path.to_str() {
+            let path = path.to_string();
+            path.replace("\\", "/").into()
+        } else {
+            path.to_path_buf()
+        }
     }
 }
 

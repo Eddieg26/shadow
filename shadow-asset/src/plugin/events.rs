@@ -17,10 +17,8 @@ pub struct ImportFolder {
 }
 
 impl ImportFolder {
-    pub fn new() -> Self {
-        Self {
-            path: PathBuf::new(),
-        }
+    pub fn new(path: impl Into<PathBuf>) -> Self {
+        Self { path: path.into() }
     }
 }
 
@@ -79,15 +77,27 @@ impl<A: Asset> Event for LoadAsset<A> {
         let id = match &self.path {
             AssetPath::Id(id) => *id,
             AssetPath::Path(path) => {
-                if let Some(id) = world.resource::<AssetTrackers>().get_path_id(path) {
-                    id
+                let trackers = world.resource_mut::<AssetTrackers>();
+                if let Some(id) = trackers.get_path_id(path) {
+                    if trackers.status(&id) == AssetStatus::Importing {
+                        trackers.enqueue::<A>(id);
+                        return None;
+                    } else {
+                        trackers.add::<A>(id);
+                        id
+                    }
                 } else {
                     let config = world.resource::<AssetConfig>();
                     if let Ok(info) = config.load_asset_info(&path) {
                         let trackers = world.resource_mut::<AssetTrackers>();
                         trackers.set_path_id(path.clone(), info.id());
-                        trackers.add::<A>(info.id());
-                        info.id()
+                        if trackers.status(&info.id()) == AssetStatus::Importing {
+                            trackers.enqueue::<A>(info.id());
+                            return None;
+                        } else {
+                            trackers.add::<A>(info.id());
+                            info.id()
+                        }
                     } else {
                         return None;
                     }
@@ -237,7 +247,7 @@ impl AssetMeta {
 #[derive(Clone)]
 pub struct AssetMetas {
     metas: DenseMap<AssetType, AssetMeta>,
-    ext_map: DenseMap<&'static str, Vec<AssetType>>,
+    ext_map: DenseMap<&'static str, AssetType>,
 }
 
 impl AssetMetas {
@@ -250,6 +260,9 @@ impl AssetMetas {
 
     pub fn add<L: AssetLoader>(&mut self) {
         let meta = AssetMeta::new::<L>();
+        for ext in L::extensions() {
+            self.ext_map.insert(ext, AssetType::of::<L::Asset>());
+        }
         self.metas.insert(AssetType::of::<L::Asset>(), meta);
     }
 
@@ -261,14 +274,8 @@ impl AssetMetas {
         self.metas.get(&ty)
     }
 
-    pub fn get_by_ext(&self, ext: &str) -> Vec<&AssetMeta> {
-        self.ext_map
-            .get(&ext)
-            .cloned()
-            .unwrap_or_default()
-            .iter()
-            .map(|ty| self.get_dyn(*ty).unwrap())
-            .collect()
+    pub fn get_by_ext(&self, ext: &str) -> Option<&AssetMeta> {
+        self.ext_map.get(&ext).and_then(|ty| self.metas.get(ty))
     }
 }
 

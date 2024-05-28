@@ -189,6 +189,15 @@ impl Schedule {
         self.phases.insert(phase.ty, phase);
     }
 
+    pub fn add_sub_phase<P: Phase, Q: Phase>(&mut self) {
+        let phase = ErasedPhase::new::<P>();
+        if let Some(sub_phase) = self.get_mut::<Q>() {
+            sub_phase.add_phase::<P>();
+        } else {
+            self.phases.insert(phase.ty, phase);
+        }
+    }
+
     pub fn insert_before<P: Phase, Q: Phase>(&mut self) -> bool {
         let phase = ErasedPhase::new::<P>();
         if self.has(phase.ty) {
@@ -302,6 +311,10 @@ impl MainSchedule {
 
     pub fn add_phase<P: Phase>(&mut self) {
         self.schedule.add_phase::<P>();
+    }
+
+    pub fn add_sub_phase<P: Phase, Q: Phase>(&mut self) {
+        self.schedule.add_sub_phase::<P, Q>();
     }
 
     pub fn add_system<M>(&mut self, phase: impl Phase, system: impl IntoSystem<M>) {

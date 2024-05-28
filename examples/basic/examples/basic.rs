@@ -1,31 +1,42 @@
+use basic::PlainText;
 use shadow_asset::{
-    asset::{AssetDependency, AssetId, AssetType},
-    tracker::AssetTrackers,
+    asset::{AssetId, AssetMetadata, AssetSettings, Assets},
+    bytes::AsBytes,
+    plugin::{
+        events::{AssetLoaded, ImportAsset, LoadAsset},
+        AssetPlugin, AssetPluginExt,
+    },
 };
+use shadow_ecs::ecs::event::Events;
+use shadow_game::{game::Game, schedule::PreUpdate};
+use std::path::PathBuf;
 
 fn main() {
-    let trackers = AssetTrackers::new();
+    Game::new()
+        .add_plugin(AssetPlugin)
+        .register_loader::<PlainText>()
+        .add_system(PreUpdate, |events: &Events| {
+            events.add(LoadAsset::<PlainText>::new("test.txt"));
+        })
+        .observe::<ImportAsset<PlainText>, _>(|path: &[PathBuf]| {
+            println!("Observe Import PlainText {:?}", path);
+        })
+        .observe::<AssetLoaded<PlainText>, _>(|ids: &[AssetId], assets: &Assets<PlainText>| {
+            for id in ids {
+                let asset = assets.get_unchecked(id);
+                println!("Text {:?}", &asset.text);
+            }
+        })
+        .run();
 
-    let id_1 = AssetId::new();
-    let id_2 = AssetId::new();
-    let id_3 = AssetId::new();
+    // let meta = AssetMetadata::<()>::default();
+    // println!("Id: {:?}", meta.id());
+    // let bytes = meta.as_bytes();
+    // println!("Bytes: {:?}", &bytes);
+    // std::fs::write("assets/test.meta", &bytes).unwrap();
 
-    let dependencies = vec![
-        AssetDependency::new(id_2, AssetType::of::<()>()),
-        AssetDependency::new(id_3, AssetType::of::<()>()),
-    ];
-
-    trackers.add::<()>(id_1);
-    trackers.add::<()>(id_2);
-    trackers.add::<()>(id_3);
-
-    let result = trackers.load(id_1, &dependencies);
-    println!("{:?}", result);
-    let result = trackers.load(id_2, &vec![]);
-    println!("{:?}", result);
-    let result = trackers.load(id_3, &vec![]);
-    println!("{:?}", result);
-    println!("1: {:?}", id_1);
-    println!("2: {:?}", id_2);
-    println!("3: {:?}", id_3);
+    // let bytes = std::fs::read("assets/test.meta").unwrap();
+    // println!("Bytes: {:?}", &bytes);
+    // let meta = AssetMetadata::<()>::from_bytes(&bytes).unwrap();
+    // println!("Id: {:?}", meta.id());
 }

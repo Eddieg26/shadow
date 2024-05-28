@@ -10,7 +10,7 @@ use crate::{
 use shadow_ecs::ecs::{
     event::Events,
     system::observer::{IntoObserver, Observer},
-    task::Task,
+    task::TaskManager,
 };
 use std::path::PathBuf;
 
@@ -36,7 +36,7 @@ pub fn on_import_folder(
             if path.is_dir() {
                 on_import_folder(&[path], config, metas, events);
             } else if let Some(ext) = path.extension().and_then(|ext| ext.to_str()) {
-                for meta in metas.get_by_ext(ext) {
+                if let Some(meta) = metas.get_by_ext(ext) {
                     meta.import(events, path.clone());
                 }
             }
@@ -45,14 +45,15 @@ pub fn on_import_folder(
 }
 
 pub fn on_import_assets<L: AssetLoader>() -> Observer<ImportAsset<L::Asset>> {
-    let observer = |paths: &[PathBuf], config: &AssetConfig| {
+    let observer = |paths: &[PathBuf], config: &AssetConfig, tasks: &TaskManager| {
         let paths = paths
             .iter()
             .map(|path| path.to_path_buf())
             .collect::<Vec<_>>();
         let config = config.clone();
+        let tasks = tasks.clone();
 
-        Task::new(move || {
+        tasks.spawn(move || {
             for path in &paths {
                 let asset_bytes = match std::fs::read(&path) {
                     Ok(bytes) => bytes,
@@ -130,13 +131,15 @@ pub fn on_load_assets<L: AssetLoader>() -> Observer<LoadAsset<L::Asset>> {
                     config: &AssetConfig,
                     events: &Events,
                     metas: &AssetMetas,
-                    trackers: &AssetTrackers| {
+                    trackers: &AssetTrackers,
+                    tasks: &TaskManager| {
         let ids = ids.iter().map(|id| *id).collect::<Vec<_>>();
         let config = config.clone();
         let events = events.clone();
         let metas = metas.clone();
         let trackers = trackers.clone();
-        Task::new(move || {
+        let tasks = tasks.clone();
+        tasks.spawn(move || {
             for id in &ids {
                 let path = config.cached_asset_path(id);
                 let bytes = match std::fs::read(&path) {

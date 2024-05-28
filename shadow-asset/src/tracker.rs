@@ -11,6 +11,7 @@ use std::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AssetStatus {
     Unloaded,
+    Importing,
     Loading,
     Loaded,
     Failed,
@@ -158,6 +159,7 @@ impl AssetDependents {
 pub struct AssetTrackers {
     trackers: Trackers,
     dependents: AssetDependents,
+    load_queue: Arc<RwLock<DenseMap<AssetId, AssetType>>>,
 }
 
 impl AssetTrackers {
@@ -165,6 +167,7 @@ impl AssetTrackers {
         Self {
             trackers: Arc::new(RwLock::new(DenseMap::new())),
             dependents: AssetDependents::new(),
+            load_queue: Arc::new(RwLock::new(DenseMap::new())),
         }
     }
 
@@ -175,6 +178,30 @@ impl AssetTrackers {
             .get(id)
             .map(|tracker| tracker.status())
             .unwrap_or(AssetStatus::Unloaded)
+    }
+
+    pub(crate) fn drain_queue(&self) -> Vec<(AssetId, AssetType)> {
+        self.load_queue.write().unwrap().drain().collect()
+    }
+
+    pub fn enqueue<A: Asset>(&self, id: AssetId) {
+        self.load_queue
+            .write()
+            .unwrap()
+            .insert(id, AssetType::of::<A>());
+    }
+
+    pub fn is_queued(&self, id: &AssetId) -> bool {
+        self.load_queue.read().unwrap().contains(id)
+    }
+
+    pub fn dequeue(&self, id: &AssetId) {
+        self.load_queue.write().unwrap().remove(id);
+    }
+
+    pub fn import<A: Asset>(&self, id: AssetId) -> Option<AssetTracker> {
+        let tracker = AssetTracker::new::<A>(id, AssetStatus::Importing);
+        self.trackers.write().unwrap().insert(id, tracker)
     }
 
     pub fn add<A: Asset>(&self, id: AssetId) -> Option<AssetTracker> {
@@ -220,6 +247,7 @@ impl AssetTrackers {
                 }
             }
 
+            self.dequeue(&id);
             Some(result)
         } else {
             None
@@ -234,6 +262,7 @@ impl AssetTrackers {
 
     pub fn remove(&self, id: &AssetId) -> Option<AssetTracker> {
         self.dependents.remove(id);
+        self.load_queue.write().unwrap().remove(id);
         self.trackers.write().unwrap().remove(id)
     }
 

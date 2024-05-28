@@ -129,6 +129,9 @@ dependencies = [
 [[package]]
 name = "shadow-ecs"
 version = "0.1.0"
+dependencies = [
+ "ulid",
+]
 
 [[package]]
 name = "shadow-game"

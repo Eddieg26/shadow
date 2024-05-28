@@ -1,4 +1,4 @@
-use crate::plugin::{Plugin, PluginContext};
+use crate::plugin::{PhaseExt, Plugin, PluginContext};
 
 use super::{
     plugin::Plugins,
@@ -45,6 +45,22 @@ impl Game {
 
     pub fn local_resource_mut<R: LocalResource>(&mut self) -> &mut R {
         self.world.local_resource_mut::<R>()
+    }
+
+    pub fn try_resource<R: Resource>(&self) -> Option<&R> {
+        self.world.try_resource::<R>()
+    }
+
+    pub fn try_resource_mut<R: Resource>(&mut self) -> Option<&mut R> {
+        self.world.try_resource_mut::<R>()
+    }
+
+    pub fn try_local_resource<R: LocalResource>(&self) -> Option<&R> {
+        self.world.try_local_resource::<R>()
+    }
+
+    pub fn try_local_resource_mut<R: LocalResource>(&mut self) -> Option<&mut R> {
+        self.world.try_local_resource_mut::<R>()
     }
 
     pub fn register<C: Component>(&mut self) -> &mut Self {
@@ -185,15 +201,14 @@ impl GameInstance {
     }
 }
 
-pub trait GamePhaseExt: 'static {
-    fn add_phase<P: Phase>(&mut self) -> &mut Self;
-    fn insert_phase_before<P: Phase, Q: Phase>(&mut self) -> &mut Self;
-    fn insert_phase_after<P: Phase, Q: Phase>(&mut self) -> &mut Self;
-}
-
-impl GamePhaseExt for Game {
+impl PhaseExt for Game {
     fn add_phase<P: Phase>(&mut self) -> &mut Self {
         self.schedule.add_phase::<P>();
+        self
+    }
+
+    fn add_sub_phase<P: Phase, Q: Phase>(&mut self) -> &mut Self {
+        self.schedule.add_sub_phase::<P, Q>();
         self
     }
 
@@ -222,4 +237,10 @@ pub fn default_runner(mut game: GameInstance) {
     game.init();
     game.update();
     game.shutdown();
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Environment {
+    Development,
+    Release,
 }

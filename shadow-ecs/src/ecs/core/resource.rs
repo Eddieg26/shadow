@@ -74,13 +74,19 @@ impl BaseResouces {
 
     pub fn cast<R: 'static>(&self) -> &R {
         let ty = ResourceType::new::<R>();
-        let res = self.resources.get(&ty).expect("Resource doesn't exist.");
+        let res = self
+            .resources
+            .get(&ty)
+            .expect(format!("Resource doesn't exist. {}", std::any::type_name::<R>()).as_str());
         res.get::<R>()
     }
 
     pub fn cast_mut<R: 'static>(&self) -> &mut R {
         let ty = ResourceType::new::<R>();
-        let res = self.resources.get(&ty).expect("Resource doesn't exist.");
+        let res = self
+            .resources
+            .get(&ty)
+            .expect(format!("Resource doesn't exist. {}", std::any::type_name::<R>()).as_str());
 
         res.get_mut::<R>()
     }
@@ -105,6 +111,20 @@ impl Resources {
     pub fn get_mut<R: Resource>(&self) -> &mut R {
         self.0.cast_mut::<R>()
     }
+
+    pub fn try_get<R: Resource>(&self) -> Option<&R> {
+        self.0
+            .resources
+            .get(&ResourceType::new::<R>())
+            .map(|data| data.get::<R>())
+    }
+
+    pub fn try_get_mut<R: Resource>(&self) -> Option<&mut R> {
+        self.0
+            .resources
+            .get(&ResourceType::new::<R>())
+            .map(|data| data.get_mut::<R>())
+    }
 }
 
 pub struct LocalResources(BaseResouces);
@@ -124,5 +144,19 @@ impl LocalResources {
 
     pub fn get_mut<R: LocalResource>(&self) -> &mut R {
         self.0.cast_mut::<R>()
+    }
+
+    pub fn try_get<R: LocalResource>(&self) -> Option<&R> {
+        self.0
+            .resources
+            .get(&ResourceType::new::<R>())
+            .map(|data| data.get::<R>())
+    }
+
+    pub fn try_get_mut<R: LocalResource>(&self) -> Option<&mut R> {
+        self.0
+            .resources
+            .get(&ResourceType::new::<R>())
+            .map(|data| data.get_mut::<R>())
     }
 }

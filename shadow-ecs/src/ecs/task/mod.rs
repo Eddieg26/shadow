@@ -4,6 +4,8 @@ use std::{
     thread::{sleep, JoinHandle},
 };
 
+use super::{storage::dense::DenseMap, system::SystemArg};
+
 pub struct Task {
     thread: Option<JoinHandle<()>>,
 }
@@ -21,6 +23,75 @@ impl Task {
         } else {
             Ok(())
         }
+    }
+}
+
+impl Drop for Task {
+    fn drop(&mut self) {
+        let _ = self.join();
+    }
+}
+
+#[derive(Clone)]
+pub struct TaskManager {
+    tasks: Arc<Mutex<DenseMap<ulid::Ulid, Task>>>,
+}
+
+impl TaskManager {
+    pub fn new() -> Self {
+        Self {
+            tasks: Arc::default(),
+        }
+    }
+
+    pub fn spawn(&self, function: impl Fn() + Send + Sync + 'static) -> ulid::Ulid {
+        let id = ulid::Ulid::new();
+        let tasks = self.tasks.clone();
+        let join = Box::new(move || match tasks.lock() {
+            Ok(mut tasks) => {
+                if let Some(mut task) = tasks.remove(&id) {
+                    task.join().unwrap();
+                }
+            }
+            Err(_) => {}
+        });
+        let callback = move || {
+            function();
+            join();
+        };
+        let task = Task::new(move || callback());
+        self.tasks.lock().unwrap().insert(id, task);
+        id
+    }
+
+    fn join_all(&self) {
+        while let Some((_, mut task)) = self.pop_task() {
+            if let Err(_) = task.join() {
+                break;
+            }
+        }
+    }
+
+    fn pop_task(&self) -> Option<(ulid::Ulid, Task)> {
+        self.tasks.lock().unwrap().pop()
+    }
+}
+
+impl Drop for TaskManager {
+    fn drop(&mut self) {
+        self.join_all();
+    }
+}
+
+impl SystemArg for &TaskManager {
+    type Item<'a> = &'a TaskManager;
+
+    fn get<'a>(world: &'a super::world::World) -> Self::Item<'a> {
+        world.tasks()
+    }
+
+    fn access() -> Vec<super::system::access::WorldAccess> {
+        vec![]
     }
 }
 

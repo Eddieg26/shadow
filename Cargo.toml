@@ -1,2 +1,12 @@
 [workspace]
-members = ["examples/basic", "shadow-ecs", "shadow-game", "examples/*", "shadow-asset"]
+members = [
+    "examples/basic",
+    "shadow-ecs",
+    "shadow-game",
+    "examples/*",
+    "shadow-asset",
+]
+
+
+[workspace.dependencies]
+ulid = "1.1.2"

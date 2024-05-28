@@ -1,5 +1,5 @@
 use super::{scene::Scene, schedule::Phase};
-use crate::game::{Game, GamePhaseExt, GameRunner};
+use crate::game::{Game, GameRunner};
 use shadow_ecs::ecs::{
     core::{Component, LocalResource, Resource},
     event::Event,
@@ -56,17 +56,47 @@ impl<'a> PluginContext<'a> {
         self.game.set_runner(runner);
         self
     }
+
+    pub fn resource<R: Resource>(&self) -> &R {
+        self.game.resource::<R>()
+    }
+
+    pub fn resource_mut<R: Resource>(&mut self) -> &mut R {
+        self.game.resource_mut::<R>()
+    }
+
+    pub fn local_resource<R: LocalResource>(&self) -> &R {
+        self.game.local_resource::<R>()
+    }
+
+    pub fn local_resource_mut<R: LocalResource>(&mut self) -> &mut R {
+        self.game.local_resource_mut::<R>()
+    }
+
+    pub fn try_resource<R: Resource>(&self) -> Option<&R> {
+        self.game.try_resource::<R>()
+    }
+
+    pub fn try_resource_mut<R: Resource>(&mut self) -> Option<&mut R> {
+        self.game.try_resource_mut::<R>()
+    }
 }
 
-pub trait PluginPhaseExt {
+pub trait PhaseExt {
     fn add_phase<P: Phase>(&mut self) -> &mut Self;
+    fn add_sub_phase<P: Phase, Q: Phase>(&mut self) -> &mut Self;
     fn insert_phase_before<P: Phase, Q: Phase>(&mut self) -> &mut Self;
     fn insert_phase_after<P: Phase, Q: Phase>(&mut self) -> &mut Self;
 }
 
-impl<'a> PluginPhaseExt for PluginContext<'a> {
+impl<'a> PhaseExt for PluginContext<'a> {
     fn add_phase<P: Phase>(&mut self) -> &mut Self {
         self.game.add_phase::<P>();
+        self
+    }
+
+    fn add_sub_phase<P: Phase, Q: Phase>(&mut self) -> &mut Self {
+        self.game.add_sub_phase::<P, Q>();
         self
     }
 

@@ -14,6 +14,7 @@ use super::{
         table::ComponentSet,
     },
     system::observer::{EventObservers, IntoObserver},
+    task::TaskManager,
 };
 use std::{any::TypeId, collections::HashSet};
 
@@ -28,6 +29,7 @@ pub struct World {
     archetypes: Archetypes,
     events: Events,
     observers: EventObservers,
+    tasks: TaskManager,
 }
 
 impl World {
@@ -50,6 +52,7 @@ impl World {
             entities: Entities::new(),
             archetypes: Archetypes::new(),
             observers: EventObservers::new(),
+            tasks: TaskManager::new(),
         }
     }
 
@@ -83,6 +86,10 @@ impl World {
 
     pub fn events(&self) -> &Events {
         &self.events
+    }
+
+    pub fn tasks(&self) -> &TaskManager {
+        &self.tasks
     }
 }
 
@@ -216,5 +223,23 @@ impl World {
             self.observers.run_type::<E>(self);
             events = self.events.remove::<E>();
         }
+    }
+}
+
+impl World {
+    pub fn try_resource<R: Resource>(&self) -> Option<&R> {
+        self.resources.try_get::<R>()
+    }
+
+    pub fn try_resource_mut<R: Resource>(&self) -> Option<&mut R> {
+        self.resources.try_get_mut::<R>()
+    }
+
+    pub fn try_local_resource<R: LocalResource>(&self) -> Option<&R> {
+        self.local_resources.try_get::<R>()
+    }
+
+    pub fn try_local_resource_mut<R: LocalResource>(&self) -> Option<&mut R> {
+        self.local_resources.try_get_mut::<R>()
     }
 }

@@ -4,13 +4,13 @@ use std::{
     hash::{Hash, Hasher},
 };
 
-pub struct DenseMap<K: Hash + PartialEq + PartialOrd, V> {
+pub struct DenseMap<K: Hash + PartialEq, V> {
     map: HashMap<u64, usize>,
     keys: Vec<K>,
     values: Vec<V>,
 }
 
-impl<K: Hash + PartialEq + PartialOrd, V> DenseMap<K, V> {
+impl<K: Hash + PartialEq, V> DenseMap<K, V> {
     pub fn new() -> Self {
         DenseMap {
             map: HashMap::new(),
@@ -144,6 +144,24 @@ impl<K: Hash + PartialEq + PartialOrd, V> DenseMap<K, V> {
         Some((key, value))
     }
 
+    pub fn pop(&mut self) -> Option<(K, V)> {
+        if self.keys.is_empty() {
+            return None;
+        }
+
+        let key = self.keys.pop().unwrap();
+        let value = self.values.pop().unwrap();
+        let hashed = hash(&key);
+        self.map.remove(&hashed);
+
+        if !self.keys.is_empty() {
+            let hashed = hash(&self.keys[self.keys.len() - 1]);
+            self.map.insert(hashed, self.keys.len() - 1);
+        }
+
+        Some((key, value))
+    }
+
     pub fn keys(&self) -> &[K] {
         &self.keys
     }
@@ -226,7 +244,7 @@ impl<K: Hash + PartialEq + PartialOrd, V> DenseMap<K, V> {
     }
 }
 
-impl<K: Hash + PartialEq + PartialOrd, V> Default for DenseMap<K, V> {
+impl<K: Hash + PartialEq, V> Default for DenseMap<K, V> {
     fn default() -> Self {
         Self {
             map: Default::default(),
@@ -236,13 +254,13 @@ impl<K: Hash + PartialEq + PartialOrd, V> Default for DenseMap<K, V> {
     }
 }
 
-impl<K: Hash + PartialEq + PartialOrd + Debug, V: Debug> Debug for DenseMap<K, V> {
+impl<K: Hash + PartialEq + Debug, V: Debug> Debug for DenseMap<K, V> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_map().entries(self.iter()).finish()
     }
 }
 
-impl<K: Hash + PartialEq + PartialOrd, V> FromIterator<(K, V)> for DenseMap<K, V> {
+impl<K: Hash + PartialEq, V> FromIterator<(K, V)> for DenseMap<K, V> {
     fn from_iter<I: IntoIterator<Item = (K, V)>>(iter: I) -> Self {
         let mut map = DenseMap::new();
         for (key, value) in iter {
@@ -253,7 +271,7 @@ impl<K: Hash + PartialEq + PartialOrd, V> FromIterator<(K, V)> for DenseMap<K, V
     }
 }
 
-impl<K: Clone + Hash + PartialEq + PartialOrd, V: Clone> Clone for DenseMap<K, V> {
+impl<K: Clone + Hash + PartialEq, V: Clone> Clone for DenseMap<K, V> {
     fn clone(&self) -> Self {
         let mut map = DenseMap::new();
         for (key, value) in self.iter() {
@@ -270,12 +288,12 @@ fn hash<H: Hash>(value: &H) -> u64 {
     hasher.finish()
 }
 
-pub struct DenseSet<K: Hash + PartialEq + PartialOrd> {
+pub struct DenseSet<K: Hash + PartialEq> {
     map: HashMap<u64, usize>,
     values: Vec<K>,
 }
 
-impl<V: Hash + PartialEq + PartialOrd> DenseSet<V> {
+impl<V: Hash + PartialEq> DenseSet<V> {
     pub fn new() -> Self {
         DenseSet {
             map: HashMap::new(),
@@ -386,16 +404,6 @@ impl<V: Hash + PartialEq + PartialOrd> DenseSet<V> {
         }
     }
 
-    pub fn sort(&mut self) {
-        self.values.sort_by(|a, b| a.partial_cmp(b).unwrap());
-
-        self.map.clear();
-        for (index, value) in self.values.iter().enumerate() {
-            let hashed = hash(value);
-            self.map.insert(hashed, index);
-        }
-    }
-
     pub fn sort_by(&mut self, f: impl Fn(&V, &V) -> std::cmp::Ordering) {
         self.values.sort_by(|a, b| f(a, b));
 
@@ -446,7 +454,19 @@ impl<V: Hash + PartialEq + PartialOrd> DenseSet<V> {
     }
 }
 
-impl<V: Hash + PartialEq + PartialOrd> Default for DenseSet<V> {
+impl<V: Hash + PartialEq + PartialOrd> DenseSet<V> {
+    pub fn sort(&mut self) {
+        self.values.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+        self.map.clear();
+        for (index, value) in self.values.iter().enumerate() {
+            let hashed = hash(value);
+            self.map.insert(hashed, index);
+        }
+    }
+}
+
+impl<V: Hash + PartialEq> Default for DenseSet<V> {
     fn default() -> Self {
         Self {
             map: Default::default(),
@@ -455,7 +475,7 @@ impl<V: Hash + PartialEq + PartialOrd> Default for DenseSet<V> {
     }
 }
 
-impl<V: Clone + Hash + PartialEq + PartialOrd> DenseSet<V> {
+impl<V: Clone + Hash + PartialEq> DenseSet<V> {
     pub fn intersection(&self, other: &Self) -> Self {
         let mut intersection = Self::new();
         let (values, map) = if self.values.len() < other.values.len() {
@@ -475,7 +495,7 @@ impl<V: Clone + Hash + PartialEq + PartialOrd> DenseSet<V> {
     }
 }
 
-impl<V: Clone + Hash + PartialEq + PartialOrd> Clone for DenseSet<V> {
+impl<V: Clone + Hash + PartialEq> Clone for DenseSet<V> {
     fn clone(&self) -> Self {
         let mut set = DenseSet::new();
         for v in self.iter() {
@@ -486,7 +506,7 @@ impl<V: Clone + Hash + PartialEq + PartialOrd> Clone for DenseSet<V> {
     }
 }
 
-impl<V: Clone + Hash + PartialEq + PartialOrd> From<&[V]> for DenseSet<V> {
+impl<V: Clone + Hash + PartialEq> From<&[V]> for DenseSet<V> {
     fn from(value: &[V]) -> Self {
         let mut set = DenseSet::new();
         for v in value {
@@ -497,7 +517,7 @@ impl<V: Clone + Hash + PartialEq + PartialOrd> From<&[V]> for DenseSet<V> {
     }
 }
 
-impl<V: Clone + Hash + PartialEq + PartialOrd> From<Vec<V>> for DenseSet<V> {
+impl<V: Clone + Hash + PartialEq> From<Vec<V>> for DenseSet<V> {
     fn from(value: Vec<V>) -> Self {
         let mut set = DenseSet::new();
         for v in value {
@@ -508,7 +528,7 @@ impl<V: Clone + Hash + PartialEq + PartialOrd> From<Vec<V>> for DenseSet<V> {
     }
 }
 
-impl<V: Clone + Hash + PartialEq + PartialOrd> From<&Vec<V>> for DenseSet<V> {
+impl<V: Clone + Hash + PartialEq> From<&Vec<V>> for DenseSet<V> {
     fn from(value: &Vec<V>) -> Self {
         let mut set = DenseSet::new();
         for v in value {
@@ -519,7 +539,7 @@ impl<V: Clone + Hash + PartialEq + PartialOrd> From<&Vec<V>> for DenseSet<V> {
     }
 }
 
-impl<V: Hash + PartialEq + PartialOrd> FromIterator<V> for DenseSet<V> {
+impl<V: Hash + PartialEq> FromIterator<V> for DenseSet<V> {
     fn from_iter<I: IntoIterator<Item = V>>(iter: I) -> Self {
         let mut set = DenseSet::new();
         for v in iter {
@@ -530,17 +550,17 @@ impl<V: Hash + PartialEq + PartialOrd> FromIterator<V> for DenseSet<V> {
     }
 }
 
-impl<K: Hash + PartialEq + PartialOrd + Debug> Debug for DenseSet<K> {
+impl<K: Hash + PartialEq + Debug> Debug for DenseSet<K> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_set().entries(self.iter()).finish()
     }
 }
 
-pub struct ImmutableDenseSet<V: Hash + PartialEq + PartialOrd> {
+pub struct ImmutableDenseSet<V: Hash + PartialEq> {
     set: DenseSet<V>,
 }
 
-impl<V: Hash + PartialEq + PartialOrd> ImmutableDenseSet<V> {
+impl<V: Hash + PartialEq> ImmutableDenseSet<V> {
     pub fn new(set: DenseSet<V>) -> Self {
         ImmutableDenseSet { set }
     }
@@ -566,29 +586,29 @@ impl<V: Hash + PartialEq + PartialOrd> ImmutableDenseSet<V> {
     }
 }
 
-impl<V: Clone + Hash + PartialEq + PartialOrd> Clone for ImmutableDenseSet<V> {
+impl<V: Clone + Hash + PartialEq> Clone for ImmutableDenseSet<V> {
     fn clone(&self) -> Self {
         ImmutableDenseSet::new(self.set.clone())
     }
 }
 
-impl<V: Clone + Hash + PartialEq + PartialOrd> From<&DenseSet<V>> for ImmutableDenseSet<V> {
+impl<V: Clone + Hash + PartialEq> From<&DenseSet<V>> for ImmutableDenseSet<V> {
     fn from(set: &DenseSet<V>) -> Self {
         ImmutableDenseSet::new(set.clone())
     }
 }
 
-impl<V: Hash + PartialEq + PartialOrd> From<DenseSet<V>> for ImmutableDenseSet<V> {
+impl<V: Hash + PartialEq> From<DenseSet<V>> for ImmutableDenseSet<V> {
     fn from(set: DenseSet<V>) -> Self {
         ImmutableDenseSet::new(set)
     }
 }
 
-pub struct ImmutableDenseMap<K: Hash + PartialEq + PartialOrd, V> {
+pub struct ImmutableDenseMap<K: Hash + PartialEq, V> {
     map: DenseMap<K, V>,
 }
 
-impl<K: Hash + PartialEq + PartialOrd, V> ImmutableDenseMap<K, V> {
+impl<K: Hash + PartialEq, V> ImmutableDenseMap<K, V> {
     pub fn new(map: DenseMap<K, V>) -> Self {
         ImmutableDenseMap { map }
     }
@@ -634,21 +654,19 @@ impl<K: Hash + PartialEq + PartialOrd, V> ImmutableDenseMap<K, V> {
     }
 }
 
-impl<K: Clone + Hash + PartialEq + PartialOrd, V: Clone> Clone for ImmutableDenseMap<K, V> {
+impl<K: Clone + Hash + PartialEq, V: Clone> Clone for ImmutableDenseMap<K, V> {
     fn clone(&self) -> Self {
         ImmutableDenseMap::new(self.map.clone())
     }
 }
 
-impl<K: Clone + Hash + PartialEq + PartialOrd, V: Clone> From<&DenseMap<K, V>>
-    for ImmutableDenseMap<K, V>
-{
+impl<K: Clone + Hash + PartialEq, V: Clone> From<&DenseMap<K, V>> for ImmutableDenseMap<K, V> {
     fn from(map: &DenseMap<K, V>) -> Self {
         ImmutableDenseMap::new(map.clone())
     }
 }
 
-impl<K: Hash + PartialEq + PartialOrd, V> From<DenseMap<K, V>> for ImmutableDenseMap<K, V> {
+impl<K: Hash + PartialEq, V> From<DenseMap<K, V>> for ImmutableDenseMap<K, V> {
     fn from(map: DenseMap<K, V>) -> Self {
         ImmutableDenseMap::new(map)
     }
