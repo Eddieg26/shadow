@@ -11,6 +11,14 @@ pub trait Asset: AsBytes + Send + Sync + 'static {}
 
 impl Asset for () {}
 
+pub trait SubAsset: Asset {
+    type Main: Asset;
+}
+
+impl SubAsset for () {
+    type Main = ();
+}
+
 pub trait Settings:
     serde::Serialize + serde::de::DeserializeOwned + AsBytes + Default + Send + Sync + 'static
 {

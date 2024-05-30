@@ -1,5 +1,5 @@
 use crate::{
-    asset::{Asset, AssetId, AssetPath, AssetSettings, AssetType, Assets, Settings},
+    asset::{Asset, AssetId, AssetMetadata, AssetPath, AssetSettings, AssetType, Assets, Settings},
     config::AssetConfig,
     loader::AssetLoader,
     tracker::{AssetStatus, AssetTrackers},
@@ -49,6 +49,28 @@ impl<A: Asset> Event for ImportAsset<A> {
 
     fn invoke(&mut self, _: &mut World) -> Option<Self::Output> {
         Some(self.path.clone())
+    }
+}
+
+pub struct AssetImported<A: Asset, S: Settings> {
+    asset: Option<A>,
+    metadata: Option<AssetMetadata<S>>,
+}
+
+impl<A: Asset, S: Settings> AssetImported<A, S> {
+    pub fn new(asset: A, metadata: AssetMetadata<S>) -> Self {
+        Self {
+            asset: Some(asset),
+            metadata: Some(metadata),
+        }
+    }
+}
+
+impl<A: Asset, S: Settings> Event for AssetImported<A, S> {
+    type Output = (A, AssetMetadata<S>);
+
+    fn invoke(&mut self, _: &mut World) -> Option<Self::Output> {
+        Some((self.asset.take()?, self.metadata.take()?))
     }
 }
 
@@ -124,10 +146,34 @@ impl<A: Asset> UnloadAsset<A> {
 }
 
 impl<A: Asset> Event for UnloadAsset<A> {
-    type Output = A;
+    type Output = (AssetId, A);
 
     fn invoke(&mut self, world: &mut World) -> Option<Self::Output> {
-        world.resource_mut::<Assets<A>>().remove(&self.id)
+        let asset = world.resource_mut::<Assets<A>>().remove(&self.id)?;
+        Some((self.id, asset))
+    }
+}
+
+pub struct UnloadSettings<S: Settings> {
+    id: AssetId,
+    _marker: std::marker::PhantomData<S>,
+}
+
+impl<S: Settings> UnloadSettings<S> {
+    pub fn new(id: AssetId) -> Self {
+        Self {
+            id,
+            _marker: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<S: Settings> Event for UnloadSettings<S> {
+    type Output = S;
+
+    fn invoke(&mut self, world: &mut World) -> Option<Self::Output> {
+        let settings = world.resource_mut::<AssetSettings<S>>().remove(&self.id)?;
+        Some(settings)
     }
 }
 
@@ -214,6 +260,8 @@ pub struct AssetMeta {
     import: fn(&Events, path: PathBuf),
     load: fn(&Events, path: AssetPath),
     process: fn(&Events, id: AssetId),
+    unload: fn(&Events, id: AssetId),
+    unload_settings: fn(&Events, id: AssetId),
 }
 
 impl AssetMeta {
@@ -228,6 +276,12 @@ impl AssetMeta {
             process: |events, id| {
                 events.add(ProcessAsset::<L::Asset>::new(id));
             },
+            unload: |events, id| {
+                events.add(UnloadAsset::<L::Asset>::new(id));
+            },
+            unload_settings: |events, id| {
+                events.add(UnloadSettings::<L::Settings>::new(id));
+            },
         }
     }
 
@@ -241,6 +295,14 @@ impl AssetMeta {
 
     pub fn process(&self, events: &Events, id: AssetId) {
         (self.process)(events, id);
+    }
+
+    pub fn unload(&self, events: &Events, id: AssetId) {
+        (self.unload)(events, id);
+    }
+
+    pub fn unload_settings(&self, events: &Events, id: AssetId) {
+        (self.unload_settings)(events, id);
     }
 }
 

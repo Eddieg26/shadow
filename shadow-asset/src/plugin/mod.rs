@@ -11,6 +11,7 @@ use crate::{
     loader::AssetLoader,
     tracker::{AssetStatus, AssetTrackers},
 };
+use events::{AssetImported, UnloadSettings};
 use shadow_ecs::ecs::event::Events;
 use shadow_game::{
     game::Game,
@@ -63,7 +64,9 @@ impl AssetPluginExt for Game {
             self.add_resource(metas);
         }
         self.register_asset::<L::Asset>()
+            .register_event::<UnloadSettings<L::Settings>>()
             .register_event::<SettingsLoaded<L::Settings>>()
+            .register_event::<AssetImported<L::Asset, L::Settings>>()
             .add_resource(AssetSettings::<L::Settings>::new())
             .observe::<ImportAsset<L::Asset>, _>(on_import_assets::<L>())
             .observe::<LoadAsset<L::Asset>, _>(on_load_assets::<L>())

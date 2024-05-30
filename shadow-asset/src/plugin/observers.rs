@@ -1,6 +1,8 @@
-use super::events::{AssetLoaded, AssetMetas, ImportAsset, LoadAsset, SettingsLoaded};
+use super::events::{
+    AssetImported, AssetLoaded, AssetMetas, ImportAsset, LoadAsset, SettingsLoaded, UnloadAsset,
+};
 use crate::{
-    asset::{AssetId, AssetInfo, AssetMetadata},
+    asset::{AssetId, AssetInfo, AssetMetadata, SubAsset},
     bytes::AsBytes,
     config::AssetConfig,
     loader::{AssetLoader, LoadContext},
@@ -45,13 +47,17 @@ pub fn on_import_folder(
 }
 
 pub fn on_import_assets<L: AssetLoader>() -> Observer<ImportAsset<L::Asset>> {
-    let observer = |paths: &[PathBuf], config: &AssetConfig, tasks: &TaskManager| {
+    let observer = |paths: &[PathBuf],
+                    events: &Events,
+                    config: &AssetConfig,
+                    tasks: &TaskManager| {
         let paths = paths
             .iter()
             .map(|path| path.to_path_buf())
             .collect::<Vec<_>>();
         let config = config.clone();
         let tasks = tasks.clone();
+        let events = events.clone();
 
         tasks.spawn(move || {
             for path in &paths {
@@ -102,6 +108,7 @@ pub fn on_import_assets<L: AssetLoader>() -> Observer<ImportAsset<L::Asset>> {
                         let pack = AssetPack::save(&asset, metadata.settings(), depenencies);
                         let cached_path = config.cached_asset_path(&metadata.id());
                         let _ = std::fs::write(&cached_path, &pack);
+                        events.add(AssetImported::new(asset, metadata));
                     }
                 }
             }
@@ -169,3 +176,13 @@ pub fn on_load_assets<L: AssetLoader>() -> Observer<LoadAsset<L::Asset>> {
 
     observer.into_observer()
 }
+
+// pub fn create_unload_subassets_events<S: SubAsset>() -> Observer<UnloadAsset<S::Main>> {
+//     let observer = |assets: &[(AssetId, S::Main)], events: &Events| {
+//         for &(id, _) in assets {
+//             events.add(UnloadAsset::new(id));
+//         }
+//     };
+
+//     observer.into_observer()
+// }
