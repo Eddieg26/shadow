@@ -4,6 +4,9 @@ use std::hash::{Hash, Hasher};
 pub trait Resource: 'static {}
 pub trait LocalResource: 'static {}
 
+impl Resource for () {}
+impl LocalResource for () {}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ResourceId(u32);
 
@@ -62,6 +65,8 @@ pub struct BaseResouces {
 
 impl BaseResouces {
     pub fn new() -> Self {
+        let mut resources = DenseMap::new();
+        resources.insert(ResourceType::new::<()>(), ());
         Self {
             resources: DenseMap::new(),
         }
