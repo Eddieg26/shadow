@@ -26,3 +26,38 @@ pub fn on_import_assets<L: AssetLoader>() -> Observer<ImportAsset<L::Asset>> {
 
     todo!()
 }
+
+pub fn on_import_folders(paths: &[PathBuf], events: &Events, db: &AssetDatabase) {
+    let mut paths = paths.iter().cloned().collect::<Vec<_>>();
+
+    while let Some(path) = paths.pop() {
+        let entries = match std::fs::read_dir(&path) {
+            Ok(entries) => entries,
+            Err(_) => continue,
+        };
+
+        for entry in entries {
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(_) => continue,
+            };
+
+            let path = entry.path();
+            if path.is_dir() {
+                paths.push(path);
+            } else if let Some(ext) = path.extension().and_then(|ext| ext.to_str()) {
+                if ext != "meta" {
+                    let source = match db.config().source(&path) {
+                        Ok(source) => source,
+                        Err(_) => continue,
+                    };
+
+                    // TODO Check if asset has to be imported
+                }
+                // if let Some(meta) = db.registery().ext_meta(ext) {
+                //     meta.import(&events, path.clone());
+                // }
+            }
+        }
+    }
+}
