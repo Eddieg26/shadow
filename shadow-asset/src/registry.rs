@@ -1,89 +1,70 @@
 use crate::{
-    asset::{Asset, AssetId, AssetMetadata, AssetPath, AssetType},
-    bytes::AsBytes,
-    events::import::ImportAsset,
+    asset::{AssetPath, AssetType},
+    database::events::{ImportAsset, LoadAsset},
     loader::AssetLoader,
 };
-use shadow_ecs::ecs::event::Events;
-use std::{collections::HashMap, path::Path, sync::Arc};
+use shadow_ecs::ecs::{core::Resource, event::Events};
+use std::collections::HashMap;
 
-pub struct AssetMeta {
+pub struct AssetLoaderMeta {
     ty: AssetType,
     import: fn(&Events, &AssetPath),
-    load_id: fn(&Path) -> Option<AssetId>,
+    load: fn(&Events, &AssetPath),
 }
 
-impl AssetMeta {
+impl AssetLoaderMeta {
     pub fn new<L: AssetLoader>() -> Self {
-        Self {
+        AssetLoaderMeta {
             ty: AssetType::of::<L::Asset>(),
-            import: |events, path| {
-                events.add(ImportAsset::<L::Asset>::new(path));
-            },
-            load_id: |path| {
-                let bytes = std::fs::read(path).ok()?;
-                let metadata = AssetMetadata::<L::Settings>::from_bytes(&bytes)?;
-                Some(metadata.id().clone())
-            },
+            import: |events, path| events.add(ImportAsset::<L::Asset>::new(path)),
+            load: |events, path| events.add(LoadAsset::<L::Asset>::new(path)),
         }
     }
 
-    pub fn ty(&self) -> &AssetType {
-        &self.ty
+    pub fn ty(&self) -> AssetType {
+        self.ty
     }
 
-    pub fn import(&self, events: &Events, path: impl Into<AssetPath>) {
-        let path = path.into();
-        (self.import)(events, &path);
+    pub fn import(&self, events: &Events, path: &AssetPath) {
+        (self.import)(events, path);
     }
 
-    pub fn load_id(&self, path: &Path) -> Option<AssetId> {
-        (self.load_id)(path)
+    pub fn load(&self, events: &Events, path: &AssetPath) {
+        (self.load)(events, path);
     }
 }
 
-#[derive(Default, Clone)]
-pub struct AssetRegistry {
-    registry: HashMap<AssetType, Arc<AssetMeta>>,
+pub struct AssetLoaderRegistry {
+    metas: HashMap<AssetType, AssetLoaderMeta>,
     ext_map: HashMap<&'static str, AssetType>,
 }
 
-impl AssetRegistry {
+impl AssetLoaderRegistry {
     pub fn new() -> Self {
-        Self {
-            registry: HashMap::default(),
+        AssetLoaderRegistry {
+            metas: HashMap::new(),
             ext_map: HashMap::new(),
         }
     }
 
     pub fn register<L: AssetLoader>(&mut self) {
-        let meta = AssetMeta::new::<L>();
-        let ty = meta.ty.clone();
+        let meta = AssetLoaderMeta::new::<L>();
+        let exts = L::extensions();
 
-        for ext in L::extensions() {
-            self.ext_map.insert(&ext, ty);
+        for &ext in exts {
+            self.ext_map.insert(ext, meta.ty());
         }
 
-        self.registry.insert(ty, Arc::new(meta));
+        self.metas.insert(meta.ty(), meta);
     }
 
-    pub fn meta<A: Asset>(&self) -> Arc<AssetMeta> {
-        self.registry
-            .get(&AssetType::of::<A>())
-            .cloned()
-            .expect("Asset not registered.")
+    pub fn meta(&self, ty: AssetType) -> Option<&AssetLoaderMeta> {
+        self.metas.get(&ty)
     }
 
-    pub fn meta_dyn(&self, ty: &AssetType) -> Arc<AssetMeta> {
-        self.registry
-            .get(&ty)
-            .cloned()
-            .expect("Asset not registered")
-    }
-
-    pub fn ext_meta(&self, ext: &str) -> Option<Arc<AssetMeta>> {
-        self.ext_map
-            .get(ext)
-            .and_then(|ty| self.registry.get(ty).cloned())
+    pub fn meta_by_ext(&self, ext: &str) -> Option<&AssetLoaderMeta> {
+        self.ext_map.get(ext).and_then(|ty| self.meta(*ty))
     }
 }
+
+impl Resource for AssetLoaderRegistry {}

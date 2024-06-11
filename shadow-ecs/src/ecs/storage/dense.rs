@@ -162,6 +162,24 @@ impl<K: Hash + PartialEq, V> DenseMap<K, V> {
         Some((key, value))
     }
 
+    pub fn pop_front(&mut self) -> Option<(K, V)> {
+        if self.keys.is_empty() {
+            return None;
+        }
+
+        let key = self.keys.remove(0);
+        let value = self.values.remove(0);
+        let hashed = hash(&key);
+        self.map.remove(&hashed);
+
+        for (i, key) in self.keys.iter().enumerate() {
+            let hashed = hash(key);
+            self.map.insert(hashed, i);
+        }
+
+        Some((key, value))
+    }
+
     pub fn keys(&self) -> &[K] {
         &self.keys
     }

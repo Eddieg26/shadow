@@ -1,4 +1,7 @@
-use shadow_asset::{asset::{Asset, DefaultSettings}, bytes::AsBytes, loader::AssetLoader};
+use shadow_asset::{
+    asset::{Asset, DefaultSettings},
+    bytes::ToBytes,
+};
 use shadow_game::plugin::{Plugin, PluginContext, Plugins};
 
 pub struct TestPluginA;
@@ -51,8 +54,8 @@ impl PlainText {
     }
 }
 
-impl AsBytes for PlainText {
-    fn as_bytes(&self) -> Vec<u8> {
+impl ToBytes for PlainText {
+    fn to_bytes(&self) -> Vec<u8> {
         self.text.as_bytes().to_vec()
     }
 
@@ -63,19 +66,19 @@ impl AsBytes for PlainText {
 
 impl Asset for PlainText {}
 
-impl AssetLoader for PlainText {
-    type Asset = PlainText;
-    type Settings = DefaultSettings;
+// impl AssetLoader for PlainText {
+//     type Asset = PlainText;
+//     type Settings = DefaultSettings;
 
-    fn load(
-        ctx: &mut shadow_asset::loader::LoadContext<Self::Settings>,
-    ) -> std::io::Result<Self::Asset> {
-        let path = ctx.path();
-        let text = std::fs::read_to_string(path)?;
-        Ok(PlainText::new(&text))
-    }
+//     fn load(
+//         ctx: &mut shadow_asset::loader::LoadContext<Self::Settings>,
+//     ) -> std::io::Result<Self::Asset> {
+//         let path = ctx.path();
+//         let text = std::fs::read_to_string(path)?;
+//         Ok(PlainText::new(&text))
+//     }
 
-    fn extensions() -> &'static [&'static str] {
-        &["txt"]
-    }
-}
+//     fn extensions() -> &'static [&'static str] {
+//         &["txt"]
+//     }
+// }

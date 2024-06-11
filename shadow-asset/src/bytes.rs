@@ -1,12 +1,12 @@
 use std::ffi::OsString;
 
-pub trait AsBytes: Sized {
-    fn as_bytes(&self) -> Vec<u8>;
+pub trait ToBytes: Sized {
+    fn to_bytes(&self) -> Vec<u8>;
     fn from_bytes(bytes: &[u8]) -> Option<Self>;
 }
 
-impl AsBytes for () {
-    fn as_bytes(&self) -> Vec<u8> {
+impl ToBytes for () {
+    fn to_bytes(&self) -> Vec<u8> {
         vec![]
     }
 
@@ -15,8 +15,8 @@ impl AsBytes for () {
     }
 }
 
-impl AsBytes for usize {
-    fn as_bytes(&self) -> Vec<u8> {
+impl ToBytes for usize {
+    fn to_bytes(&self) -> Vec<u8> {
         self.to_le_bytes().to_vec()
     }
 
@@ -27,8 +27,8 @@ impl AsBytes for usize {
     }
 }
 
-impl AsBytes for u8 {
-    fn as_bytes(&self) -> Vec<u8> {
+impl ToBytes for u8 {
+    fn to_bytes(&self) -> Vec<u8> {
         vec![*self]
     }
 
@@ -37,8 +37,8 @@ impl AsBytes for u8 {
     }
 }
 
-impl AsBytes for u16 {
-    fn as_bytes(&self) -> Vec<u8> {
+impl ToBytes for u16 {
+    fn to_bytes(&self) -> Vec<u8> {
         self.to_le_bytes().to_vec()
     }
 
@@ -47,8 +47,8 @@ impl AsBytes for u16 {
     }
 }
 
-impl AsBytes for u32 {
-    fn as_bytes(&self) -> Vec<u8> {
+impl ToBytes for u32 {
+    fn to_bytes(&self) -> Vec<u8> {
         self.to_le_bytes().to_vec()
     }
 
@@ -59,8 +59,8 @@ impl AsBytes for u32 {
     }
 }
 
-impl AsBytes for u64 {
-    fn as_bytes(&self) -> Vec<u8> {
+impl ToBytes for u64 {
+    fn to_bytes(&self) -> Vec<u8> {
         self.to_le_bytes().to_vec()
     }
 
@@ -71,8 +71,8 @@ impl AsBytes for u64 {
     }
 }
 
-impl AsBytes for u128 {
-    fn as_bytes(&self) -> Vec<u8> {
+impl ToBytes for u128 {
+    fn to_bytes(&self) -> Vec<u8> {
         self.to_le_bytes().to_vec()
     }
 
@@ -84,8 +84,8 @@ impl AsBytes for u128 {
     }
 }
 
-impl AsBytes for i8 {
-    fn as_bytes(&self) -> Vec<u8> {
+impl ToBytes for i8 {
+    fn to_bytes(&self) -> Vec<u8> {
         vec![*self as u8]
     }
 
@@ -94,8 +94,8 @@ impl AsBytes for i8 {
     }
 }
 
-impl AsBytes for i16 {
-    fn as_bytes(&self) -> Vec<u8> {
+impl ToBytes for i16 {
+    fn to_bytes(&self) -> Vec<u8> {
         self.to_le_bytes().to_vec()
     }
 
@@ -104,8 +104,8 @@ impl AsBytes for i16 {
     }
 }
 
-impl AsBytes for i32 {
-    fn as_bytes(&self) -> Vec<u8> {
+impl ToBytes for i32 {
+    fn to_bytes(&self) -> Vec<u8> {
         self.to_le_bytes().to_vec()
     }
 
@@ -116,8 +116,8 @@ impl AsBytes for i32 {
     }
 }
 
-impl AsBytes for i64 {
-    fn as_bytes(&self) -> Vec<u8> {
+impl ToBytes for i64 {
+    fn to_bytes(&self) -> Vec<u8> {
         self.to_le_bytes().to_vec()
     }
 
@@ -128,8 +128,8 @@ impl AsBytes for i64 {
     }
 }
 
-impl AsBytes for i128 {
-    fn as_bytes(&self) -> Vec<u8> {
+impl ToBytes for i128 {
+    fn to_bytes(&self) -> Vec<u8> {
         self.to_le_bytes().to_vec()
     }
 
@@ -141,8 +141,8 @@ impl AsBytes for i128 {
     }
 }
 
-impl AsBytes for f32 {
-    fn as_bytes(&self) -> Vec<u8> {
+impl ToBytes for f32 {
+    fn to_bytes(&self) -> Vec<u8> {
         self.to_le_bytes().to_vec()
     }
 
@@ -153,8 +153,8 @@ impl AsBytes for f32 {
     }
 }
 
-impl AsBytes for f64 {
-    fn as_bytes(&self) -> Vec<u8> {
+impl ToBytes for f64 {
+    fn to_bytes(&self) -> Vec<u8> {
         self.to_le_bytes().to_vec()
     }
 
@@ -165,8 +165,8 @@ impl AsBytes for f64 {
     }
 }
 
-impl AsBytes for bool {
-    fn as_bytes(&self) -> Vec<u8> {
+impl ToBytes for bool {
+    fn to_bytes(&self) -> Vec<u8> {
         vec![*self as u8]
     }
 
@@ -175,8 +175,8 @@ impl AsBytes for bool {
     }
 }
 
-impl AsBytes for char {
-    fn as_bytes(&self) -> Vec<u8> {
+impl ToBytes for char {
+    fn to_bytes(&self) -> Vec<u8> {
         self.to_string().as_bytes().to_vec()
     }
 
@@ -186,8 +186,8 @@ impl AsBytes for char {
     }
 }
 
-impl AsBytes for String {
-    fn as_bytes(&self) -> Vec<u8> {
+impl ToBytes for String {
+    fn to_bytes(&self) -> Vec<u8> {
         self.as_bytes().to_vec()
     }
 
@@ -197,15 +197,15 @@ impl AsBytes for String {
     }
 }
 
-impl<T: AsBytes> AsBytes for Vec<T> {
-    fn as_bytes(&self) -> Vec<u8> {
+impl<T: ToBytes> ToBytes for Vec<T> {
+    fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = vec![];
         let len = self.len() as u32;
-        bytes.extend_from_slice(&len.as_bytes());
+        bytes.extend_from_slice(&len.to_bytes());
         for item in self {
-            let item_bytes = item.as_bytes();
+            let item_bytes = item.to_bytes();
             let len = item_bytes.len() as u32;
-            bytes.extend_from_slice(&len.as_bytes());
+            bytes.extend_from_slice(&len.to_bytes());
             bytes.extend_from_slice(&item_bytes);
         }
         bytes
@@ -219,21 +219,21 @@ impl<T: AsBytes> AsBytes for Vec<T> {
         for _ in 0..len {
             let len = u32::from_bytes(&bytes[offset..offset + 4])?;
             let item = T::from_bytes(&bytes[offset + 4..offset + 4 + len as usize])?;
-            offset += item.as_bytes().len() as usize + 4;
+            offset += item.to_bytes().len() as usize + 4;
             items.push(item);
         }
         Some(items)
     }
 }
 
-impl<T: AsBytes> AsBytes for Option<T> {
-    fn as_bytes(&self) -> Vec<u8> {
+impl<T: ToBytes> ToBytes for Option<T> {
+    fn to_bytes(&self) -> Vec<u8> {
         match self {
             Some(value) => {
                 let mut bytes = vec![1];
-                let item_bytes = value.as_bytes();
+                let item_bytes = value.to_bytes();
                 let len = item_bytes.len() as u32;
-                bytes.extend_from_slice(&len.as_bytes());
+                bytes.extend_from_slice(&len.to_bytes());
                 bytes.extend_from_slice(&item_bytes);
                 bytes
             }
@@ -252,9 +252,9 @@ impl<T: AsBytes> AsBytes for Option<T> {
     }
 }
 
-impl<T: AsBytes> AsBytes for Box<T> {
-    fn as_bytes(&self) -> Vec<u8> {
-        self.as_ref().as_bytes()
+impl<T: ToBytes> ToBytes for Box<T> {
+    fn to_bytes(&self) -> Vec<u8> {
+        self.as_ref().to_bytes()
     }
 
     fn from_bytes(bytes: &[u8]) -> Option<Self> {
@@ -263,8 +263,8 @@ impl<T: AsBytes> AsBytes for Box<T> {
     }
 }
 
-impl AsBytes for OsString {
-    fn as_bytes(&self) -> Vec<u8> {
+impl ToBytes for OsString {
+    fn to_bytes(&self) -> Vec<u8> {
         self.as_encoded_bytes().iter().copied().collect::<Vec<_>>()
     }
 
