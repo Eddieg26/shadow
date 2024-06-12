@@ -224,9 +224,9 @@ impl AssetTracker {
         self.dependencies.write().unwrap().insert(id, dependencies);
     }
 
-    pub fn can_process(&self, id: AssetId) -> bool {
+    pub fn can_process(&self, id: &AssetId) -> bool {
         let dependencies = self.dependencies.read().unwrap();
-        if let Some(dependencies) = dependencies.get(&id) {
+        if let Some(dependencies) = dependencies.get(id) {
             dependencies.iter().all(|id| {
                 matches!(
                     self.status(*id),
@@ -238,9 +238,9 @@ impl AssetTracker {
         }
     }
 
-    pub fn is_dependencies_done(&self, id: AssetId) -> bool {
+    pub fn is_dependencies_done(&self, id: &AssetId) -> bool {
         let dependencies = self.dependencies.read().unwrap();
-        if let Some(dependencies) = dependencies.get(&id) {
+        if let Some(dependencies) = dependencies.get(id) {
             dependencies
                 .iter()
                 .all(|id| matches!(self.status(*id), AssetStatus::Done | AssetStatus::Failed))

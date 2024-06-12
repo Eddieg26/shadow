@@ -49,4 +49,11 @@ impl WorldAccess {
             }
         }
     }
+
+    pub fn parse(access: &[WorldAccess]) -> (Vec<WorldAccessType>, Vec<WorldAccessType>) {
+        let mut reads = Vec::new();
+        let mut writes = Vec::new();
+        Self::pick(&mut reads, &mut writes, access);
+        (reads, writes)
+    }
 }

@@ -1,22 +1,26 @@
+use super::{
+    events::{AssetImport, ProcessAsset, TaskCounterUpdated},
+    library::AssetStatus,
+};
 use crate::{
-    asset::{AssetSettings, AssetType, Assets},
+    asset::{AssetId, AssetSettings, Assets},
     database::{
         events::FolderImported,
         library::{BlockInfo, SourceInfo},
         AssetDatabase,
     },
-    loader::{AssetLoader, LoadContext},
+    loader::{AssetLoader, AssetProcesser, LoadContext},
     registry::AssetLoaderRegistry,
 };
-use shadow_ecs::ecs::{event::Events, task::TaskManager};
+use shadow_ecs::ecs::{
+    event::Events,
+    system::{access::WorldAccess, observer::Observer, SystemArg},
+    task::TaskManager,
+    world::World,
+};
 use std::{
     path::{Path, PathBuf},
     time::SystemTime,
-};
-
-use super::{
-    events::{AssetImport, ProcessAsset, TaskCounterUpdated},
-    library::AssetStatus,
 };
 
 fn path_ext(path: &Path) -> Option<&str> {
@@ -150,7 +154,7 @@ pub fn on_import_asset<L: AssetLoader>(
     for import in imports {
         match import_asset(import) {
             Ok(_) => {
-                if database.tracker().can_process(import.id()) {
+                if database.tracker().can_process(&import.id()) {
                     events.add(ProcessAsset::<L::Asset>::new(import.id()));
                 }
             }
@@ -161,4 +165,44 @@ pub fn on_import_asset<L: AssetLoader>(
             }
         }
     }
+}
+
+pub fn create_on_process<P: AssetProcesser>() -> Observer<ProcessAsset<<P as AssetProcesser>::Asset>>
+{
+    let observer = |ids: &[AssetId], world: &World| {
+        let assets = world.resource_mut::<Assets<P::Asset>>();
+        let settings = world.resource::<AssetSettings<P::Settings>>();
+        let database = world.resource::<AssetDatabase>();
+        let events = world.events();
+        let args = P::Args::get(world);
+        for id in ids {
+            let asset = match assets.get_mut(id) {
+                Some(asset) => asset,
+                None => continue,
+            };
+
+            let settings = match settings.get(id) {
+                Some(settings) => settings,
+                None => continue,
+            };
+
+            match P::process(id, asset, settings, &args) {
+                Ok(_) => {
+                    if database.tracker().is_dependencies_done(id) {
+                        database.set_status(*id, AssetStatus::Done);
+                        database.counter().decrement();
+                        events.add(TaskCounterUpdated);
+                    }
+                },
+                Err(_) => {
+                    database.set_status(*id, AssetStatus::Failed);
+                    database.counter().decrement();
+                    events.add(TaskCounterUpdated);
+                }
+            }
+        }
+    };
+
+    let (reads, writes) = WorldAccess::parse(&P::Args::access());
+    Observer::<ProcessAsset<P::Asset>>::new(observer, reads, writes)
 }

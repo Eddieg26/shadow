@@ -1,3 +1,5 @@
+use shadow_ecs::ecs::system::{ArgItem, SystemArg};
+
 use crate::asset::{Asset, AssetId, AssetMetadata, Settings};
 use std::path::Path;
 
@@ -45,4 +47,17 @@ pub trait AssetLoader: 'static {
 
     fn load(ctx: &mut LoadContext<Self::Settings>) -> Self::Asset;
     fn extensions() -> &'static [&'static str];
+}
+
+pub trait AssetProcesser: 'static {
+    type Asset: Asset;
+    type Settings: Settings;
+    type Args: SystemArg;
+
+    fn process(
+        id: &AssetId,
+        asset: &mut Self::Asset,
+        settings: &Self::Settings,
+        args: &ArgItem<Self::Args>,
+    ) -> Result<(), std::io::Error>;
 }

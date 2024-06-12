@@ -1,3 +1,5 @@
+use shadow_ecs::ecs::core::Resource;
+
 use crate::bytes::ToBytes;
 use std::{
     collections::HashMap,
@@ -225,6 +227,8 @@ impl<A: Asset> Assets<A> {
     }
 }
 
+impl<A: Asset> Resource for Assets<A> {}
+
 pub struct AssetSettings<S: Settings> {
     settings: HashMap<AssetId, S>,
 }
@@ -272,3 +276,5 @@ impl<S: Settings> AssetSettings<S> {
         self.settings.is_empty()
     }
 }
+
+impl<S: Settings> Resource for AssetSettings<S> {}
