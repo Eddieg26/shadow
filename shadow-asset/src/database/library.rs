@@ -137,16 +137,22 @@ impl ToBytes for BlockInfo {
 
 #[derive(Debug, Clone)]
 pub struct AssetLibrary {
+    path: PathBuf,
     sources: Arc<RwLock<HashMap<PathBuf, SourceInfo>>>,
     blocks: Arc<RwLock<HashMap<AssetId, BlockInfo>>>,
 }
 
 impl AssetLibrary {
-    pub fn new() -> Self {
+    pub fn new(path: impl AsRef<Path>) -> Self {
         AssetLibrary {
+            path: path.as_ref().to_path_buf(),
             sources: Arc::new(RwLock::new(HashMap::new())),
             blocks: Arc::new(RwLock::new(HashMap::new())),
         }
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
     }
 
     pub fn source(&self, path: &Path) -> Option<SourceInfo> {
@@ -171,6 +177,36 @@ impl AssetLibrary {
 
     pub fn remove_block(&self, id: AssetId) -> Option<BlockInfo> {
         self.blocks.write().unwrap().remove(&id)
+    }
+
+    pub fn save(&self) -> std::io::Result<()> {
+        let bytes = self.to_bytes();
+        std::fs::write(self.path(), &bytes)
+    }
+
+    pub fn load(&self) -> std::io::Result<()> {
+        let bytes = std::fs::read(self.path())?;
+
+        let mut dst_sources = self
+            .sources
+            .write()
+            .map_err(|_| std::io::ErrorKind::Other)?;
+        let mut dst_blocks = self.blocks.write().map_err(|_| std::io::ErrorKind::Other)?;
+
+        let library = AssetLibrary::from_bytes(&bytes).ok_or(std::io::ErrorKind::InvalidData)?;
+        let mut src_sources = library
+            .sources
+            .write()
+            .map_err(|_| std::io::ErrorKind::InvalidData)?;
+        let mut src_blocks = library
+            .blocks
+            .write()
+            .map_err(|_| std::io::ErrorKind::InvalidData)?;
+
+        std::mem::swap(&mut *dst_sources, &mut *src_sources);
+        std::mem::swap(&mut *dst_blocks, &mut *src_blocks);
+
+        Ok(())
     }
 }
 
@@ -243,6 +279,7 @@ impl ToBytes for AssetLibrary {
         }
 
         Some(AssetLibrary {
+            path: PathBuf::new(),
             sources: Arc::new(RwLock::new(sources)),
             blocks: Arc::new(RwLock::new(blocks)),
         })

@@ -1,12 +1,14 @@
 use crate::{
     asset::AssetId,
-    block::{AssetBlock, MetadataBlock}, bytes::ToBytes,
+    block::{AssetBlock, MetadataBlock},
+    bytes::ToBytes,
 };
 use std::{
     io::{self},
     path::{Path, PathBuf},
 };
 
+#[derive(Debug, Clone)]
 pub struct AssetDatabaseConfig {
     assets: PathBuf,
     cache: PathBuf,

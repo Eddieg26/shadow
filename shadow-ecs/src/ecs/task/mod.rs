@@ -44,7 +44,7 @@ impl TaskManager {
         }
     }
 
-    pub fn spawn(&self, function: impl Fn() + Send + Sync + 'static) -> ulid::Ulid {
+    pub fn spawn(&self, function: impl FnOnce() + Send + Sync + 'static) -> ulid::Ulid {
         let id = ulid::Ulid::new();
         let tasks = self.tasks.clone();
         let join = Box::new(move || match tasks.lock() {

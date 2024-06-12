@@ -4,8 +4,12 @@ use crate::{
     loader::AssetLoader,
 };
 use shadow_ecs::ecs::{core::Resource, event::Events};
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    sync::{Arc, RwLock},
+};
 
+#[derive(Clone, Copy)]
 pub struct AssetLoaderMeta {
     ty: AssetType,
     import: fn(&Events, &AssetPath),
@@ -34,16 +38,17 @@ impl AssetLoaderMeta {
     }
 }
 
+#[derive(Clone)]
 pub struct AssetLoaderRegistry {
-    metas: HashMap<AssetType, AssetLoaderMeta>,
-    ext_map: HashMap<&'static str, AssetType>,
+    metas: Arc<RwLock<HashMap<AssetType, AssetLoaderMeta>>>,
+    ext_map: Arc<RwLock<HashMap<&'static str, AssetType>>>,
 }
 
 impl AssetLoaderRegistry {
     pub fn new() -> Self {
         AssetLoaderRegistry {
-            metas: HashMap::new(),
-            ext_map: HashMap::new(),
+            metas: Arc::default(),
+            ext_map: Arc::default(),
         }
     }
 
@@ -51,19 +56,26 @@ impl AssetLoaderRegistry {
         let meta = AssetLoaderMeta::new::<L>();
         let exts = L::extensions();
 
-        for &ext in exts {
-            self.ext_map.insert(ext, meta.ty());
+        let mut metas = self.metas.write().unwrap();
+        let mut ext_map = self.ext_map.write().unwrap();
+
+        for ext in exts {
+            ext_map.insert(ext, meta.ty());
         }
 
-        self.metas.insert(meta.ty(), meta);
+        metas.insert(meta.ty(), meta);
     }
 
-    pub fn meta(&self, ty: AssetType) -> Option<&AssetLoaderMeta> {
-        self.metas.get(&ty)
+    pub fn meta(&self, ty: AssetType) -> Option<AssetLoaderMeta> {
+        self.metas.read().unwrap().get(&ty).copied()
     }
 
-    pub fn meta_by_ext(&self, ext: &str) -> Option<&AssetLoaderMeta> {
-        self.ext_map.get(ext).and_then(|ty| self.meta(*ty))
+    pub fn meta_by_ext(&self, ext: &str) -> Option<AssetLoaderMeta> {
+        self.ext_map
+            .read()
+            .unwrap()
+            .get(ext)
+            .and_then(|ty| self.meta(*ty))
     }
 }
 

@@ -1,9 +1,8 @@
-use super::events::LoadAsset;
-use crate::asset::Asset;
 use shadow_ecs::ecs::{event::Events, storage::dense::DenseMap};
+use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum DatabaseStatus {
+pub enum DatabaseState {
     Importing,
     LoadingAssets,
     Saving,
@@ -11,42 +10,32 @@ pub enum DatabaseStatus {
     Ready,
 }
 
-pub trait DatabaseTask: 'static {
-    fn status(&self) -> DatabaseStatus;
+pub trait DatabaseTask: Send + Sync + 'static {
     fn run(&self, events: &Events);
 }
 
-impl<A: Asset> DatabaseTask for LoadAsset<A> {
-    fn status(&self) -> DatabaseStatus {
-        DatabaseStatus::LoadingAssets
-    }
-
-    fn run(&self, events: &Events) {
-        events.add(LoadAsset::<A>::new(self.path().clone()));
-    }
-}
-
+#[derive(Clone)]
 pub struct DatabaseTasks {
-    tasks: DenseMap<DatabaseStatus, Vec<Box<dyn DatabaseTask>>>,
+    tasks: Arc<Mutex<DenseMap<DatabaseState, Vec<Box<dyn DatabaseTask>>>>>,
 }
 
 impl DatabaseTasks {
     pub fn new() -> Self {
         DatabaseTasks {
-            tasks: DenseMap::new(),
+            tasks: Arc::default(),
         }
     }
 
-    pub fn add<T: DatabaseTask>(&mut self, task: T) {
-        let status = task.status();
-        if let Some(tasks) = self.tasks.get_mut(&status) {
+    pub fn add<T: DatabaseTask>(&self, state: DatabaseState, task: T) {
+        let mut tasks = self.tasks.lock().unwrap();
+        if let Some(tasks) = tasks.get_mut(&state) {
             tasks.push(Box::new(task));
         } else {
-            self.tasks.insert(status, vec![Box::new(task)]);
+            tasks.insert(state, vec![Box::new(task)]);
         }
     }
 
-    pub fn pop(&mut self) -> Option<(DatabaseStatus, Vec<Box<dyn DatabaseTask>>)> {
-        self.tasks.pop_front()
+    pub fn pop(&self) -> Option<(DatabaseState, Vec<Box<dyn DatabaseTask>>)> {
+        self.tasks.lock().unwrap().pop_front()
     }
 }
