@@ -1,5 +1,6 @@
 use crate::bytes::ToBytes;
 use std::{
+    collections::HashMap,
     hash::{Hash, Hasher},
     path::{Path, PathBuf},
 };
@@ -173,5 +174,101 @@ impl<S: Settings> ToBytes for AssetMetadata<S> {
         let id = AssetId::from_bytes(bytes)?;
         let settings = S::from_bytes(&bytes[8..])?;
         Some(AssetMetadata { id, settings })
+    }
+}
+
+pub struct Assets<A: Asset> {
+    assets: HashMap<AssetId, A>,
+}
+
+impl<A: Asset> Assets<A> {
+    pub fn new() -> Self {
+        Assets {
+            assets: HashMap::new(),
+        }
+    }
+
+    pub fn insert(&mut self, id: AssetId, asset: A) -> Option<A> {
+        self.assets.insert(id, asset)
+    }
+
+    pub fn remove(&mut self, id: &AssetId) -> Option<A> {
+        self.assets.remove(id)
+    }
+
+    pub fn get(&self, id: &AssetId) -> Option<&A> {
+        self.assets.get(id)
+    }
+
+    pub fn get_mut(&mut self, id: &AssetId) -> Option<&mut A> {
+        self.assets.get_mut(id)
+    }
+
+    pub fn contains(&self, id: &AssetId) -> bool {
+        self.assets.contains_key(id)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&AssetId, &A)> {
+        self.assets.iter()
+    }
+
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = (&AssetId, &mut A)> {
+        self.assets.iter_mut()
+    }
+
+    pub fn len(&self) -> usize {
+        self.assets.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.assets.is_empty()
+    }
+}
+
+pub struct AssetSettings<S: Settings> {
+    settings: HashMap<AssetId, S>,
+}
+
+impl<S: Settings> AssetSettings<S> {
+    pub fn new() -> Self {
+        AssetSettings {
+            settings: HashMap::new(),
+        }
+    }
+
+    pub fn insert(&mut self, id: AssetId, settings: S) -> Option<S> {
+        self.settings.insert(id, settings)
+    }
+
+    pub fn remove(&mut self, id: &AssetId) -> Option<S> {
+        self.settings.remove(id)
+    }
+
+    pub fn get(&self, id: &AssetId) -> Option<&S> {
+        self.settings.get(id)
+    }
+
+    pub fn get_mut(&mut self, id: &AssetId) -> Option<&mut S> {
+        self.settings.get_mut(id)
+    }
+
+    pub fn contains(&self, id: &AssetId) -> bool {
+        self.settings.contains_key(id)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&AssetId, &S)> {
+        self.settings.iter()
+    }
+
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = (&AssetId, &mut S)> {
+        self.settings.iter_mut()
+    }
+
+    pub fn len(&self) -> usize {
+        self.settings.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.settings.is_empty()
     }
 }

@@ -72,7 +72,8 @@ impl<A: Asset> Event for ImportAsset<A> {
             AssetStatus::None | AssetStatus::Failed | AssetStatus::Done => {
                 let (id, path) = self.id_and_path(database)?;
                 database.set_source(path.clone(), SourceInfo::new(id, 0, 0));
-                database.set_status(id, AssetStatus::Importing);
+                database.counter().increment();
+                world.events().add(TaskCounterUpdated);
 
                 if let Some(block) = database.block(&id) {
                     if block.filepath() != path {
@@ -175,6 +176,35 @@ impl<A: Asset> Event for LoadAsset<A> {
 impl<A: Asset> DatabaseTask for LoadAsset<A> {
     fn run(&self, events: &Events) {
         events.add(LoadAsset::<A>::new(self.path().clone()));
+    }
+}
+
+pub struct ProcessAsset<A: Asset> {
+    id: AssetId,
+    _marker: std::marker::PhantomData<A>,
+}
+
+impl<A: Asset> ProcessAsset<A> {
+    pub(crate) fn new(id: AssetId) -> Self {
+        ProcessAsset {
+            id,
+            _marker: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<A: Asset> Event for ProcessAsset<A> {
+    type Output = AssetId;
+
+    fn invoke(&mut self, world: &mut World) -> Option<Self::Output> {
+        let database = world.resource::<AssetDatabase>();
+        match database.status(self.id) {
+            AssetStatus::Importing => {
+                database.set_status(self.id, AssetStatus::Processing);
+                Some(self.id)
+            }
+            _ => None,
+        }
     }
 }
 

@@ -1,5 +1,5 @@
 use crate::{
-    asset::{Asset, AssetId, Settings},
+    asset::{Asset, AssetId, AssetMetadata, Settings},
     bytes::ToBytes,
 };
 
@@ -139,6 +139,13 @@ impl MetadataBlock {
 
     pub fn take(self) -> (AssetId, Vec<u8>) {
         (self.id, self.data)
+    }
+
+    pub fn into<S: Settings>(self) -> Option<AssetMetadata<S>> {
+        let id = self.id;
+        let settings = S::from_bytes(&self.data)?;
+
+        Some(AssetMetadata::new(id, settings))
     }
 }
 

@@ -65,4 +65,13 @@ impl AssetDatabaseConfig {
         std::fs::read(path)
             .and_then(|data| AssetBlock::from_bytes(&data).ok_or(io::ErrorKind::InvalidData.into()))
     }
+
+    pub fn normalize(path: impl AsRef<Path>) -> PathBuf {
+        let mut path = path.as_ref().to_path_buf();
+        path.as_mut_os_string()
+            .to_str()
+            .map(|path| path.replace("\\", "/"))
+            .map(PathBuf::from)
+            .unwrap_or(path)
+    }
 }

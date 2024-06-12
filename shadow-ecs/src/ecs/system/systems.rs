@@ -1,16 +1,12 @@
-use std::{
-    num::NonZeroUsize,
-    sync::{Arc, Mutex},
-};
-
 use super::{
     graph::{Graph, GraphNode},
     IntoSystem, System,
 };
 use crate::ecs::{
-    task::{JobBarrier, ScopedTaskPool},
+    task::{max_thread_count, JobBarrier, ScopedTaskPool},
     world::World,
 };
+use std::sync::{Arc, Mutex};
 
 impl GraphNode for System {
     fn is_dependency(&self, other: &Self) -> bool {
@@ -116,9 +112,7 @@ pub struct ParallelRunner;
 
 impl Runner for ParallelRunner {
     fn run(&self, graph: &Graph<System>, world: &World) {
-        let available_threads = std::thread::available_parallelism()
-            .unwrap_or(NonZeroUsize::new(1).unwrap())
-            .into();
+        let available_threads = max_thread_count();
         for row in graph.iter() {
             let num_threads = row.len().min(available_threads);
 

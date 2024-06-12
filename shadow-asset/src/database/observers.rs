@@ -1,15 +1,22 @@
 use crate::{
+    asset::{AssetSettings, AssetType, Assets},
     database::{
         events::FolderImported,
         library::{BlockInfo, SourceInfo},
         AssetDatabase,
     },
+    loader::{AssetLoader, LoadContext},
     registry::AssetLoaderRegistry,
 };
 use shadow_ecs::ecs::{event::Events, task::TaskManager};
 use std::{
     path::{Path, PathBuf},
     time::SystemTime,
+};
+
+use super::{
+    events::{AssetImport, ProcessAsset, TaskCounterUpdated},
+    library::AssetStatus,
 };
 
 fn path_ext(path: &Path) -> Option<&str> {
@@ -102,4 +109,56 @@ pub fn on_import_folders(
             events.add(FolderImported);
         }
     });
+}
+
+pub fn on_import_asset<L: AssetLoader>(
+    imports: &[AssetImport],
+    events: &Events,
+    database: &AssetDatabase,
+    registry: &AssetLoaderRegistry,
+    assets: &mut Assets<L::Asset>,
+    settings: &mut AssetSettings<L::Settings>,
+) {
+    let mut import_asset = |import: &AssetImport| -> std::io::Result<()> {
+        let path = import.path();
+
+        let metadata = database
+            .config()
+            .metadata(path)?
+            .into::<L::Settings>()
+            .ok_or(std::io::ErrorKind::InvalidData)?;
+
+        let bytes = std::fs::read(path)?;
+        let mut ctx = LoadContext::new(path, &bytes, &metadata);
+        let asset = L::load(&mut ctx);
+
+        for dependency in ctx.dependencies() {
+            if let Some(info) = database.block(dependency) {
+                if let Some(loader) = registry.meta(info.ty()) {
+                    loader.import(&events, &info.filepath().into());
+                }
+            }
+        }
+
+        assets.insert(import.id(), asset);
+
+        let (_, _settings) = metadata.take();
+        settings.insert(import.id(), _settings);
+        Ok(())
+    };
+
+    for import in imports {
+        match import_asset(import) {
+            Ok(_) => {
+                if database.tracker().can_process(import.id()) {
+                    events.add(ProcessAsset::<L::Asset>::new(import.id()));
+                }
+            }
+            Err(_) => {
+                database.set_status(import.id(), AssetStatus::Failed);
+                database.counter().decrement();
+                events.add(TaskCounterUpdated);
+            }
+        }
+    }
 }

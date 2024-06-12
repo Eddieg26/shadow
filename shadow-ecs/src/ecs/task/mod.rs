@@ -1,10 +1,10 @@
+use super::{storage::dense::DenseMap, system::SystemArg};
 use std::{
     any::Any,
+    num::NonZeroUsize,
     sync::{mpsc::Sender, Arc, Condvar, Mutex, MutexGuard},
     thread::{sleep, JoinHandle},
 };
-
-use super::{storage::dense::DenseMap, system::SystemArg};
 
 pub struct Task {
     thread: Option<JoinHandle<()>>,
@@ -83,8 +83,8 @@ impl Drop for TaskManager {
     }
 }
 
-impl SystemArg for &TaskManager {
-    type Item<'a> = &'a TaskManager;
+impl SystemArg for &SharedTaskPool {
+    type Item<'a> = &'a SharedTaskPool;
 
     fn get<'a>(world: &'a super::world::World) -> Self::Item<'a> {
         world.tasks()
@@ -300,4 +300,57 @@ impl BarrierLock {
             std::mem::drop(self.condvar.wait(guard));
         }
     }
+}
+
+pub struct SharedTaskPool {
+    workers: Arc<Mutex<Vec<Worker>>>,
+    sender: Arc<Sender<Job>>,
+}
+
+impl SharedTaskPool {
+    pub fn new(size: usize) -> Self {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let receiver = std::sync::Arc::new(std::sync::Mutex::new(receiver));
+
+        let workers = Arc::new(Mutex::new(Vec::with_capacity(size)));
+
+        for id in 0..size {
+            let receiver = receiver.clone();
+            let workers = workers.clone();
+            let thread = std::thread::spawn(move || loop {
+                let job: Job = receiver.lock().unwrap().recv().unwrap();
+
+                match job {
+                    Some(job) => job(),
+                    None => break,
+                }
+            });
+
+            workers.lock().unwrap().push(Worker::new(id, thread));
+        }
+
+        Self {
+            workers,
+            sender: Arc::new(sender),
+        }
+    }
+
+    pub fn spawn(&self, f: impl FnOnce() + Send + 'static) {
+        self.sender.send(Some(Box::new(f))).unwrap();
+    }
+
+    pub fn join(&self) {
+        for worker in self.workers.lock().unwrap().iter_mut() {
+            self.sender.send(None).unwrap();
+            if let Some(thread) = worker.thread.take() {
+                thread.join().unwrap();
+            }
+        }
+    }
+}
+
+pub fn max_thread_count() -> usize {
+    std::thread::available_parallelism()
+        .unwrap_or(NonZeroUsize::new(1).unwrap())
+        .into()
 }

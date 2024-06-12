@@ -14,7 +14,7 @@ use super::{
         table::ComponentSet,
     },
     system::observer::{EventObservers, IntoObserver},
-    task::TaskManager,
+    task::{max_thread_count, SharedTaskPool},
 };
 use std::{any::TypeId, collections::HashSet};
 
@@ -29,7 +29,7 @@ pub struct World {
     archetypes: Archetypes,
     events: Events,
     observers: EventObservers,
-    tasks: TaskManager,
+    tasks: SharedTaskPool,
 }
 
 impl World {
@@ -52,7 +52,7 @@ impl World {
             entities: Entities::new(),
             archetypes: Archetypes::new(),
             observers: EventObservers::new(),
-            tasks: TaskManager::new(),
+            tasks: SharedTaskPool::new(max_thread_count()),
         }
     }
 
@@ -88,7 +88,7 @@ impl World {
         &self.events
     }
 
-    pub fn tasks(&self) -> &TaskManager {
+    pub fn tasks(&self) -> &SharedTaskPool {
         &self.tasks
     }
 }

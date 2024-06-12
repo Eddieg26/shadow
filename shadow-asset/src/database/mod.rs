@@ -168,6 +168,10 @@ impl AssetDatabase {
     fn counter(&self) -> &TaskCounter {
         &self.counter
     }
+
+    fn tracker(&self) -> &AssetTracker {
+        &self.trackers
+    }
 }
 
 impl Resource for AssetDatabase {}
@@ -190,15 +194,21 @@ impl State {
 }
 
 #[derive(Clone)]
-pub struct AssetTracker(Arc<RwLock<HashMap<AssetId, AssetStatus>>>);
+pub struct AssetTracker {
+    assets: Arc<RwLock<HashMap<AssetId, AssetStatus>>>,
+    dependencies: Arc<RwLock<HashMap<AssetId, Vec<AssetId>>>>,
+}
 
 impl AssetTracker {
     pub fn new() -> Self {
-        AssetTracker(Arc::new(RwLock::new(HashMap::new())))
+        AssetTracker {
+            assets: Arc::new(RwLock::new(HashMap::new())),
+            dependencies: Arc::new(RwLock::new(HashMap::new())),
+        }
     }
 
     pub fn status(&self, id: AssetId) -> AssetStatus {
-        self.0
+        self.assets
             .read()
             .unwrap()
             .get(&id)
@@ -207,23 +217,36 @@ impl AssetTracker {
     }
 
     pub fn set_status(&self, id: AssetId, status: AssetStatus) {
-        self.0.write().unwrap().insert(id, status);
+        self.assets.write().unwrap().insert(id, status);
     }
 
-    pub fn is_importing(&self) -> bool {
-        self.0
-            .read()
-            .unwrap()
-            .values()
-            .any(|status| *status == AssetStatus::Importing)
+    pub fn set_dependencies(&self, id: AssetId, dependencies: Vec<AssetId>) {
+        self.dependencies.write().unwrap().insert(id, dependencies);
     }
 
-    pub fn is_loading(&self) -> bool {
-        self.0
-            .read()
-            .unwrap()
-            .values()
-            .any(|status| *status == AssetStatus::Loading)
+    pub fn can_process(&self, id: AssetId) -> bool {
+        let dependencies = self.dependencies.read().unwrap();
+        if let Some(dependencies) = dependencies.get(&id) {
+            dependencies.iter().all(|id| {
+                matches!(
+                    self.status(*id),
+                    AssetStatus::Done | AssetStatus::Failed | AssetStatus::None
+                )
+            })
+        } else {
+            true
+        }
+    }
+
+    pub fn is_dependencies_done(&self, id: AssetId) -> bool {
+        let dependencies = self.dependencies.read().unwrap();
+        if let Some(dependencies) = dependencies.get(&id) {
+            dependencies
+                .iter()
+                .all(|id| matches!(self.status(*id), AssetStatus::Done | AssetStatus::Failed))
+        } else {
+            true
+        }
     }
 }
 
