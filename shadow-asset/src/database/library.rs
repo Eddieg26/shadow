@@ -1,9 +1,9 @@
 use crate::{
-    asset::{AssetId, AssetType},
+    asset::{Asset, AssetId, AssetPath, AssetType},
     bytes::ToBytes,
 };
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     ffi::OsString,
     hash::{Hash, Hasher},
     path::{Path, PathBuf},
@@ -15,9 +15,31 @@ pub enum AssetStatus {
     None,
     Importing,
     Loading,
-    Processing,
-    Failed,
     Done,
+    Imported,
+    Failed,
+}
+
+impl AssetStatus {
+    pub fn importing(&self) -> bool {
+        matches!(self, AssetStatus::Importing)
+    }
+
+    pub fn loading(&self) -> bool {
+        matches!(self, AssetStatus::Loading)
+    }
+
+    pub fn done(&self) -> bool {
+        matches!(self, AssetStatus::Done)
+    }
+
+    pub fn imported(&self) -> bool {
+        matches!(self, AssetStatus::Imported)
+    }
+
+    pub fn failed(&self) -> bool {
+        matches!(self, AssetStatus::Failed)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -36,6 +58,15 @@ impl SourceInfo {
         }
     }
 
+    pub fn from(id: AssetId, asset: &[u8], metadata: &[u8], modified: u64) -> Self {
+        let checksum = Self::calculate_checksum(asset, metadata);
+        Self {
+            id,
+            checksum,
+            modified,
+        }
+    }
+
     pub fn id(&self) -> AssetId {
         self.id
     }
@@ -46,6 +77,10 @@ impl SourceInfo {
 
     pub fn modified(&self) -> u64 {
         self.modified
+    }
+
+    pub fn set_id(&mut self, id: AssetId) {
+        self.id = id
     }
 
     pub fn update(&mut self, checksum: u64, modified: u64) {
@@ -65,6 +100,16 @@ impl SourceInfo {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs()
+    }
+}
+
+impl Default for SourceInfo {
+    fn default() -> Self {
+        SourceInfo {
+            id: AssetId::gen(),
+            checksum: 0,
+            modified: 0,
+        }
     }
 }
 
@@ -90,11 +135,24 @@ impl ToBytes for SourceInfo {
 pub struct BlockInfo {
     filepath: PathBuf,
     ty: AssetType,
+    dependencies: Vec<AssetId>,
 }
 
 impl BlockInfo {
-    pub fn new(filepath: PathBuf, ty: AssetType) -> Self {
-        BlockInfo { filepath, ty }
+    pub fn new(filepath: impl AsRef<Path>, ty: AssetType, dependencies: Vec<AssetId>) -> Self {
+        BlockInfo {
+            filepath: filepath.as_ref().to_path_buf(),
+            ty,
+            dependencies,
+        }
+    }
+
+    pub fn of<A: Asset>(filepath: impl AsRef<Path>, dependencies: Vec<AssetId>) -> Self {
+        BlockInfo {
+            filepath: filepath.as_ref().to_path_buf(),
+            ty: AssetType::of::<A>(),
+            dependencies,
+        }
     }
 
     pub fn filepath(&self) -> &Path {
@@ -105,10 +163,23 @@ impl BlockInfo {
         self.ty
     }
 
+    pub fn depedencies(&self) -> &[AssetId] {
+        &self.dependencies
+    }
+
     pub fn with_path(&self, path: PathBuf) -> Self {
         BlockInfo {
             filepath: path,
             ty: self.ty,
+            dependencies: self.dependencies.clone(),
+        }
+    }
+
+    pub fn with_dependencies(&self, dependencies: Vec<AssetId>) -> Self {
+        BlockInfo {
+            filepath: self.filepath.clone(),
+            ty: self.ty,
+            dependencies,
         }
     }
 }
@@ -117,21 +188,22 @@ impl ToBytes for BlockInfo {
     fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = vec![];
 
-        let filepath = self.filepath.clone().into_os_string().to_bytes();
+        let filepath = self.filepath.to_bytes();
         bytes.extend(filepath.len().to_bytes());
         bytes.extend(filepath);
         bytes.extend(self.ty.to_bytes());
+        bytes.extend(self.dependencies.to_bytes());
 
         bytes
     }
 
     fn from_bytes(bytes: &[u8]) -> Option<Self> {
         let len = usize::from_bytes(bytes)?;
-        let filepath = OsString::from_bytes(&bytes[8..8 + len])?;
-        let filepath = filepath.into();
+        let filepath = PathBuf::from_bytes(&bytes[8..8 + len])?;
         let ty = AssetType::from_bytes(&bytes[8 + len..])?;
+        let depedencies = Vec::<AssetId>::from_bytes(&bytes[8 + len + 8..])?;
 
-        Some(BlockInfo::new(filepath, ty))
+        Some(BlockInfo::new(filepath, ty, depedencies))
     }
 }
 
@@ -140,6 +212,8 @@ pub struct AssetLibrary {
     path: PathBuf,
     sources: Arc<RwLock<HashMap<PathBuf, SourceInfo>>>,
     blocks: Arc<RwLock<HashMap<AssetId, BlockInfo>>>,
+    dependents: Arc<RwLock<HashMap<AssetId, HashSet<AssetId>>>>,
+    assets: Arc<RwLock<HashMap<AssetId, AssetStatus>>>,
 }
 
 impl AssetLibrary {
@@ -148,6 +222,8 @@ impl AssetLibrary {
             path: path.as_ref().to_path_buf(),
             sources: Arc::new(RwLock::new(HashMap::new())),
             blocks: Arc::new(RwLock::new(HashMap::new())),
+            dependents: Arc::new(RwLock::new(HashMap::new())),
+            assets: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -155,20 +231,48 @@ impl AssetLibrary {
         &self.path
     }
 
-    pub fn source(&self, path: &Path) -> Option<SourceInfo> {
-        self.sources.read().unwrap().get(path).cloned()
+    pub fn status(&self, path: impl Into<AssetPath>) -> AssetStatus {
+        let path: AssetPath = path.into();
+        let assets = self.assets.read().unwrap();
+        match path {
+            AssetPath::Id(id) => assets.get(&id).copied().unwrap_or(AssetStatus::None),
+            AssetPath::Path(path) => self.source(&path).map_or(AssetStatus::None, |source| {
+                assets
+                    .get(&source.id())
+                    .copied()
+                    .unwrap_or(AssetStatus::None)
+            }),
+        }
+    }
+
+    pub fn source(&self, path: impl AsRef<Path>) -> Option<SourceInfo> {
+        self.sources.read().unwrap().get(path.as_ref()).cloned()
     }
 
     pub fn block(&self, id: &AssetId) -> Option<BlockInfo> {
         self.blocks.read().unwrap().get(id).cloned()
     }
 
-    pub fn add_source(&self, path: PathBuf, info: SourceInfo) -> Option<SourceInfo> {
-        self.sources.write().unwrap().insert(path, info)
+    pub fn dependents(&self) -> std::sync::RwLockReadGuard<HashMap<AssetId, HashSet<AssetId>>> {
+        self.dependents.read().unwrap()
     }
 
-    pub fn add_block(&self, id: AssetId, info: BlockInfo) -> Option<BlockInfo> {
-        self.blocks.write().unwrap().insert(id, info)
+    pub fn set_source(&self, path: impl AsRef<Path>, info: SourceInfo) -> Option<SourceInfo> {
+        self.sources
+            .write()
+            .unwrap()
+            .insert(path.as_ref().to_path_buf(), info)
+    }
+
+    pub fn set_block(&self, id: AssetId, info: BlockInfo) -> Option<BlockInfo> {
+        for dep in info.depedencies() {
+            let mut dependents = self.dependents.write().unwrap();
+            dependents.entry(*dep).or_default().insert(id);
+        }
+
+        let ret = self.blocks.write().unwrap().insert(id, info);
+
+        ret
     }
 
     pub fn remove_source(&self, path: &Path) -> Option<SourceInfo> {
@@ -177,6 +281,10 @@ impl AssetLibrary {
 
     pub fn remove_block(&self, id: AssetId) -> Option<BlockInfo> {
         self.blocks.write().unwrap().remove(&id)
+    }
+
+    pub fn set_status(&self, id: AssetId, status: AssetStatus) {
+        self.assets.write().unwrap().insert(id, status);
     }
 
     pub fn save(&self) -> std::io::Result<()> {
@@ -216,6 +324,7 @@ impl ToBytes for AssetLibrary {
 
         let sources = self.sources.read().unwrap();
         let blocks = self.blocks.read().unwrap();
+        let dependents = self.dependents.read().unwrap();
 
         bytes.extend(sources.len().to_bytes());
         for (path, info) in sources.iter() {
@@ -235,6 +344,15 @@ impl ToBytes for AssetLibrary {
             let info = info.to_bytes();
             bytes.extend(info.len().to_bytes());
             bytes.extend(info);
+        }
+
+        bytes.extend(dependents.len().to_bytes());
+        for (id, dependents) in dependents.iter() {
+            bytes.extend(id.to_bytes());
+
+            let dependents = dependents.iter().copied().collect::<Vec<_>>().to_bytes();
+            bytes.extend(dependents.len().to_bytes());
+            bytes.extend(dependents);
         }
 
         bytes
@@ -278,10 +396,29 @@ impl ToBytes for AssetLibrary {
             blocks.insert(id, info);
         }
 
+        let dependents_len = usize::from_bytes(&bytes[offset..])?;
+        offset += 8;
+
+        let mut dependents = HashMap::new();
+        for _ in 0..dependents_len {
+            let id = AssetId::from_bytes(&bytes[offset..])?;
+            offset += 8;
+
+            let len = usize::from_bytes(&bytes[offset..])?;
+            offset += 8;
+
+            let set = Vec::<AssetId>::from_bytes(&bytes[offset..offset + len])?;
+            offset += len;
+
+            dependents.insert(id, set.into_iter().collect());
+        }
+
         Some(AssetLibrary {
             path: PathBuf::new(),
             sources: Arc::new(RwLock::new(sources)),
             blocks: Arc::new(RwLock::new(blocks)),
+            dependents: Arc::new(RwLock::new(dependents)),
+            assets: Arc::new(RwLock::new(HashMap::new())),
         })
     }
 }

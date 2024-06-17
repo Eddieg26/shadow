@@ -1,8 +1,8 @@
-use shadow_ecs::ecs::core::Resource;
-
 use crate::bytes::ToBytes;
+use serde::{ser::SerializeStruct, Deserialize, Serialize};
+use shadow_ecs::ecs::core::Resource;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     hash::{Hash, Hasher},
     path::{Path, PathBuf},
 };
@@ -11,25 +11,31 @@ pub trait Asset: ToBytes + Send + Sync + 'static {}
 
 impl Asset for () {}
 
-pub trait Settings: ToBytes + Default + Send + Sync + 'static {}
+pub trait Settings:
+    ToBytes + Default + Serialize + for<'a> Deserialize<'a> + Send + Sync + 'static
+{
+}
 
-pub struct DefaultSettings;
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct BasicSettings;
 
-impl ToBytes for DefaultSettings {
+impl ToBytes for BasicSettings {
     fn to_bytes(&self) -> Vec<u8> {
         vec![]
     }
 
     fn from_bytes(bytes: &[u8]) -> Option<Self> {
         if bytes.is_empty() {
-            Some(DefaultSettings)
+            Some(BasicSettings)
         } else {
             None
         }
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+impl Settings for BasicSettings {}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct AssetId(u64);
 
 impl AssetId {
@@ -65,7 +71,7 @@ impl ToBytes for AssetId {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct AssetType(u64);
 
 impl AssetType {
@@ -130,6 +136,12 @@ impl From<AssetId> for AssetPath {
     }
 }
 
+impl From<&AssetId> for AssetPath {
+    fn from(id: &AssetId) -> Self {
+        AssetPath::Id(*id)
+    }
+}
+
 impl From<&AssetPath> for AssetPath {
     fn from(path: &AssetPath) -> Self {
         path.clone()
@@ -141,7 +153,6 @@ impl<A: AsRef<Path>> From<A> for AssetPath {
         AssetPath::Path(path.as_ref().to_path_buf())
     }
 }
-
 pub struct AssetMetadata<S: Settings> {
     id: AssetId,
     settings: S,
@@ -156,12 +167,30 @@ impl<S: Settings> AssetMetadata<S> {
         self.id
     }
 
+    pub fn with_id(mut self, id: AssetId) -> Self {
+        self.id = id;
+        self
+    }
+
     pub fn settings(&self) -> &S {
         &self.settings
     }
 
+    pub fn settings_mut(&mut self) -> &mut S {
+        &mut self.settings
+    }
+
     pub fn take(self) -> (AssetId, S) {
         (self.id, self.settings)
+    }
+}
+
+impl<S: Settings> Default for AssetMetadata<S> {
+    fn default() -> Self {
+        AssetMetadata {
+            id: AssetId::gen(),
+            settings: S::default(),
+        }
     }
 }
 
@@ -176,6 +205,96 @@ impl<S: Settings> ToBytes for AssetMetadata<S> {
         let id = AssetId::from_bytes(bytes)?;
         let settings = S::from_bytes(&bytes[8..])?;
         Some(AssetMetadata { id, settings })
+    }
+}
+
+impl<S: Settings> Serialize for AssetMetadata<S> {
+    fn serialize<D>(&self, serializer: D) -> Result<D::Ok, D::Error>
+    where
+        D: serde::Serializer,
+    {
+        let id = &self.id;
+        let settings = &self.settings;
+
+        let mut state = serializer.serialize_struct("AssetMetadata", 2)?;
+        state.serialize_field("id", id)?;
+        state.serialize_field("settings", settings)?;
+        state.end()
+    }
+}
+
+impl<'a, S: Settings> Deserialize<'a> for AssetMetadata<S> {
+    fn deserialize<'de, D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'a>,
+    {
+        #[derive(Deserialize)]
+        #[serde(field_identifier, rename_all = "snake_case")]
+        enum Field {
+            Id,
+            Settings,
+        }
+
+        struct Visitor<S: Settings>(std::marker::PhantomData<S>);
+
+        impl<'a, S: Settings> serde::de::Visitor<'a> for Visitor<S> {
+            type Value = AssetMetadata<S>;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("struct AssetMetadata")
+            }
+
+            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+            where
+                A: serde::de::MapAccess<'a>,
+            {
+                let mut id = None;
+                let mut settings = None;
+
+                while let Some(key) = map.next_key()? {
+                    match key {
+                        Field::Id => {
+                            if id.is_some() {
+                                return Err(serde::de::Error::duplicate_field("id"));
+                            }
+                            id = Some(map.next_value()?);
+                        }
+                        Field::Settings => {
+                            if settings.is_some() {
+                                return Err(serde::de::Error::duplicate_field("settings"));
+                            }
+                            settings = Some(map.next_value()?);
+                        }
+                    }
+                }
+
+                let id = id.ok_or_else(|| serde::de::Error::missing_field("id"))?;
+                let settings =
+                    settings.ok_or_else(|| serde::de::Error::missing_field("settings"))?;
+
+                Ok(AssetMetadata { id, settings })
+            }
+        }
+
+        const FIELDS: &[&str] = &["id", "settings"];
+        deserializer.deserialize_struct("AssetMetadata", FIELDS, Visitor(std::marker::PhantomData))
+    }
+}
+
+pub struct Folder;
+impl Asset for Folder {}
+
+impl ToBytes for Folder {
+    fn to_bytes(&self) -> Vec<u8> {
+        vec![]
+    }
+
+    fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        if bytes.is_empty() {
+            Some(Folder)
+        } else {
+            None
+        }
     }
 }
 
@@ -278,3 +397,61 @@ impl<S: Settings> AssetSettings<S> {
 }
 
 impl<S: Settings> Resource for AssetSettings<S> {}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct FolderSettings {
+    children: HashSet<PathBuf>,
+}
+
+impl FolderSettings {
+    pub fn new() -> Self {
+        FolderSettings {
+            children: HashSet::new(),
+        }
+    }
+
+    pub fn insert(&mut self, path: PathBuf) -> bool {
+        self.children.insert(path)
+    }
+
+    pub fn remove(&mut self, path: &Path) -> bool {
+        self.children.remove(path)
+    }
+
+    pub fn set_children(&mut self, children: HashSet<PathBuf>) {
+        self.children = children;
+    }
+
+    pub fn contains(&self, path: &Path) -> bool {
+        self.children.contains(path)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &PathBuf> {
+        self.children.iter()
+    }
+
+    pub fn len(&self) -> usize {
+        self.children.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.children.is_empty()
+    }
+}
+
+impl ToBytes for FolderSettings {
+    fn to_bytes(&self) -> Vec<u8> {
+        self.children.iter().cloned().collect::<Vec<_>>().to_bytes()
+    }
+
+    fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        let children = Vec::<PathBuf>::from_bytes(bytes)?;
+        let mut settings = FolderSettings::new();
+        for child in children {
+            settings.insert(child);
+        }
+        Some(settings)
+    }
+}
+
+impl Settings for FolderSettings {}

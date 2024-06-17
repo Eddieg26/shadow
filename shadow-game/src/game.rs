@@ -7,7 +7,7 @@ use super::{
 };
 use shadow_ecs::ecs::{
     core::{Component, LocalResource, Resource},
-    event::Event,
+    event::{Event, Events},
     system::{observer::IntoObserver, IntoSystem},
     world::World,
 };
@@ -29,6 +29,10 @@ impl Game {
             scenes: Scenes::new(),
             runner: Box::new(default_runner),
         }
+    }
+
+    pub fn events(&self) -> &Events {
+        self.world.events()
     }
 
     pub fn resource<R: Resource>(&self) -> &R {

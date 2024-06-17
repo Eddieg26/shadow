@@ -83,8 +83,8 @@ impl Drop for TaskManager {
     }
 }
 
-impl SystemArg for &SharedTaskPool {
-    type Item<'a> = &'a SharedTaskPool;
+impl SystemArg for &TaskManager {
+    type Item<'a> = &'a TaskManager;
 
     fn get<'a>(world: &'a super::world::World) -> Self::Item<'a> {
         world.tasks()
@@ -204,7 +204,7 @@ pub struct ScopedTaskPool<'a> {
 }
 
 impl<'a> ScopedTaskPool<'a> {
-    pub fn new(size: usize, executor: impl Fn(ScopedSender<'a>)) -> Self {
+    pub fn new(size: usize, executor: impl FnOnce(ScopedSender<'a>)) -> Self {
         let (sender, receiver) = std::sync::mpsc::channel();
         let receiver = std::sync::Arc::new(std::sync::Mutex::new(receiver));
 

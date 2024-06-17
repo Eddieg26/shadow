@@ -326,6 +326,18 @@ impl SystemArg for &Entities {
     }
 }
 
+impl SystemArg for () {
+    type Item<'a> = ();
+
+    fn get<'a>(_world: &'a World) -> Self::Item<'a> {
+        ()
+    }
+
+    fn access() -> Vec<WorldAccess> {
+        vec![]
+    }
+}
+
 pub struct Cloned<C: Clone + Resource>(std::marker::PhantomData<C>);
 
 impl<C: Clone + Resource> SystemArg for Cloned<C> {

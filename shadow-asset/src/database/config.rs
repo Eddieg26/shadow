@@ -1,12 +1,37 @@
-use crate::{
-    asset::AssetId,
-    block::{AssetBlock, MetadataBlock},
-    bytes::ToBytes,
-};
-use std::{
-    io::{self},
-    path::{Path, PathBuf},
-};
+use shadow_ecs::ecs::core::Resource;
+use std::path::{Path, PathBuf};
+
+pub struct AssetConfig {
+    assets: PathBuf,
+    cache: PathBuf,
+}
+
+impl AssetConfig {
+    pub fn new() -> Self {
+        Self {
+            assets: PathBuf::from("assets"),
+            cache: PathBuf::from("cache"),
+        }
+    }
+
+    pub fn assets(&self) -> &Path {
+        &self.assets
+    }
+
+    pub fn cache(&self) -> &Path {
+        &self.cache
+    }
+
+    pub fn set_assets(&mut self, assets: impl Into<PathBuf>) {
+        self.assets = assets.into();
+    }
+
+    pub fn set_cache(&mut self, cache: impl Into<PathBuf>) {
+        self.cache = cache.into()
+    }
+}
+
+impl Resource for AssetConfig {}
 
 #[derive(Debug, Clone)]
 pub struct AssetDatabaseConfig {
@@ -48,24 +73,6 @@ impl AssetDatabaseConfig {
         &self.blocks
     }
 
-    pub fn asset(&self, path: impl AsRef<Path>) -> io::Result<Vec<u8>> {
-        let path = self.assets.join(path);
-        std::fs::read(path)
-    }
-
-    pub fn metadata(&self, path: impl AsRef<Path>) -> io::Result<MetadataBlock> {
-        let path = path.as_ref().to_path_buf().with_extension("meta");
-        std::fs::read(path).and_then(|data| {
-            MetadataBlock::from_bytes(&data).ok_or(io::ErrorKind::InvalidData.into())
-        })
-    }
-
-    pub fn block(&self, id: &AssetId) -> io::Result<AssetBlock> {
-        let path = self.blocks.join(id.to_string());
-        std::fs::read(path)
-            .and_then(|data| AssetBlock::from_bytes(&data).ok_or(io::ErrorKind::InvalidData.into()))
-    }
-
     pub fn normalize(path: impl AsRef<Path>) -> PathBuf {
         let mut path = path.as_ref().to_path_buf();
         path.as_mut_os_string()
@@ -73,5 +80,14 @@ impl AssetDatabaseConfig {
             .map(|path| path.replace("\\", "/"))
             .map(PathBuf::from)
             .unwrap_or(path)
+    }
+
+    pub fn modified(&self, path: impl AsRef<Path>) -> u64 {
+        std::fs::metadata(path)
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .and_then(|m| m.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs())
+            .unwrap_or(0)
     }
 }

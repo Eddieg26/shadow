@@ -131,7 +131,6 @@ impl FilterQuery for () {
 pub struct Query<'a, Q: BaseQuery, F: FilterQuery = ()> {
     world: &'a World,
     archetypes: Vec<ArchetypeId>,
-    state: QueryState,
     row_index: usize,
     archetype_index: usize,
     archetype: Option<&'a Archetype>,
@@ -152,7 +151,6 @@ impl<'a, Q: BaseQuery, F: FilterQuery> Query<'a, Q, F> {
         Self {
             world,
             archetypes,
-            state,
             archetype_index: 0,
             row_index: 0,
             archetype,

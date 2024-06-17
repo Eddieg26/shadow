@@ -1,5 +1,5 @@
 use shadow_asset::{
-    asset::{Asset, DefaultSettings},
+    asset::{Asset, BasicSettings},
     bytes::ToBytes,
 };
 use shadow_game::plugin::{Plugin, PluginContext, Plugins};

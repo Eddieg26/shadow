@@ -1,4 +1,4 @@
-use std::ffi::OsString;
+use std::{ffi::OsString, path::PathBuf};
 
 pub trait ToBytes: Sized {
     fn to_bytes(&self) -> Vec<u8>;
@@ -274,5 +274,15 @@ impl ToBytes for OsString {
                 bytes.iter().copied().collect::<Vec<_>>(),
             ))
         }
+    }
+}
+
+impl ToBytes for PathBuf {
+    fn to_bytes(&self) -> Vec<u8> {
+        self.clone().into_os_string().to_bytes()
+    }
+
+    fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        OsString::from_bytes(bytes).map(PathBuf::from)
     }
 }

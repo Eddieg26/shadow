@@ -2,7 +2,7 @@ use super::{scene::Scene, schedule::Phase};
 use crate::game::{Game, GameRunner};
 use shadow_ecs::ecs::{
     core::{Component, LocalResource, Resource},
-    event::Event,
+    event::{Event, Events},
     storage::dense::DenseMap,
     system::{observer::IntoObserver, IntoSystem},
 };
@@ -55,6 +55,10 @@ impl<'a> PluginContext<'a> {
     pub fn set_runner<R: GameRunner + 'static>(&mut self, runner: R) -> &mut Self {
         self.game.set_runner(runner);
         self
+    }
+
+    pub fn events(&self) -> &Events {
+        self.game.events()
     }
 
     pub fn resource<R: Resource>(&self) -> &R {
