@@ -1,3 +1,4 @@
 /target
-/assets
-/cache
+/assets/*
+/cache/*
+/data/*

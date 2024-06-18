@@ -13,16 +13,15 @@ use std::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum AssetStatus {
     None,
-    Importing,
     Loading,
     Done,
-    Imported,
+    Importing,
     Failed,
 }
 
 impl AssetStatus {
-    pub fn importing(&self) -> bool {
-        matches!(self, AssetStatus::Importing)
+    pub fn none(&self) -> bool {
+        matches!(self, AssetStatus::None)
     }
 
     pub fn loading(&self) -> bool {
@@ -33,8 +32,8 @@ impl AssetStatus {
         matches!(self, AssetStatus::Done)
     }
 
-    pub fn imported(&self) -> bool {
-        matches!(self, AssetStatus::Imported)
+    pub fn importing(&self) -> bool {
+        matches!(self, AssetStatus::Importing)
     }
 
     pub fn failed(&self) -> bool {
@@ -135,23 +134,20 @@ impl ToBytes for SourceInfo {
 pub struct BlockInfo {
     filepath: PathBuf,
     ty: AssetType,
-    dependencies: Vec<AssetId>,
 }
 
 impl BlockInfo {
-    pub fn new(filepath: impl AsRef<Path>, ty: AssetType, dependencies: Vec<AssetId>) -> Self {
+    pub fn new(filepath: impl AsRef<Path>, ty: AssetType) -> Self {
         BlockInfo {
             filepath: filepath.as_ref().to_path_buf(),
             ty,
-            dependencies,
         }
     }
 
-    pub fn of<A: Asset>(filepath: impl AsRef<Path>, dependencies: Vec<AssetId>) -> Self {
+    pub fn of<A: Asset>(filepath: impl AsRef<Path>) -> Self {
         BlockInfo {
             filepath: filepath.as_ref().to_path_buf(),
             ty: AssetType::of::<A>(),
-            dependencies,
         }
     }
 
@@ -163,23 +159,10 @@ impl BlockInfo {
         self.ty
     }
 
-    pub fn depedencies(&self) -> &[AssetId] {
-        &self.dependencies
-    }
-
     pub fn with_path(&self, path: PathBuf) -> Self {
         BlockInfo {
             filepath: path,
             ty: self.ty,
-            dependencies: self.dependencies.clone(),
-        }
-    }
-
-    pub fn with_dependencies(&self, dependencies: Vec<AssetId>) -> Self {
-        BlockInfo {
-            filepath: self.filepath.clone(),
-            ty: self.ty,
-            dependencies,
         }
     }
 }
@@ -192,7 +175,6 @@ impl ToBytes for BlockInfo {
         bytes.extend(filepath.len().to_bytes());
         bytes.extend(filepath);
         bytes.extend(self.ty.to_bytes());
-        bytes.extend(self.dependencies.to_bytes());
 
         bytes
     }
@@ -201,9 +183,8 @@ impl ToBytes for BlockInfo {
         let len = usize::from_bytes(bytes)?;
         let filepath = PathBuf::from_bytes(&bytes[8..8 + len])?;
         let ty = AssetType::from_bytes(&bytes[8 + len..])?;
-        let depedencies = Vec::<AssetId>::from_bytes(&bytes[8 + len + 8..])?;
 
-        Some(BlockInfo::new(filepath, ty, depedencies))
+        Some(BlockInfo::new(filepath, ty))
     }
 }
 
@@ -214,16 +195,18 @@ pub struct AssetLibrary {
     blocks: Arc<RwLock<HashMap<AssetId, BlockInfo>>>,
     dependents: Arc<RwLock<HashMap<AssetId, HashSet<AssetId>>>>,
     assets: Arc<RwLock<HashMap<AssetId, AssetStatus>>>,
+    importing: Arc<RwLock<HashSet<PathBuf>>>,
 }
 
 impl AssetLibrary {
     pub fn new(path: impl AsRef<Path>) -> Self {
         AssetLibrary {
             path: path.as_ref().to_path_buf(),
-            sources: Arc::new(RwLock::new(HashMap::new())),
-            blocks: Arc::new(RwLock::new(HashMap::new())),
-            dependents: Arc::new(RwLock::new(HashMap::new())),
-            assets: Arc::new(RwLock::new(HashMap::new())),
+            sources: Arc::default(),
+            blocks: Arc::default(),
+            dependents: Arc::default(),
+            assets: Arc::default(),
+            importing: Arc::default(),
         }
     }
 
@@ -234,15 +217,27 @@ impl AssetLibrary {
     pub fn status(&self, path: impl Into<AssetPath>) -> AssetStatus {
         let path: AssetPath = path.into();
         let assets = self.assets.read().unwrap();
-        match path {
-            AssetPath::Id(id) => assets.get(&id).copied().unwrap_or(AssetStatus::None),
-            AssetPath::Path(path) => self.source(&path).map_or(AssetStatus::None, |source| {
-                assets
-                    .get(&source.id())
-                    .copied()
-                    .unwrap_or(AssetStatus::None)
-            }),
-        }
+
+        let status = match &path {
+            AssetPath::Id(id) => assets.get(id).copied(),
+            AssetPath::Path(path) => {
+                if let Some(source) = self.source(path) {
+                    assets.get(&source.id()).copied()
+                } else {
+                    None
+                }
+            }
+        };
+
+        status.unwrap_or(AssetStatus::None)
+    }
+
+    pub fn importing(&self, path: impl AsRef<Path>) -> bool {
+        self.importing
+            .read()
+            .unwrap()
+            .get(&path.as_ref().to_path_buf())
+            .is_some()
     }
 
     pub fn source(&self, path: impl AsRef<Path>) -> Option<SourceInfo> {
@@ -264,8 +259,13 @@ impl AssetLibrary {
             .insert(path.as_ref().to_path_buf(), info)
     }
 
-    pub fn set_block(&self, id: AssetId, info: BlockInfo) -> Option<BlockInfo> {
-        for dep in info.depedencies() {
+    pub fn set_block(
+        &self,
+        id: AssetId,
+        info: BlockInfo,
+        dependencies: &[AssetId],
+    ) -> Option<BlockInfo> {
+        for dep in dependencies {
             let mut dependents = self.dependents.write().unwrap();
             dependents.entry(*dep).or_default().insert(id);
         }
@@ -283,8 +283,36 @@ impl AssetLibrary {
         self.blocks.write().unwrap().remove(&id)
     }
 
-    pub fn set_status(&self, id: AssetId, status: AssetStatus) {
-        self.assets.write().unwrap().insert(id, status);
+    pub fn set_status(
+        &self,
+        path: impl Into<AssetPath>,
+        status: AssetStatus,
+    ) -> Option<AssetStatus> {
+        let path: AssetPath = path.into();
+
+        let id = match &path {
+            AssetPath::Id(id) => Some(*id),
+            AssetPath::Path(path) => self.source(path).map(|info| info.id()),
+        }?;
+
+        let prev = {
+            let mut assets = self.assets.write().unwrap();
+            match status {
+                AssetStatus::None => assets.remove(&id),
+                AssetStatus::Importing => {
+                    self.add_import(&path);
+                    assets.remove(&id)
+                }
+                _ => assets.insert(id, status),
+            }
+        };
+
+        prev.and_then(|prev| match (prev, status.importing()) {
+            (AssetStatus::Importing, false) => Some(self.remove_import(&path)),
+            _ => Some(()),
+        });
+
+        prev
     }
 
     pub fn save(&self) -> std::io::Result<()> {
@@ -315,6 +343,40 @@ impl AssetLibrary {
         std::mem::swap(&mut *dst_blocks, &mut *src_blocks);
 
         Ok(())
+    }
+}
+
+impl AssetLibrary {
+    fn add_import(&self, path: &AssetPath) {
+        match path {
+            AssetPath::Id(id) => {
+                if let Some(block) = self.block(&id) {
+                    self.importing
+                        .write()
+                        .unwrap()
+                        .insert(block.filepath().to_path_buf());
+                }
+            }
+            AssetPath::Path(path) => {
+                self.importing.write().unwrap().insert(path.clone());
+            }
+        }
+    }
+
+    fn remove_import(&self, path: &AssetPath) {
+        match path {
+            AssetPath::Id(id) => {
+                if let Some(block) = self.block(&id) {
+                    self.importing
+                        .write()
+                        .unwrap()
+                        .remove(&block.filepath().to_path_buf());
+                }
+            }
+            AssetPath::Path(path) => {
+                self.importing.write().unwrap().remove(path);
+            }
+        }
     }
 }
 
@@ -418,7 +480,8 @@ impl ToBytes for AssetLibrary {
             sources: Arc::new(RwLock::new(sources)),
             blocks: Arc::new(RwLock::new(blocks)),
             dependents: Arc::new(RwLock::new(dependents)),
-            assets: Arc::new(RwLock::new(HashMap::new())),
+            assets: Arc::default(),
+            importing: Arc::default(),
         })
     }
 }

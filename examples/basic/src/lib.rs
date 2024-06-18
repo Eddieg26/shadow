@@ -1,6 +1,8 @@
 use shadow_asset::{
     asset::{Asset, BasicSettings},
     bytes::ToBytes,
+    errors::AssetError,
+    loader::{AssetLoader, AssetPipeline, BasicProcessor},
 };
 use shadow_game::plugin::{Plugin, PluginContext, Plugins};
 
@@ -66,19 +68,27 @@ impl ToBytes for PlainText {
 
 impl Asset for PlainText {}
 
-// impl AssetLoader for PlainText {
-//     type Asset = PlainText;
-//     type Settings = DefaultSettings;
+impl AssetLoader for PlainText {
+    type Asset = PlainText;
+    type Settings = BasicSettings;
 
-//     fn load(
-//         ctx: &mut shadow_asset::loader::LoadContext<Self::Settings>,
-//     ) -> std::io::Result<Self::Asset> {
-//         let path = ctx.path();
-//         let text = std::fs::read_to_string(path)?;
-//         Ok(PlainText::new(&text))
-//     }
+    fn load(
+        ctx: &mut shadow_asset::loader::LoadContext<Self::Settings>,
+    ) -> Result<PlainText, AssetError> {
+        let text =
+            String::from_utf8(ctx.bytes().to_vec()).map_err(|_| AssetError::InvalidMetadata)?;
+        Ok(PlainText { text })
+    }
 
-//     fn extensions() -> &'static [&'static str] {
-//         &["txt"]
-//     }
-// }
+    fn extensions() -> &'static [&'static str] {
+        &["txt"]
+    }
+}
+
+impl AssetPipeline for PlainText {
+    type Asset = Self;
+    type Settings = BasicSettings;
+    type Loader = Self;
+    type Processor = BasicProcessor<Self>;
+    type PostProcessor = BasicProcessor<Self>;
+}

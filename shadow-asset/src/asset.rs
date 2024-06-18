@@ -16,7 +16,7 @@ pub trait Settings:
 {
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct BasicSettings;
 
 impl ToBytes for BasicSettings {
@@ -33,9 +33,45 @@ impl ToBytes for BasicSettings {
     }
 }
 
+impl Serialize for BasicSettings {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let state = serializer.serialize_struct("BasicSettings", 0)?;
+        state.end()
+    }
+}
+
+impl<'a> Deserialize<'a> for BasicSettings {
+    fn deserialize<D>(deserializer: D) -> Result<BasicSettings, D::Error>
+    where
+        D: serde::Deserializer<'a>,
+    {
+        struct Visitor;
+
+        impl<'a> serde::de::Visitor<'a> for Visitor {
+            type Value = BasicSettings;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("struct BasicSettings")
+            }
+
+            fn visit_map<A>(self, _map: A) -> Result<Self::Value, A::Error>
+            where
+                A: serde::de::MapAccess<'a>,
+            {
+                Ok(BasicSettings)
+            }
+        }
+
+        deserializer.deserialize_struct("BasicSettings", &[], Visitor)
+    }
+}
+
 impl Settings for BasicSettings {}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct AssetId(u64);
 
 impl AssetId {
@@ -52,6 +88,27 @@ impl AssetId {
 
     pub fn value(&self) -> u64 {
         self.0
+    }
+}
+
+impl Serialize for AssetId {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.0.to_string().serialize(serializer)
+    }
+}
+
+impl<'a> Deserialize<'a> for AssetId {
+    fn deserialize<D>(deserializer: D) -> Result<AssetId, D::Error>
+    where
+        D: serde::Deserializer<'a>,
+    {
+        let id = String::deserialize(deserializer)?;
+        u64::from_str_radix(&id, 10)
+            .map(AssetId)
+            .map_err(serde::de::Error::custom)
     }
 }
 
@@ -100,7 +157,7 @@ impl ToBytes for AssetType {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum AssetPath {
     Id(AssetId),
     Path(PathBuf),

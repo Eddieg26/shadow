@@ -7,6 +7,7 @@ pub enum AssetError {
     InvalidPath(PathBuf),
     InvalidExtension(PathBuf),
     InvalidMetadata,
+    InvalidData,
     Io(std::io::Error),
 }
 
@@ -32,6 +33,9 @@ impl From<AssetError> for std::io::Error {
             AssetError::InvalidMetadata => {
                 std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid metadata")
             }
+            AssetError::InvalidData => {
+                std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid data")
+            }
             AssetError::Io(error) => error,
         }
     }
@@ -46,6 +50,7 @@ impl Display for AssetError {
                 f.write_fmt(format_args!("Invalid Path: {:?}", path))
             }
             AssetError::InvalidMetadata => f.write_str("Invalid Metadata"),
+            AssetError::InvalidData => f.write_str("Invalid Data"),
             AssetError::Io(error) => {
                 let error = error.to_string();
                 f.write_fmt(format_args!("IO Asset Error: {:?}", error))

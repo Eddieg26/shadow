@@ -247,6 +247,10 @@ impl<K: Hash + PartialEq, V> DenseMap<K, V> {
         }
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.values.is_empty()
+    }
+
     pub fn clear(&mut self) {
         self.map.clear();
         self.keys.clear();

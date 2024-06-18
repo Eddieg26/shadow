@@ -1,6 +1,9 @@
 use super::schedule::PhaseSystems;
 use shadow_ecs::ecs::{core::Resource, storage::dense::DenseMap};
-use std::hash::{DefaultHasher, Hash, Hasher};
+use std::{
+    collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
+};
 
 pub trait Scene: 'static {
     fn systems(&self) -> PhaseSystems;

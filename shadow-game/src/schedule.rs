@@ -5,7 +5,8 @@ use shadow_ecs::ecs::{
 };
 use std::{
     any::TypeId,
-    hash::{DefaultHasher, Hash, Hasher},
+    collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
     sync::{Arc, Mutex},
 };
 
@@ -25,13 +26,13 @@ pub trait Phase: Sized + 'static {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PhaseType(u64);
 
 impl PhaseType {
     pub fn new<P: Phase>() -> Self {
         let type_id = TypeId::of::<P>();
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        let mut hasher = DefaultHasher::new();
         type_id.hash(&mut hasher);
         Self(hasher.finish())
     }
@@ -102,6 +103,8 @@ impl<'a> RunContext<'a> {
             systems.run(self.world);
         }
 
+        self.world.flush();
+
         self.schedule.run(&self.systems, self.world);
     }
 }
@@ -153,6 +156,12 @@ impl ErasedPhase {
         self.schedule.insert_after::<Q, R>()
     }
 
+    pub fn phases(&self) -> Vec<PhaseType> {
+        let mut phases = self.schedule.phases();
+        phases.insert(0, self.ty);
+        phases
+    }
+
     pub fn run(&self, systems: &SystemDatabase, world: &mut World) {
         let ctx = RunContext::new(systems, world, &self.schedule, self.ty);
         self.runner.lock().unwrap().run(ctx);
@@ -189,47 +198,55 @@ impl Schedule {
         self.phases.insert(phase.ty, phase);
     }
 
-    pub fn add_sub_phase<P: Phase, Q: Phase>(&mut self) {
-        let phase = ErasedPhase::new::<P>();
-        if let Some(sub_phase) = self.get_mut::<Q>() {
-            sub_phase.add_phase::<P>();
+    pub fn add_sub_phase<Main: Phase, Sub: Phase>(&mut self) {
+        let phase = ErasedPhase::new::<Sub>();
+        if let Some(sub_phase) = self.get_mut::<Main>() {
+            sub_phase.add_phase::<Sub>();
         } else {
             self.phases.insert(phase.ty, phase);
         }
     }
 
-    pub fn insert_before<P: Phase, Q: Phase>(&mut self) -> bool {
+    pub fn insert_before<P: Phase, Before: Phase>(&mut self) -> bool {
         let phase = ErasedPhase::new::<P>();
         if self.has(phase.ty) {
-            let before_ty = PhaseType::new::<Q>();
+            let before_ty = PhaseType::new::<Before>();
             self.phases.insert_before(phase.ty, phase, before_ty);
             true
         } else {
             self.phases
                 .values_mut()
                 .iter_mut()
-                .any(|phase| phase.insert_before::<P, Q>())
+                .any(|phase| phase.insert_before::<P, Before>())
         }
     }
 
-    pub fn insert_after<P: Phase, Q: Phase>(&mut self) -> bool {
+    pub fn insert_after<P: Phase, After: Phase>(&mut self) -> bool {
         let phase = ErasedPhase::new::<P>();
         if self.has(phase.ty) {
-            let after_ty = PhaseType::new::<Q>();
+            let after_ty = PhaseType::new::<After>();
             self.phases.insert_after(phase.ty, phase, after_ty);
             true
         } else {
             self.phases
                 .values_mut()
                 .iter_mut()
-                .any(|phase| phase.insert_after::<P, Q>())
+                .any(|phase| phase.insert_after::<P, After>())
         }
+    }
+
+    pub fn phases(&self) -> Vec<PhaseType> {
+        self.phases
+            .values()
+            .iter()
+            .map(|phase| phase.phases())
+            .flatten()
+            .collect::<Vec<_>>()
     }
 
     pub fn run(&self, systems: &SystemDatabase, world: &mut World) {
         for phase in self.phases.values() {
             phase.run(systems, world);
-            world.flush();
         }
     }
 }
@@ -310,11 +327,11 @@ impl MainSchedule {
     }
 
     pub fn add_phase<P: Phase>(&mut self) {
-        self.schedule.add_phase::<P>();
+        self.add_sub_phase::<P, phases::Execute>();
     }
 
-    pub fn add_sub_phase<P: Phase, Q: Phase>(&mut self) {
-        self.schedule.add_sub_phase::<P, Q>();
+    pub fn add_sub_phase<Main: Phase, Sub: Phase>(&mut self) {
+        self.schedule.add_sub_phase::<Main, Sub>();
     }
 
     pub fn add_system<M>(&mut self, phase: impl Phase, system: impl IntoSystem<M>) {
@@ -342,6 +359,10 @@ impl MainSchedule {
 
     pub fn build(&mut self) {
         self.systems.build();
+    }
+
+    pub fn phases(&self) -> Vec<PhaseType> {
+        self.schedule.phases.keys().iter().copied().collect()
     }
 
     pub fn run<P: Phase>(&self, world: &mut World) -> Option<()> {

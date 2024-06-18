@@ -211,18 +211,18 @@ impl PhaseExt for Game {
         self
     }
 
-    fn add_sub_phase<P: Phase, Q: Phase>(&mut self) -> &mut Self {
-        self.schedule.add_sub_phase::<P, Q>();
+    fn add_sub_phase<Main: Phase, Sub: Phase>(&mut self) -> &mut Self {
+        self.schedule.add_sub_phase::<Main, Sub>();
         self
     }
 
-    fn insert_phase_before<P: Phase, Q: Phase>(&mut self) -> &mut Self {
-        self.schedule.insert_before::<P, Q>();
+    fn insert_phase_before<P: Phase, Before: Phase>(&mut self) -> &mut Self {
+        self.schedule.insert_before::<P, Before>();
         self
     }
 
-    fn insert_phase_after<P: Phase, Q: Phase>(&mut self) -> &mut Self {
-        self.schedule.insert_after::<P, Q>();
+    fn insert_phase_after<P: Phase, AFter: Phase>(&mut self) -> &mut Self {
+        self.schedule.insert_after::<P, AFter>();
         self
     }
 }

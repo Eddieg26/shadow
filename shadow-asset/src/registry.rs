@@ -1,5 +1,6 @@
 use crate::{
-    asset::{AssetPath, AssetType},
+    asset::{AssetMetadata, AssetPath, AssetType},
+    block::MetadataBlock,
     database::{
         events::{ImportAsset, ImportReason, LoadAsset},
         AssetDatabase,
@@ -9,6 +10,7 @@ use crate::{
 use shadow_ecs::ecs::{core::Resource, event::Events};
 use std::{
     collections::HashMap,
+    path::Path,
     sync::{Arc, RwLock},
 };
 
@@ -17,6 +19,7 @@ pub struct AssetPipelineMeta {
     ty: AssetType,
     import: fn(&AssetDatabase, &Events, ImportReason),
     load: fn(&Events, &AssetPath),
+    load_meta: fn(&Path) -> Option<MetadataBlock>,
 }
 
 impl AssetPipelineMeta {
@@ -38,6 +41,18 @@ impl AssetPipelineMeta {
                 };
             },
             load: |events, path| events.add(LoadAsset::<L::Asset>::new(path)),
+            load_meta: |path| {
+                let path = path.with_extension("meta");
+                let bytes = std::fs::read_to_string(&path).ok()?;
+                let metadata = match toml::from_str::<AssetMetadata<L::Settings>>(&bytes) {
+                    Ok(data) => Some(data),
+                    Err(e) => {
+                        println!("Failed to parse metadata: {:?}", e);
+                        None
+                    }
+                }?;
+                Some(MetadataBlock::new(metadata.id(), bytes.as_bytes().to_vec()))
+            },
         }
     }
 
@@ -51,6 +66,10 @@ impl AssetPipelineMeta {
 
     pub fn load(&self, events: &Events, path: &AssetPath) {
         (self.load)(events, path);
+    }
+
+    pub fn load_meta(&self, path: &Path) -> Option<MetadataBlock> {
+        (self.load_meta)(path)
     }
 }
 

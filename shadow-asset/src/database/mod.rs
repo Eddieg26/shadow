@@ -1,6 +1,6 @@
 use crate::{
     asset::{Asset, AssetId, AssetMetadata, AssetPath, Settings},
-    block::{AssetBlock, MetadataBlock},
+    block::AssetBlock,
     bytes::ToBytes,
     errors::AssetError,
     registry::AssetPipelineRegistry,
@@ -8,6 +8,7 @@ use crate::{
 use config::AssetDatabaseConfig;
 use events::{ImportAsset, ImportFolder, ImportReason, LoadAsset, LoadLibrary, SaveLibrary};
 use library::{AssetLibrary, AssetStatus, BlockInfo, SourceInfo};
+use queue::{AssetAction, AssetQueue};
 use shadow_ecs::ecs::{core::Resource, event::Events};
 use std::path::Path;
 
@@ -15,19 +16,22 @@ pub mod config;
 pub mod events;
 pub mod library;
 pub mod observers;
+pub mod queue;
 
 #[derive(Clone)]
 pub struct AssetDatabase {
     events: Events,
     config: AssetDatabaseConfig,
     library: AssetLibrary,
+    queue: AssetQueue,
 }
 
 impl AssetDatabase {
     pub fn new(config: AssetDatabaseConfig, events: &Events) -> Self {
         AssetDatabase {
-            events: events.clone(),
             library: AssetLibrary::new(config.library()),
+            events: events.clone(),
+            queue: AssetQueue::new(),
             config,
         }
     }
@@ -38,6 +42,10 @@ impl AssetDatabase {
 
     pub fn status(&self, path: impl Into<AssetPath>) -> AssetStatus {
         self.library.status(path)
+    }
+
+    pub fn importing(&self, path: impl AsRef<Path>) -> bool {
+        self.library.importing(path)
     }
 
     pub fn source(&self, path: &Path) -> Option<SourceInfo> {
@@ -79,11 +87,11 @@ impl AssetDatabase {
         self.events.add(LoadLibrary)
     }
 
-    pub fn load_metadata(&self, path: impl AsRef<Path>) -> std::io::Result<MetadataBlock> {
+    pub fn load_metadata<S: Settings>(&self, path: impl AsRef<Path>) -> Option<AssetMetadata<S>> {
         let path = path.as_ref().to_path_buf().with_extension("meta");
-        std::fs::read(path).and_then(|data| {
-            MetadataBlock::from_bytes(&data).ok_or(std::io::ErrorKind::InvalidData.into())
-        })
+        std::fs::read_to_string(path)
+            .ok()
+            .and_then(|data| toml::from_str(&data).ok())
     }
 
     pub fn load_block(&self, id: &AssetId) -> std::io::Result<AssetBlock> {
@@ -103,7 +111,10 @@ impl AssetDatabase {
     ) -> Result<AssetId, AssetError> {
         let data = {
             let meta_path = path.as_ref().with_extension("meta");
-            let bytes = toml::to_string(metadata).map_err(|_| AssetError::InvalidMetadata)?;
+            let bytes = toml::to_string(metadata).map_err(|e| {
+                println!("Failed to serialize metadata: {:?}", e);
+                AssetError::InvalidMetadata
+            })?;
             std::fs::write(meta_path, &bytes).map_err(|e| AssetError::from(e))?;
             bytes
         };
@@ -119,12 +130,12 @@ impl AssetDatabase {
         path: impl AsRef<Path>,
         block: &AssetBlock,
         metadata: &AssetMetadata<S>,
-        dependencies: Vec<AssetId>,
+        dependencies: &[AssetId],
     ) -> Result<AssetId, AssetError> {
         let cache_path = self.config.blocks().join(metadata.id().to_string());
         std::fs::write(&cache_path, block.to_bytes()).map_err(|e| AssetError::from(e))?;
-        let info = BlockInfo::of::<A>(path.as_ref().to_path_buf(), dependencies);
-        self.library.set_block(metadata.id(), info);
+        let info = BlockInfo::of::<A>(path.as_ref().to_path_buf());
+        self.library.set_block(metadata.id(), info, dependencies);
         Ok(metadata.id())
     }
 
@@ -133,12 +144,20 @@ impl AssetDatabase {
             for dependent in dependents {
                 if let Some(info) = self.block(dependent) {
                     if let Some(loader) = registry.meta(info.ty()) {
-                        let reason = ImportReason::dependency_modified(id, *dependent);
+                        let reason = ImportReason::dependency_modified(*dependent, id);
                         loader.import(self, &self.events, reason);
                     }
                 }
             }
         }
+    }
+
+    fn enqueue_action(&self, path: impl AsRef<Path>, action: AssetAction) {
+        self.queue.push(path, action);
+    }
+
+    fn dequeue_action(&self, path: &Path) -> Option<AssetAction> {
+        self.queue.pop(path)
     }
 }
 

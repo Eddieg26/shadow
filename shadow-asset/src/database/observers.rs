@@ -1,16 +1,18 @@
 use super::{
-    events::{AssetErrorExt, AssetFailed, ImportAsset, ImportFolder, ImportInfo, ImportReason},
+    events::{
+        AssetErrorExt, AssetFailed, AssetImported, FolderImported, ImportAsset, ImportFolder,
+        ImportInfo, ImportReason,
+    },
     library::AssetStatus,
+    queue::AssetAction,
 };
 use crate::{
-    asset::{AssetId, AssetMetadata, AssetType, Folder, FolderSettings, Settings},
+    asset::{AssetMetadata, AssetType, Folder, FolderSettings, Settings},
     block::AssetBlock,
-    bytes::ToBytes,
     database::{
         library::{BlockInfo, SourceInfo},
         AssetDatabase,
     },
-    errors::AssetError,
     loader::{AssetLoader, AssetPipeline, AssetPostProcessor, AssetProcessor, LoadContext},
     registry::AssetPipelineRegistry,
 };
@@ -43,28 +45,15 @@ pub fn import_folders(
                 Err(_) => continue,
             };
 
-            let source = match database.source(&path) {
-                Some(source) => match database.status(source.id()) {
-                    AssetStatus::Importing => continue,
-                    _ => source,
-                },
-                None => SourceInfo::default(),
+            database.library.set_status(&path, AssetStatus::Importing);
+
+            let mut path_metadata = match database.load_metadata::<FolderSettings>(&path) {
+                Some(metadata) => metadata,
+                None => AssetMetadata::<FolderSettings>::default(),
             };
 
-            database
-                .library
-                .set_status(source.id(), AssetStatus::Importing);
-
-            let mut path_metadata = match database
-                .load_metadata(&path)
-                .ok()
-                .and_then(|d| d.into::<FolderSettings>())
-            {
-                Some(metadata) => metadata.with_id(source.id()),
-                None => {
-                    AssetMetadata::<FolderSettings>::new(source.id(), FolderSettings::default())
-                }
-            };
+            let source = SourceInfo::new(path_metadata.id(), 0, 0);
+            database.library.set_source(path.clone(), source);
 
             let mut children = HashSet::new();
 
@@ -78,11 +67,18 @@ pub fn import_folders(
                 children.insert(path.to_path_buf());
 
                 if path.is_dir() {
-                    paths.push(path.to_path_buf());
+                    if database.importing(path) {
+                        let action = AssetAction::Import {
+                            reason: ImportReason::Manual { path: path.clone() },
+                        };
+                        database.enqueue_action(path, action);
+                    } else {
+                        paths.push(path.to_path_buf());
+                    }
                 } else if let Some(loader) =
                     path_ext(path).and_then(|ext| registry.meta_by_ext(ext))
                 {
-                    let metadata = match database.load_metadata(path).ok() {
+                    let metadata = match loader.load_meta(path) {
                         Some(metadata) => metadata,
                         None => {
                             loader.import(&database, &events, ImportReason::added(path));
@@ -90,26 +86,10 @@ pub fn import_folders(
                         }
                     };
 
-                    let mut source = match database.source(path) {
+                    let source = match database.source(path) {
                         Some(source) => source,
-                        None => {
-                            loader.import(&database, &events, ImportReason::added(path));
-                            continue;
-                        }
+                        None => SourceInfo::new(metadata.id(), 0, 0),
                     };
-
-                    if metadata.id() != source.id() {
-                        source.set_id(metadata.id());
-                        database.library.set_source(path.clone(), source);
-                        let asset = match std::fs::read(path) {
-                            Ok(asset) => asset,
-                            Err(_) => continue,
-                        };
-                        let (_, metadata) = metadata.take();
-                        let reason = ImportReason::asset_modified(path, asset, metadata);
-                        loader.import(&database, &events, reason);
-                        continue;
-                    }
 
                     let modified = database.config().modified(path);
 
@@ -139,10 +119,10 @@ pub fn import_folders(
             }
 
             database.block(&path_metadata.id()).unwrap_or_else(|| {
-                let block = BlockInfo::new(path.clone(), AssetType::of::<Folder>(), vec![]);
+                let block = BlockInfo::new(path.clone(), AssetType::of::<Folder>());
                 database
                     .library
-                    .set_block(path_metadata.id(), block.clone());
+                    .set_block(path_metadata.id(), block.clone(), &vec![]);
                 block
             });
 
@@ -155,9 +135,10 @@ pub fn import_folders(
             path_metadata.settings_mut().set_children(children);
 
             database
-                .save_metadata::<Folder, FolderSettings>(path, &[], &path_metadata)
+                .save_metadata::<Folder, FolderSettings>(&path, &[], &path_metadata)
                 .ok();
-            database.library.set_status(source.id(), AssetStatus::None);
+
+            events.add(FolderImported::new(path));
         }
     });
 }
@@ -177,9 +158,9 @@ pub fn import_assets<P: AssetPipeline>(
     tasks.spawn(move || {
         for info in &imports {
             match import_asset::<P>(info, &database) {
-                Ok(id) => {
-                    database.library.set_status(id, AssetStatus::Imported);
-                    database.import_dependents(id, &registry);
+                Ok(event) => {
+                    database.import_dependents(event.id(), &registry);
+                    events.add(event);
                 }
                 Err(event) => events.add(event),
             }
@@ -190,23 +171,24 @@ pub fn import_assets<P: AssetPipeline>(
 fn import_asset<P: AssetPipeline>(
     import: &ImportInfo,
     database: &AssetDatabase,
-) -> Result<AssetId, AssetFailed<P::Asset>> {
+) -> Result<AssetImported<P::Asset>, AssetFailed<P::Asset>> {
     let path = import.path();
     let reason = import.reason();
 
-    let mut metadata =
-        load_metadata::<P::Settings>(database, reason).map_err(|e| e.into_event(path))?;
+    let mut metadata = load_metadata::<P::Settings>(database, reason);
 
     let bytes = match reason {
         ImportReason::AssetModified { asset, .. } => Cow::Borrowed(asset),
         _ => Cow::Owned(std::fs::read(path).map_err(|e| e.into_event(path))?),
     };
 
-    let (mut asset, dependencies) = {
+    let (asset, dependencies) = {
         let mut ctx = LoadContext::new(path, &bytes, &mut metadata);
         let asset = P::Loader::load(&mut ctx);
         (asset, ctx.dependencies().to_vec())
     };
+
+    let mut asset = asset.map_err(|e| e.into_event(path))?;
 
     P::Processor::process(&mut asset, &mut metadata);
     P::PostProcessor::post_process(&mut asset, &mut metadata);
@@ -215,43 +197,27 @@ fn import_asset<P: AssetPipeline>(
         .save_metadata::<P::Asset, P::Settings>(path, &bytes, &metadata)
         .map_err(|e| e.into_event(path))?;
 
-    let asset = AssetBlock::new(&asset, metadata.settings());
+    let block = AssetBlock::new(&asset, metadata.settings(), &dependencies);
     database
-        .save_asset::<P::Asset, P::Settings>(path, &asset, &metadata, dependencies)
+        .save_asset::<P::Asset, P::Settings>(path, &block, &metadata, &dependencies)
         .map_err(|e| e.into_event(path))?;
 
-    Ok(metadata.id())
+    let event = AssetImported::new(metadata.id(), path, asset);
+    Ok(event)
 }
 
-fn load_metadata<S: Settings>(
-    database: &AssetDatabase,
-    reason: &ImportReason,
-) -> Result<AssetMetadata<S>, AssetError> {
-    match reason {
+fn load_metadata<S: Settings>(database: &AssetDatabase, reason: &ImportReason) -> AssetMetadata<S> {
+    let metadata = match reason {
         ImportReason::AssetModified { metadata, .. } => {
-            AssetMetadata::from_bytes(&metadata).ok_or(AssetError::InvalidMetadata)
+            let contents = String::from_utf8(metadata.to_vec()).unwrap_or_default();
+            toml::from_str::<AssetMetadata<S>>(&contents).ok()
         }
-        ImportReason::Added { .. } => Ok(AssetMetadata::<S>::new(AssetId::gen(), S::default())),
+        ImportReason::Added { .. } => Some(AssetMetadata::<S>::default()),
         ImportReason::DependencyModified { asset, .. } => database
-            .library
             .block(asset)
-            .ok_or(AssetError::AssetNotFound(*asset))
-            .and_then(|info| {
-                database
-                    .load_metadata(info.filepath())
-                    .map_err(|e| e.into())
-            })
-            .and_then(|metadata| metadata.into::<S>().ok_or(AssetError::InvalidMetadata)),
-        ImportReason::Manual { path } => {
-            let metadata = database
-                .load_metadata(path)
-                .and_then(|metadata| {
-                    metadata
-                        .into::<S>()
-                        .ok_or(AssetError::InvalidMetadata.into())
-                })
-                .unwrap_or_default();
-            Ok(metadata)
-        }
-    }
+            .and_then(|block| database.load_metadata::<S>(block.filepath())),
+        ImportReason::Manual { path } => database.load_metadata::<S>(path),
+    };
+
+    metadata.unwrap_or_default()
 }

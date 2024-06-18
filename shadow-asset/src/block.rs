@@ -6,11 +6,16 @@ use crate::{
 pub struct BlockHeader {
     asset: usize,
     settings: usize,
+    dependencies: usize,
 }
 
 impl BlockHeader {
-    pub fn new(asset: usize, settings: usize) -> Self {
-        BlockHeader { asset, settings }
+    pub fn new(asset: usize, settings: usize, dependencies: usize) -> Self {
+        BlockHeader {
+            asset,
+            settings,
+            dependencies,
+        }
     }
 
     pub fn asset(&self) -> usize {
@@ -20,12 +25,17 @@ impl BlockHeader {
     pub fn settings(&self) -> usize {
         self.settings
     }
+
+    pub fn dependencies(&self) -> usize {
+        self.dependencies
+    }
 }
 
 impl ToBytes for BlockHeader {
     fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = self.asset.to_bytes();
         bytes.extend_from_slice(&self.settings.to_bytes());
+        bytes.extend_from_slice(&self.dependencies.to_bytes());
 
         bytes
     }
@@ -33,8 +43,9 @@ impl ToBytes for BlockHeader {
     fn from_bytes(bytes: &[u8]) -> Option<Self> {
         let asset = usize::from_bytes(bytes)?;
         let settings = usize::from_bytes(&bytes[8..])?;
+        let dependencies = usize::from_bytes(&bytes[16..])?;
 
-        Some(BlockHeader::new(asset, settings))
+        Some(BlockHeader::new(asset, settings, dependencies))
     }
 }
 
@@ -44,7 +55,7 @@ pub struct AssetBlock {
 }
 
 impl AssetBlock {
-    pub fn new<A: Asset, S: Settings>(asset: &A, settings: &S) -> Self {
+    pub fn new<A: Asset, S: Settings>(asset: &A, settings: &S, dependencies: &[AssetId]) -> Self {
         let mut data = asset.to_bytes();
         let asset = data.len();
 
@@ -52,7 +63,11 @@ impl AssetBlock {
         let settings = settings_bytes.len();
         data.extend_from_slice(&settings_bytes);
 
-        let header = BlockHeader::new(asset, settings);
+        let dependency_bytes = dependencies.to_vec().to_bytes();
+        let dependencies = dependency_bytes.len();
+        data.extend_from_slice(&dependency_bytes);
+
+        let header = BlockHeader::new(asset, settings, dependencies);
         Self { header, data }
     }
 
@@ -72,11 +87,18 @@ impl AssetBlock {
         S::from_bytes(&self.data[self.header.asset..(self.header.settings + self.header.asset)])
     }
 
-    pub fn take<A: Asset, S: Settings>(self) -> (Option<A>, Option<S>) {
+    pub fn dependencies(&self) -> Vec<AssetId> {
+        let offset = self.header.asset + self.header.settings;
+        let bytes = &self.data[offset..self.header.settings];
+        Vec::<AssetId>::from_bytes(bytes).unwrap_or_default()
+    }
+
+    pub fn take<A: Asset, S: Settings>(self) -> (Option<A>, Option<S>, Vec<AssetId>) {
         let asset = self.asset();
         let settings = self.settings();
+        let dependencies = self.dependencies();
 
-        (asset, settings)
+        (asset, settings, dependencies)
     }
 }
 
@@ -112,13 +134,6 @@ impl MetadataBlock {
         MetadataBlock { id, data }
     }
 
-    pub fn from_data(data: Vec<u8>) -> Option<Self> {
-        let id = AssetId::from_bytes(&data[..])?;
-        let data = data[id.to_bytes().len()..].to_vec();
-
-        Some(MetadataBlock { id, data })
-    }
-
     pub fn id(&self) -> AssetId {
         self.id
     }
@@ -132,14 +147,8 @@ impl MetadataBlock {
     }
 
     pub fn into<S: Settings>(self) -> Option<AssetMetadata<S>> {
-        let id = self.id;
-        let settings = S::from_bytes(&self.data)?;
-
-        Some(AssetMetadata::new(id, settings))
-    }
-
-    pub fn parse_asset_id(data: &[u8]) -> Option<AssetId> {
-        AssetId::from_bytes(&data[..])
+        let data = String::from_utf8(self.data).ok()?;
+        toml::from_str::<AssetMetadata<S>>(&data).ok()
     }
 }
 

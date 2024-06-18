@@ -1,17 +1,25 @@
-use shadow_ecs::ecs::core::Resource;
 use std::path::{Path, PathBuf};
 
 pub struct AssetConfig {
+    root: PathBuf,
     assets: PathBuf,
     cache: PathBuf,
 }
 
 impl AssetConfig {
-    pub fn new() -> Self {
+    pub fn new(root: impl AsRef<Path>) -> Self {
+        let root = root.as_ref().to_path_buf();
+        let assets = root.join("assets");
+        let cache = root.join("cache");
         Self {
-            assets: PathBuf::from("assets"),
-            cache: PathBuf::from("cache"),
+            root,
+            assets,
+            cache,
         }
+    }
+
+    pub fn root(&self) -> &Path {
+        &self.root
     }
 
     pub fn assets(&self) -> &Path {
@@ -30,8 +38,6 @@ impl AssetConfig {
         self.cache = cache.into()
     }
 }
-
-impl Resource for AssetConfig {}
 
 #[derive(Debug, Clone)]
 pub struct AssetDatabaseConfig {
@@ -71,15 +77,6 @@ impl AssetDatabaseConfig {
 
     pub fn blocks(&self) -> &Path {
         &self.blocks
-    }
-
-    pub fn normalize(path: impl AsRef<Path>) -> PathBuf {
-        let mut path = path.as_ref().to_path_buf();
-        path.as_mut_os_string()
-            .to_str()
-            .map(|path| path.replace("\\", "/"))
-            .map(PathBuf::from)
-            .unwrap_or(path)
     }
 
     pub fn modified(&self, path: impl AsRef<Path>) -> u64 {

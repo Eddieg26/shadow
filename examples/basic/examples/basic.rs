@@ -1,25 +1,38 @@
+use std::{
+    hash::{Hash, Hasher},
+    path::PathBuf,
+};
+
 use basic::PlainText;
-use shadow_ecs::ecs::event::Events;
-use shadow_game::{game::Game, schedule::PreUpdate};
-use std::path::PathBuf;
+use shadow_asset::{
+    database::{config::AssetConfig, events::ImportAsset},
+    plugin::{AssetPlugin, GameAssetExt},
+};
+use shadow_ecs::ecs::event::Event;
+use shadow_game::game::{Game, GameInstance};
+
+fn game_runner(mut game: GameInstance) {
+    game.init();
+    for _ in 0..10000 {
+        game.update();
+    }
+    game.shutdown();
+}
 
 fn main() {
-    // Game::new()
-    //     .add_plugin(AssetPlugin)
-    //     .register_loader::<PlainText>()
-    //     .add_system(PreUpdate, |events: &Events| {
-    //         events.add(LoadAsset::<PlainText>::new("test.txt"));
-    //     })
-    //     .observe::<ImportAsset<PlainText>, _>(|path: &[PathBuf]| {
-    //         println!("Observe Import PlainText {:?}", path);
-    //     })
-    //     .observe::<AssetLoaded<PlainText>, _>(|ids: &[AssetId], assets: &Assets<PlainText>| {
-    //         for id in ids {
-    //             let asset = assets.get_unchecked(id);
-    //             println!("Text {:?}", &asset.text);
-    //         }
-    //     })
-    //     .run();
+    let config = AssetConfig::new("data");
+    Game::new()
+        .set_runner(game_runner)
+        .add_plugin(AssetPlugin::new(config))
+        .register_pipeline::<PlainText>()
+        .observe::<ImportAsset<PlainText>, _>(
+            |imports: &[<ImportAsset<PlainText> as Event>::Output]| {
+                for import in imports {
+                    println!("Imported: {:?}", import.path());
+                }
+            },
+        )
+        .run();
 
     // let bytes = std::fs::read("cache/7569663888696199759").unwrap();
     // let pack = AssetPack::<PlainText, ()>::parse(&bytes).unwrap();

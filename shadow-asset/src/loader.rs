@@ -1,4 +1,7 @@
-use crate::asset::{Asset, AssetId, AssetMetadata, BasicSettings, Settings};
+use crate::{
+    asset::{Asset, AssetId, AssetMetadata, BasicSettings, Settings},
+    errors::AssetError,
+};
 use std::path::Path;
 
 pub struct LoadContext<'a, S: Settings> {
@@ -43,7 +46,7 @@ pub trait AssetLoader: 'static {
     type Asset: Asset;
     type Settings: Settings;
 
-    fn load(ctx: &mut LoadContext<Self::Settings>) -> Self::Asset;
+    fn load(ctx: &mut LoadContext<Self::Settings>) -> Result<Self::Asset, AssetError>;
     fn extensions() -> &'static [&'static str];
 }
 
@@ -89,8 +92,8 @@ impl AssetLoader for () {
     type Asset = ();
     type Settings = BasicSettings;
 
-    fn load(_: &mut LoadContext<Self::Settings>) -> Self::Asset {
-        ()
+    fn load(_: &mut LoadContext<Self::Settings>) -> Result<Self::Asset, AssetError> {
+       Ok( ())
     }
 
     fn extensions() -> &'static [&'static str] {

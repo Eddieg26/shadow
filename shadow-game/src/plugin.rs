@@ -99,18 +99,18 @@ impl<'a> PhaseExt for PluginContext<'a> {
         self
     }
 
-    fn add_sub_phase<P: Phase, Q: Phase>(&mut self) -> &mut Self {
-        self.game.add_sub_phase::<P, Q>();
+    fn add_sub_phase<Main: Phase, Sub: Phase>(&mut self) -> &mut Self {
+        self.game.add_sub_phase::<Main, Sub>();
         self
     }
 
-    fn insert_phase_before<P: Phase, Q: Phase>(&mut self) -> &mut Self {
-        self.game.insert_phase_before::<P, Q>();
+    fn insert_phase_before<P: Phase, Before: Phase>(&mut self) -> &mut Self {
+        self.game.insert_phase_before::<P, Before>();
         self
     }
 
-    fn insert_phase_after<P: Phase, Q: Phase>(&mut self) -> &mut Self {
-        self.game.insert_phase_after::<P, Q>();
+    fn insert_phase_after<P: Phase, AFter: Phase>(&mut self) -> &mut Self {
+        self.game.insert_phase_after::<P, AFter>();
         self
     }
 }

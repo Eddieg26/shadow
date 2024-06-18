@@ -1,4 +1,4 @@
-use super::{library::AssetStatus, AssetDatabase};
+use super::{library::AssetStatus, queue::AssetAction, AssetDatabase};
 use crate::{
     asset::{Asset, AssetId, AssetPath, Assets},
     errors::AssetError,
@@ -133,9 +133,13 @@ impl<A: Asset> Event for ImportAsset<A> {
         let reason = self.reason.take()?;
         let database = world.resource::<AssetDatabase>();
 
-        match database.status(reason.path()) {
-            AssetStatus::Importing | AssetStatus::Loading => None,
-            AssetStatus::None | AssetStatus::Failed | AssetStatus::Done | AssetStatus::Imported => {
+        match database.status(&reason.path()) {
+            AssetStatus::Importing | AssetStatus::Loading => {
+                let path = ImportAsset::<A>::path(database, &reason)?;
+                database.enqueue_action(path, AssetAction::Import { reason });
+                None
+            }
+            AssetStatus::None | AssetStatus::Failed | AssetStatus::Done => {
                 let path = ImportAsset::<A>::path(database, &reason)?;
                 Some(ImportInfo::new(path, reason))
             }
@@ -159,9 +163,63 @@ impl Event for ImportFolder {
     fn invoke(&mut self, world: &mut shadow_ecs::ecs::world::World) -> Option<Self::Output> {
         let database = world.resource::<AssetDatabase>();
         match database.status(&self.path) {
-            AssetStatus::Importing => Some(database.config().assets().join(&self.path)),
-            _ => None,
+            AssetStatus::Importing => None,
+            _ => Some(database.config().assets().join(&self.path)),
         }
+    }
+}
+
+pub struct FolderImported {
+    path: PathBuf,
+}
+
+impl FolderImported {
+    pub fn new(path: impl AsRef<Path>) -> Self {
+        FolderImported {
+            path: path.as_ref().to_path_buf(),
+        }
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    fn get_import(&self, database: &AssetDatabase) -> Option<ImportFolder> {
+        while let Some(action) = database.dequeue_action(&self.path) {
+            match action {
+                AssetAction::Import { .. } => {
+                    return Some(ImportFolder::new(self.path.clone()));
+                }
+                _ => {}
+            }
+        }
+
+        None
+    }
+}
+
+impl Event for FolderImported {
+    type Output = PathBuf;
+
+    fn invoke(&mut self, world: &mut shadow_ecs::ecs::world::World) -> Option<Self::Output> {
+        let database = world.resource::<AssetDatabase>();
+        database.library.set_status(&self.path, AssetStatus::None);
+
+        if let Some(action) = database.dequeue_action(&self.path) {
+            match action {
+                AssetAction::Import { .. } => {
+                    let event = ImportFolder::new(self.path.clone());
+                    world.events().add(event);
+                }
+                _ => {
+                    if let Some(event) = self.get_import(database) {
+                        world.events().add(event);
+                    }
+                }
+            }
+        }
+
+        Some(self.path.clone())
     }
 }
 
@@ -191,19 +249,82 @@ impl<A: Asset> Event for LoadAsset<A> {
         let database = world.resource::<AssetDatabase>();
 
         let id = match database.status(&self.path) {
-            AssetStatus::None | AssetStatus::Failed | AssetStatus::Done | AssetStatus::Imported => {
-                match &self.path {
-                    AssetPath::Id(id) => Some(*id),
-                    AssetPath::Path(path) => database.source(path).map(|source| source.id()),
-                }
-            }
+            AssetStatus::None | AssetStatus::Failed | AssetStatus::Done => match &self.path {
+                AssetPath::Id(id) => Some(*id),
+                AssetPath::Path(path) => database.source(path).map(|source| source.id()),
+            },
             AssetStatus::Importing | AssetStatus::Loading => {
-                return None;
+                let (id, path) = match &self.path {
+                    AssetPath::Id(id) => {
+                        let path = database.block(id)?.filepath().to_path_buf();
+                        (*id, path)
+                    }
+                    AssetPath::Path(path) => {
+                        let info = database.source(path)?;
+                        (info.id(), path.clone())
+                    }
+                };
+                database.enqueue_action(path, AssetAction::Load { id });
+                None
             }
         }?;
 
         database.library.set_status(id, AssetStatus::Loading);
         Some(id)
+    }
+}
+
+#[derive(Clone)]
+pub struct AssetImported<A: Asset> {
+    id: AssetId,
+    path: PathBuf,
+    asset: Option<A>,
+}
+
+impl<A: Asset> AssetImported<A> {
+    pub(crate) fn new(id: AssetId, path: impl AsRef<Path>, asset: A) -> Self {
+        AssetImported {
+            id,
+            path: path.as_ref().to_path_buf(),
+            asset: Some(asset),
+        }
+    }
+
+    pub fn id(&self) -> AssetId {
+        self.id
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub fn asset(&self) -> Option<&A> {
+        self.asset.as_ref()
+    }
+}
+
+impl<A: Asset> Event for AssetImported<A> {
+    type Output = Self;
+
+    fn invoke(&mut self, world: &mut World) -> Option<Self::Output> {
+        let database = world.resource::<AssetDatabase>();
+        database.library.set_status(self.id, AssetStatus::None);
+
+        if let Some(action) = database.dequeue_action(&self.path) {
+            match action {
+                AssetAction::Import { reason } => {
+                    let event = ImportAsset::<A>::new(self.path.clone()).with_reason(reason);
+                    world.events().add(event);
+                }
+                AssetAction::Load { id } => {
+                    let event = LoadAsset::<A>::new(id);
+                    world.events().add(event);
+                }
+            }
+        }
+
+        let asset = self.asset.take()?;
+        Some(AssetImported::new(self.id, self.path.clone(), asset))
     }
 }
 
@@ -292,10 +413,11 @@ impl AssetErrorExt for AssetError {
                 AssetFailed::new(path.clone(), AssetError::InvalidPath(path))
             }
             AssetError::InvalidMetadata => AssetFailed::new(path, AssetError::InvalidMetadata),
-            AssetError::Io(e) => AssetFailed::new(path, AssetError::Io(e)),
+            AssetError::InvalidData => AssetFailed::new(path, AssetError::InvalidData),
             AssetError::InvalidExtension(path) => {
                 AssetFailed::new(path.clone(), AssetError::InvalidExtension(path))
             }
+            AssetError::Io(e) => AssetFailed::new(path, AssetError::Io(e)),
         }
     }
 }

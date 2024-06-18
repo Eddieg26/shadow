@@ -26,11 +26,11 @@ impl Task {
     }
 }
 
-impl Drop for Task {
-    fn drop(&mut self) {
-        let _ = self.join();
-    }
-}
+// impl Drop for Task {
+//     fn drop(&mut self) {
+//         let _ = self.join();
+//     }
+// }
 
 #[derive(Clone)]
 pub struct TaskManager {
@@ -47,17 +47,19 @@ impl TaskManager {
     pub fn spawn(&self, function: impl FnOnce() + Send + Sync + 'static) -> ulid::Ulid {
         let id = ulid::Ulid::new();
         let tasks = self.tasks.clone();
-        let join = Box::new(move || match tasks.lock() {
-            Ok(mut tasks) => {
-                if let Some(mut task) = tasks.remove(&id) {
-                    task.join().unwrap();
-                }
+        let done = Box::new(move || {
+            let task = match tasks.lock() {
+                Ok(mut tasks) => tasks.remove(&id),
+                Err(_) => None,
+            };
+
+            if let Some(mut task) = task {
+                let _ = task.join();
             }
-            Err(_) => {}
         });
         let callback = move || {
             function();
-            join();
+            done();
         };
         let task = Task::new(move || callback());
         self.tasks.lock().unwrap().insert(id, task);
