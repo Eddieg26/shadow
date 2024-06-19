@@ -1,5 +1,7 @@
 use std::path::{Path, PathBuf};
 
+use crate::asset::AssetId;
+
 pub struct AssetConfig {
     root: PathBuf,
     assets: PathBuf,
@@ -77,6 +79,10 @@ impl AssetDatabaseConfig {
 
     pub fn blocks(&self) -> &Path {
         &self.blocks
+    }
+
+    pub fn block_exists(&self, id: &AssetId) -> bool {
+        self.blocks.join(id.to_string()).exists()
     }
 
     pub fn modified(&self, path: impl AsRef<Path>) -> u64 {

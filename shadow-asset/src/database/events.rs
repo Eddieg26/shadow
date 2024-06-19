@@ -152,8 +152,10 @@ pub struct ImportFolder {
 }
 
 impl ImportFolder {
-    pub fn new(path: PathBuf) -> Self {
-        ImportFolder { path }
+    pub fn new(path: impl AsRef<Path>) -> Self {
+        ImportFolder {
+            path: path.as_ref().to_path_buf(),
+        }
     }
 }
 
@@ -163,7 +165,13 @@ impl Event for ImportFolder {
     fn invoke(&mut self, world: &mut shadow_ecs::ecs::world::World) -> Option<Self::Output> {
         let database = world.resource::<AssetDatabase>();
         match database.status(&self.path) {
-            AssetStatus::Importing => None,
+            AssetStatus::Importing => {
+                let action = AssetAction::Import {
+                    reason: ImportReason::added(&self.path),
+                };
+                database.enqueue_action(self.path.clone(), action);
+                None
+            }
             _ => Some(database.config().assets().join(&self.path)),
         }
     }
@@ -203,7 +211,7 @@ impl Event for FolderImported {
 
     fn invoke(&mut self, world: &mut shadow_ecs::ecs::world::World) -> Option<Self::Output> {
         let database = world.resource::<AssetDatabase>();
-        database.library.set_status(&self.path, AssetStatus::None);
+        database.library.remove_import(&self.path);
 
         if let Some(action) = database.dequeue_action(&self.path) {
             match action {

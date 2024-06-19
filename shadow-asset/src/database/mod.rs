@@ -3,10 +3,9 @@ use crate::{
     block::AssetBlock,
     bytes::ToBytes,
     errors::AssetError,
-    registry::AssetPipelineRegistry,
 };
 use config::AssetDatabaseConfig;
-use events::{ImportAsset, ImportFolder, ImportReason, LoadAsset, LoadLibrary, SaveLibrary};
+use events::{ImportAsset, ImportFolder, LoadAsset, LoadLibrary, SaveLibrary};
 use library::{AssetLibrary, AssetStatus, BlockInfo, SourceInfo};
 use queue::{AssetAction, AssetQueue};
 use shadow_ecs::ecs::{core::Resource, event::Events};
@@ -56,18 +55,19 @@ impl AssetDatabase {
         self.library.block(id)
     }
 
-    pub fn import<A: Asset>(&self, path: impl Into<AssetPath>) -> Option<()> {
+    pub fn import<A: Asset>(&self, path: impl Into<AssetPath>) {
         let path: AssetPath = path.into();
 
-        let path = match path {
-            AssetPath::Id(id) => self
+        match path {
+            AssetPath::Id(id) => match self
                 .block(&id)
-                .and_then(|info| Some(info.filepath().to_path_buf())),
-            AssetPath::Path(path) => Some(path),
-        }?;
-
-        self.events.add(ImportAsset::<A>::new(path));
-        Some(())
+                .and_then(|info| Some(info.filepath().to_path_buf()))
+            {
+                Some(path) => self.events.add(ImportAsset::<A>::new(path)),
+                None => {}
+            },
+            AssetPath::Path(path) => self.events.add(ImportAsset::<A>::new(path)),
+        };
     }
 
     pub fn import_folder(&self, path: impl AsRef<Path>) {
@@ -86,20 +86,6 @@ impl AssetDatabase {
     pub fn load_lib(&self) {
         self.events.add(LoadLibrary)
     }
-
-    pub fn load_metadata<S: Settings>(&self, path: impl AsRef<Path>) -> Option<AssetMetadata<S>> {
-        let path = path.as_ref().to_path_buf().with_extension("meta");
-        std::fs::read_to_string(path)
-            .ok()
-            .and_then(|data| toml::from_str(&data).ok())
-    }
-
-    pub fn load_block(&self, id: &AssetId) -> std::io::Result<AssetBlock> {
-        let path = self.config.blocks().join(id.to_string());
-        std::fs::read(path).and_then(|data| {
-            AssetBlock::from_bytes(&data).ok_or(std::io::ErrorKind::InvalidData.into())
-        })
-    }
 }
 
 impl AssetDatabase {
@@ -111,10 +97,7 @@ impl AssetDatabase {
     ) -> Result<AssetId, AssetError> {
         let data = {
             let meta_path = path.as_ref().with_extension("meta");
-            let bytes = toml::to_string(metadata).map_err(|e| {
-                println!("Failed to serialize metadata: {:?}", e);
-                AssetError::InvalidMetadata
-            })?;
+            let bytes = toml::to_string(metadata).map_err(|_| AssetError::InvalidMetadata)?;
             std::fs::write(meta_path, &bytes).map_err(|e| AssetError::from(e))?;
             bytes
         };
@@ -130,26 +113,19 @@ impl AssetDatabase {
         path: impl AsRef<Path>,
         block: &AssetBlock,
         metadata: &AssetMetadata<S>,
-        dependencies: &[AssetId],
     ) -> Result<AssetId, AssetError> {
         let cache_path = self.config.blocks().join(metadata.id().to_string());
         std::fs::write(&cache_path, block.to_bytes()).map_err(|e| AssetError::from(e))?;
         let info = BlockInfo::of::<A>(path.as_ref().to_path_buf());
-        self.library.set_block(metadata.id(), info, dependencies);
+        self.library.set_block(metadata.id(), info);
         Ok(metadata.id())
     }
 
-    fn import_dependents(&self, id: AssetId, registry: &AssetPipelineRegistry) {
-        if let Some(dependents) = self.library.dependents().get(&id) {
-            for dependent in dependents {
-                if let Some(info) = self.block(dependent) {
-                    if let Some(loader) = registry.meta(info.ty()) {
-                        let reason = ImportReason::dependency_modified(*dependent, id);
-                        loader.import(self, &self.events, reason);
-                    }
-                }
-            }
-        }
+    fn load_metadata<S: Settings>(&self, path: impl AsRef<Path>) -> Option<AssetMetadata<S>> {
+        let path = path.as_ref().to_path_buf().with_extension("meta");
+        std::fs::read_to_string(path)
+            .ok()
+            .and_then(|data| toml::from_str(&data).ok())
     }
 
     fn enqueue_action(&self, path: impl AsRef<Path>, action: AssetAction) {

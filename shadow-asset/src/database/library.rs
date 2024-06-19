@@ -219,10 +219,20 @@ impl AssetLibrary {
         let assets = self.assets.read().unwrap();
 
         let status = match &path {
-            AssetPath::Id(id) => assets.get(id).copied(),
+            AssetPath::Id(id) => assets.get(id).copied().or_else(|| {
+                self.block(id).map(|info| {
+                    if self.importing(&info.filepath) {
+                        AssetStatus::Importing
+                    } else {
+                        AssetStatus::None
+                    }
+                })
+            }),
             AssetPath::Path(path) => {
                 if let Some(source) = self.source(path) {
                     assets.get(&source.id()).copied()
+                } else if self.importing(path) {
+                    Some(AssetStatus::Importing)
                 } else {
                     None
                 }
@@ -259,20 +269,8 @@ impl AssetLibrary {
             .insert(path.as_ref().to_path_buf(), info)
     }
 
-    pub fn set_block(
-        &self,
-        id: AssetId,
-        info: BlockInfo,
-        dependencies: &[AssetId],
-    ) -> Option<BlockInfo> {
-        for dep in dependencies {
-            let mut dependents = self.dependents.write().unwrap();
-            dependents.entry(*dep).or_default().insert(id);
-        }
-
-        let ret = self.blocks.write().unwrap().insert(id, info);
-
-        ret
+    pub fn set_block(&self, id: AssetId, info: BlockInfo) -> Option<BlockInfo> {
+        self.blocks.write().unwrap().insert(id, info)
     }
 
     pub fn remove_source(&self, path: &Path) -> Option<SourceInfo> {
@@ -283,36 +281,30 @@ impl AssetLibrary {
         self.blocks.write().unwrap().remove(&id)
     }
 
-    pub fn set_status(
-        &self,
-        path: impl Into<AssetPath>,
-        status: AssetStatus,
-    ) -> Option<AssetStatus> {
-        let path: AssetPath = path.into();
-
-        let id = match &path {
-            AssetPath::Id(id) => Some(*id),
-            AssetPath::Path(path) => self.source(path).map(|info| info.id()),
-        }?;
-
-        let prev = {
-            let mut assets = self.assets.write().unwrap();
-            match status {
-                AssetStatus::None => assets.remove(&id),
-                AssetStatus::Importing => {
-                    self.add_import(&path);
-                    assets.remove(&id)
+    pub fn set_status(&self, id: AssetId, status: AssetStatus) -> Option<AssetStatus> {
+        match status {
+            AssetStatus::Importing => {
+                if let Some(info) = self.block(&id) {
+                    let path = info.filepath.clone();
+                    self.importing.write().unwrap().insert(path);
+                    self.assets.write().unwrap().remove(&id)
+                } else {
+                    None
                 }
-                _ => assets.insert(id, status),
             }
-        };
-
-        prev.and_then(|prev| match (prev, status.importing()) {
-            (AssetStatus::Importing, false) => Some(self.remove_import(&path)),
-            _ => Some(()),
-        });
-
-        prev
+            _ => {
+                if let Some(info) = self.block(&id) {
+                    let path = info.filepath.clone();
+                    self.importing
+                        .write()
+                        .unwrap()
+                        .remove(&path)
+                        .then(|| AssetStatus::Importing)
+                } else {
+                    self.assets.write().unwrap().insert(id, status)
+                }
+            }
+        }
     }
 
     pub fn save(&self) -> std::io::Result<()> {
@@ -347,36 +339,14 @@ impl AssetLibrary {
 }
 
 impl AssetLibrary {
-    fn add_import(&self, path: &AssetPath) {
-        match path {
-            AssetPath::Id(id) => {
-                if let Some(block) = self.block(&id) {
-                    self.importing
-                        .write()
-                        .unwrap()
-                        .insert(block.filepath().to_path_buf());
-                }
-            }
-            AssetPath::Path(path) => {
-                self.importing.write().unwrap().insert(path.clone());
-            }
-        }
+    pub(crate) fn add_import(&self, path: &impl AsRef<Path>) {
+        let path = path.as_ref().to_path_buf();
+        self.importing.write().unwrap().insert(path);
     }
 
-    fn remove_import(&self, path: &AssetPath) {
-        match path {
-            AssetPath::Id(id) => {
-                if let Some(block) = self.block(&id) {
-                    self.importing
-                        .write()
-                        .unwrap()
-                        .remove(&block.filepath().to_path_buf());
-                }
-            }
-            AssetPath::Path(path) => {
-                self.importing.write().unwrap().remove(path);
-            }
-        }
+    pub(crate) fn remove_import(&self, path: &impl AsRef<Path>) {
+        let path = path.as_ref().to_path_buf();
+        self.importing.write().unwrap().remove(&path);
     }
 }
 

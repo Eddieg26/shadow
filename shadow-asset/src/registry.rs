@@ -19,7 +19,7 @@ pub struct AssetPipelineMeta {
     ty: AssetType,
     import: fn(&AssetDatabase, &Events, ImportReason),
     load: fn(&Events, &AssetPath),
-    load_meta: fn(&Path) -> Option<MetadataBlock>,
+    load_meta: fn(&Path) -> std::io::Result<MetadataBlock>,
 }
 
 impl AssetPipelineMeta {
@@ -43,15 +43,15 @@ impl AssetPipelineMeta {
             load: |events, path| events.add(LoadAsset::<L::Asset>::new(path)),
             load_meta: |path| {
                 let path = path.with_extension("meta");
-                let bytes = std::fs::read_to_string(&path).ok()?;
+                let bytes = std::fs::read_to_string(&path)?;
                 let metadata = match toml::from_str::<AssetMetadata<L::Settings>>(&bytes) {
-                    Ok(data) => Some(data),
+                    Ok(data) => Ok(data),
                     Err(e) => {
                         println!("Failed to parse metadata: {:?}", e);
-                        None
+                        Err(std::io::Error::new(std::io::ErrorKind::InvalidData, e))
                     }
                 }?;
-                Some(MetadataBlock::new(metadata.id(), bytes.as_bytes().to_vec()))
+                Ok(MetadataBlock::new(metadata.id(), bytes.as_bytes().to_vec()))
             },
         }
     }
@@ -68,7 +68,7 @@ impl AssetPipelineMeta {
         (self.load)(events, path);
     }
 
-    pub fn load_meta(&self, path: &Path) -> Option<MetadataBlock> {
+    pub fn load_meta(&self, path: &Path) -> std::io::Result<MetadataBlock> {
         (self.load_meta)(path)
     }
 }

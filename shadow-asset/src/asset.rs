@@ -487,6 +487,13 @@ impl FolderSettings {
         self.children.iter()
     }
 
+    pub fn retain<F>(&mut self, mut f: F)
+    where
+        F: FnMut(&PathBuf) -> bool,
+    {
+        self.children.retain(|path| f(path));
+    }
+
     pub fn len(&self) -> usize {
         self.children.len()
     }
