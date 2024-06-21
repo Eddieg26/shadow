@@ -7,7 +7,10 @@ use crate::{
     },
     loader::{AssetLoader, AssetPipeline},
 };
-use shadow_ecs::ecs::{core::Resource, event::Events};
+use shadow_ecs::ecs::{
+    core::Resource,
+    event::{ErasedEvent, Events},
+};
 use std::{
     collections::HashMap,
     path::Path,
@@ -18,6 +21,7 @@ use std::{
 pub struct AssetPipelineMeta {
     ty: AssetType,
     import: fn(&AssetDatabase, &Events, ImportReason),
+    import_event: fn(&AssetDatabase, ImportReason) -> ErasedEvent,
     load: fn(&Events, &AssetPath),
     load_meta: fn(&Path) -> std::io::Result<MetadataBlock>,
 }
@@ -27,18 +31,23 @@ impl AssetPipelineMeta {
         AssetPipelineMeta {
             ty: AssetType::of::<L::Asset>(),
             import: |db, events, reason: ImportReason| {
-                match reason.path() {
-                    AssetPath::Id(id) => match db.block(&id) {
-                        Some(info) => {
-                            let path = info.filepath().to_path_buf();
-                            events.add(ImportAsset::<L::Asset>::new(path).with_reason(reason))
-                        }
-                        None => {}
-                    },
-                    AssetPath::Path(path) => {
-                        events.add(ImportAsset::<L::Asset>::new(path).with_reason(reason))
-                    }
-                };
+                // match reason.path() {
+                //     AssetPath::Id(id) => match db.block(&id) {
+                //         Some(info) => {
+                //             let path = info.filepath().to_path_buf();
+                //             events.add(ImportAsset::<L::Asset>::new(path).with_reason(reason))
+                //         }
+                //         None => {}
+                //     },
+                //     AssetPath::Path(path) => {
+                //         events.add(ImportAsset::<L::Asset>::new(path).with_reason(reason))
+                //     }
+                // };
+            },
+            import_event: |db, reason: ImportReason| {
+                ErasedEvent::new::<ImportAsset<L::Asset>>(
+                    ImportAsset::<L::Asset>::new(reason.path()).with_reason(reason),
+                )
             },
             load: |events, path| events.add(LoadAsset::<L::Asset>::new(path)),
             load_meta: |path| {
@@ -62,6 +71,10 @@ impl AssetPipelineMeta {
 
     pub fn import(&self, db: &AssetDatabase, events: &Events, reason: ImportReason) {
         (self.import)(db, events, reason);
+    }
+
+    pub fn import_event(&self, db: &AssetDatabase, reason: ImportReason) -> ErasedEvent {
+        (self.import_event)(db, reason)
     }
 
     pub fn load(&self, events: &Events, path: &AssetPath) {

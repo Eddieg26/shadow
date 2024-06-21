@@ -46,23 +46,25 @@ pub struct SourceInfo {
     id: AssetId,
     checksum: u64,
     modified: u64,
+    settings_modified: u64,
 }
 
 impl SourceInfo {
-    pub fn new(id: AssetId, checksum: u64, modified: u64) -> Self {
+    pub fn new(id: AssetId) -> Self {
         SourceInfo {
             id,
-            checksum,
-            modified,
+            checksum: 0,
+            modified: 0,
+            settings_modified: 0,
         }
     }
 
-    pub fn from(id: AssetId, asset: &[u8], metadata: &[u8], modified: u64) -> Self {
-        let checksum = Self::calculate_checksum(asset, metadata);
+    pub fn from(id: AssetId, checksum: u64, modified: u64, settings_modified: u64) -> Self {
         Self {
             id,
             checksum,
             modified,
+            settings_modified,
         }
     }
 
@@ -78,13 +80,24 @@ impl SourceInfo {
         self.modified
     }
 
+    pub fn settings_modified(&self) -> u64 {
+        self.settings_modified
+    }
+
     pub fn set_id(&mut self, id: AssetId) {
         self.id = id
     }
 
-    pub fn update(&mut self, checksum: u64, modified: u64) {
-        self.checksum = checksum;
-        self.modified = modified;
+    pub fn set_checksum(&mut self, checksum: u64) {
+        self.checksum = checksum
+    }
+
+    pub fn set_modified(&mut self, modified: u64) {
+        self.modified = modified
+    }
+
+    pub fn set_settings_modified(&mut self, settings_modified: u64) {
+        self.settings_modified = settings_modified
     }
 
     pub fn calculate_checksum(asset: &[u8], metadata: &[u8]) -> u64 {
@@ -108,6 +121,7 @@ impl Default for SourceInfo {
             id: AssetId::gen(),
             checksum: 0,
             modified: 0,
+            settings_modified: 0,
         }
     }
 }
@@ -117,6 +131,7 @@ impl ToBytes for SourceInfo {
         let mut bytes = self.id.to_bytes();
         bytes.extend_from_slice(&self.checksum.to_bytes());
         bytes.extend_from_slice(&self.modified.to_bytes());
+        bytes.extend_from_slice(&self.settings_modified.to_bytes());
 
         bytes
     }
@@ -125,8 +140,14 @@ impl ToBytes for SourceInfo {
         let id = AssetId::from_bytes(bytes)?;
         let checksum = u64::from_bytes(&bytes[8..])?;
         let modified = u64::from_bytes(&bytes[16..])?;
+        let settings_modified = u64::from_bytes(&bytes[24..])?;
 
-        Some(SourceInfo::new(id, checksum, modified))
+        Some(SourceInfo {
+            id,
+            checksum,
+            modified,
+            settings_modified,
+        })
     }
 }
 
@@ -277,8 +298,8 @@ impl AssetLibrary {
         self.sources.write().unwrap().remove(path)
     }
 
-    pub fn remove_block(&self, id: AssetId) -> Option<BlockInfo> {
-        self.blocks.write().unwrap().remove(&id)
+    pub fn remove_block(&self, id: &AssetId) -> Option<BlockInfo> {
+        self.blocks.write().unwrap().remove(id)
     }
 
     pub fn set_status(&self, id: AssetId, status: AssetStatus) -> Option<AssetStatus> {

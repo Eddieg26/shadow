@@ -1,32 +1,40 @@
 use crate::{
     asset::{Asset, AssetId, AssetMetadata, BasicSettings, Settings},
+    block::AssetBlock,
+    bytes::ToBytes,
     errors::AssetError,
 };
 use std::path::Path;
 
+pub enum LoadContextType<'a> {
+    Processed { block: AssetBlock },
+    UnProcessed { bytes: &'a [u8], path: &'a Path },
+}
+
 pub struct LoadContext<'a, S: Settings> {
-    path: &'a Path,
-    bytes: &'a [u8],
+    ty: LoadContextType<'a>,
     metadata: &'a mut AssetMetadata<S>,
     dependencies: Vec<AssetId>,
 }
 
 impl<'a, S: Settings> LoadContext<'a, S> {
-    pub fn new(path: &'a Path, bytes: &'a [u8], metadata: &'a mut AssetMetadata<S>) -> Self {
+    pub fn new(ty: LoadContextType, metadata: &'a mut AssetMetadata<S>) -> Self {
         LoadContext {
-            path,
-            bytes,
+            ty,
             metadata,
             dependencies: Vec::new(),
         }
     }
 
-    pub fn path(&self) -> &Path {
-        self.path
+    pub fn path(&self) -> Option<&Path> {
+        match &self.ty {
+            LoadContextType::Processed { .. } => None,
+            LoadContextType::UnProcessed { path, .. } => Some(path),
+        }
     }
 
-    pub fn bytes(&self) -> &[u8] {
-        self.bytes
+    pub fn ty(&self) -> &LoadContextType {
+        &self.ty
     }
 
     pub fn metadata(&mut self) -> &mut AssetMetadata<S> {
@@ -50,6 +58,13 @@ pub trait AssetLoader: 'static {
     fn extensions() -> &'static [&'static str];
 }
 
+pub trait AssetSaver: 'static {
+    type Asset: Asset;
+    type Settings: Settings;
+
+    fn save(asset: &Self::Asset, metadata: &AssetMetadata<Self::Settings>) -> AssetBlock;
+}
+
 pub trait AssetProcessor: 'static {
     type Asset: Asset;
     type Settings: Settings;
@@ -68,6 +83,7 @@ pub trait AssetPipeline: 'static {
     type Asset: Asset;
     type Settings: Settings;
     type Loader: AssetLoader<Asset = Self::Asset, Settings = Self::Settings>;
+    type Saver: AssetSaver<Asset = Self::Asset, Settings = Self::Settings>;
     type Processor: AssetProcessor<Asset = Self::Asset, Settings = Self::Settings>;
     type PostProcessor: AssetPostProcessor<Asset = Self::Asset, Settings = Self::Settings>;
 }
@@ -93,11 +109,20 @@ impl AssetLoader for () {
     type Settings = BasicSettings;
 
     fn load(_: &mut LoadContext<Self::Settings>) -> Result<Self::Asset, AssetError> {
-       Ok( ())
+        Ok(())
     }
 
     fn extensions() -> &'static [&'static str] {
         &[]
+    }
+}
+
+impl AssetSaver for () {
+    type Asset = ();
+    type Settings = BasicSettings;
+
+    fn save(_: &Self::Asset, _: &AssetMetadata<Self::Settings>) -> AssetBlock {
+        AssetBlock::new(&().to_bytes(), &BasicSettings, &vec![])
     }
 }
 
@@ -106,6 +131,7 @@ impl AssetPipeline for () {
     type Settings = BasicSettings;
 
     type Loader = ();
+    type Saver = ();
     type Processor = BasicProcessor<()>;
     type PostProcessor = BasicProcessor<()>;
 }

@@ -1,6 +1,11 @@
-use super::{library::AssetStatus, queue::AssetAction, AssetDatabase};
+use super::{
+    library::{AssetStatus, SourceInfo},
+    queue::AssetAction,
+    AssetDatabase,
+};
 use crate::{
     asset::{Asset, AssetId, AssetPath, Assets},
+    block::MetadataBlock,
     errors::AssetError,
 };
 use shadow_ecs::ecs::{event::Event, world::World};
@@ -13,65 +18,28 @@ pub enum ImportReason {
     },
     Added {
         path: PathBuf,
+        source: SourceInfo,
     },
-    AssetModified {
+    Modified {
         path: PathBuf,
+        source: SourceInfo,
+        previous: SourceInfo,
         asset: Vec<u8>,
-        metadata: Vec<u8>,
+        metadata: MetadataBlock,
     },
-    DependencyModified {
-        asset: AssetId,
-        dependency: AssetId,
+    Removed {
+        path: PathBuf,
+        id: AssetId,
     },
 }
 
 impl ImportReason {
-    pub fn manual(path: impl AsRef<Path>) -> Self {
-        ImportReason::Manual {
-            path: path.as_ref().to_path_buf(),
-        }
-    }
-
-    pub fn added(path: impl AsRef<Path>) -> Self {
-        ImportReason::Added {
-            path: path.as_ref().to_path_buf(),
-        }
-    }
-
-    pub fn asset_modified(path: impl AsRef<Path>, asset: Vec<u8>, metadata: Vec<u8>) -> Self {
-        ImportReason::AssetModified {
-            path: path.as_ref().to_path_buf(),
-            asset,
-            metadata,
-        }
-    }
-
-    pub fn dependency_modified(asset: AssetId, dependency: AssetId) -> Self {
-        ImportReason::DependencyModified { asset, dependency }
-    }
-
-    pub fn is_added(&self) -> bool {
-        matches!(self, ImportReason::Added { .. })
-    }
-
-    pub fn is_modified(&self) -> bool {
-        matches!(self, ImportReason::AssetModified { .. })
-    }
-
-    pub fn is_dependency_modified(&self) -> bool {
-        matches!(self, ImportReason::DependencyModified { .. })
-    }
-
-    pub fn is_manual(&self) -> bool {
-        matches!(self, ImportReason::Manual { .. })
-    }
-
-    pub fn path(&self) -> AssetPath {
+    pub fn path(&self) -> PathBuf {
         match self {
-            ImportReason::Manual { path } => path.into(),
-            ImportReason::Added { path } => path.into(),
-            ImportReason::AssetModified { path, .. } => path.into(),
-            ImportReason::DependencyModified { asset, .. } => (*asset).into(),
+            ImportReason::Manual { path, .. } => path.clone(),
+            ImportReason::Added { path, .. } => path.clone(),
+            ImportReason::Modified { path, .. } => path.clone(),
+            ImportReason::Removed { path, .. } => path.clone(),
         }
     }
 }
@@ -104,7 +72,9 @@ pub struct ImportAsset<A: Asset> {
 impl<A: Asset> ImportAsset<A> {
     pub fn new(path: impl AsRef<Path>) -> Self {
         ImportAsset {
-            reason: Some(ImportReason::manual(path)),
+            reason: Some(ImportReason::Manual {
+                path: path.as_ref().to_path_buf(),
+            }),
             _marker: std::marker::PhantomData,
         }
     }
@@ -112,17 +82,6 @@ impl<A: Asset> ImportAsset<A> {
     pub fn with_reason(mut self, reason: ImportReason) -> Self {
         self.reason = Some(reason);
         self
-    }
-
-    fn path(database: &AssetDatabase, reason: &ImportReason) -> Option<PathBuf> {
-        match reason {
-            ImportReason::Added { path } => Some(path.clone()),
-            ImportReason::AssetModified { path, .. } => Some(path.clone()),
-            ImportReason::Manual { path } => Some(path.clone()),
-            ImportReason::DependencyModified { asset, .. } => {
-                Some(database.block(asset)?.filepath().to_path_buf())
-            }
-        }
     }
 }
 
@@ -132,15 +91,25 @@ impl<A: Asset> Event for ImportAsset<A> {
     fn invoke(&mut self, world: &mut shadow_ecs::ecs::world::World) -> Option<Self::Output> {
         let reason = self.reason.take()?;
         let database = world.resource::<AssetDatabase>();
+        let path = reason.path();
 
-        match database.status(&reason.path()) {
+        match &reason {
+            ImportReason::Modified { path, metadata, .. } => {
+                if let Some(block) = database.block(&metadata.id()) {
+                    let block = block.with_path(path.clone());
+                    database.library.set_block(metadata.id(), block);
+                }
+            }
+            _ => {}
+        }
+
+        match database.status(&path) {
             AssetStatus::Importing | AssetStatus::Loading => {
-                let path = ImportAsset::<A>::path(database, &reason)?;
                 database.enqueue_action(path, AssetAction::Import { reason });
                 None
             }
             AssetStatus::None | AssetStatus::Failed | AssetStatus::Done => {
-                let path = ImportAsset::<A>::path(database, &reason)?;
+                database.library.add_import(&path);
                 Some(ImportInfo::new(path, reason))
             }
         }
@@ -167,7 +136,9 @@ impl Event for ImportFolder {
         match database.status(&self.path) {
             AssetStatus::Importing => {
                 let action = AssetAction::Import {
-                    reason: ImportReason::added(&self.path),
+                    reason: ImportReason::Manual {
+                        path: self.path.clone(),
+                    },
                 };
                 database.enqueue_action(self.path.clone(), action);
                 None

@@ -1,6 +1,6 @@
 use crate::{
     asset::{Asset, AssetId, AssetMetadata, AssetPath, Settings},
-    block::AssetBlock,
+    block::{AssetBlock, MetadataBlock},
     bytes::ToBytes,
     errors::AssetError,
 };
@@ -95,15 +95,18 @@ impl AssetDatabase {
         asset: &[u8],
         metadata: &AssetMetadata<S>,
     ) -> Result<AssetId, AssetError> {
+        let mut meta_path = path.as_ref().to_path_buf();
+        meta_path.extend([".meta"].iter());
         let data = {
-            let meta_path = path.as_ref().with_extension("meta");
             let bytes = toml::to_string(metadata).map_err(|_| AssetError::InvalidMetadata)?;
             std::fs::write(meta_path, &bytes).map_err(|e| AssetError::from(e))?;
             bytes
         };
 
         let modified = self.config.modified(&path);
-        let info = SourceInfo::from(metadata.id(), asset, data.as_bytes(), modified);
+        let settings_modified = self.config.modified(&meta_path);
+        let checksum = SourceInfo::calculate_checksum(asset, MetadataBlock::from(metadata).data());
+        let info = SourceInfo::from(metadata.id(), checksum, modified, settings_modified);
         self.library.set_source(path, info);
         Ok(metadata.id())
     }
@@ -122,7 +125,8 @@ impl AssetDatabase {
     }
 
     fn load_metadata<S: Settings>(&self, path: impl AsRef<Path>) -> Option<AssetMetadata<S>> {
-        let path = path.as_ref().to_path_buf().with_extension("meta");
+        let mut path = path.as_ref().to_path_buf();
+        path.extend([".meta"].iter());
         std::fs::read_to_string(path)
             .ok()
             .and_then(|data| toml::from_str(&data).ok())

@@ -100,9 +100,28 @@ impl EventMeta {
     }
 }
 
+#[derive(Default)]
+pub struct EventStorage {
+    events: Vec<ErasedEvent>,
+}
+
+impl EventStorage {
+    pub fn new() -> Self {
+        Self { events: Vec::new() }
+    }
+
+    pub fn add<E: Event>(&mut self, event: E) {
+        self.events.push(ErasedEvent::new(event));
+    }
+
+    pub fn push(&mut self, event: ErasedEvent) {
+        self.events.push(event);
+    }
+}
+
 #[derive(Clone)]
 pub struct Events {
-    events: Arc<Mutex<Vec<ErasedEvent>>>,
+    events: Arc<Mutex<EventStorage>>,
     metas: HashMap<EventType, Arc<EventMeta>>,
     invocations: Arc<RwLock<DenseSet<EventInvocation>>>,
 }
@@ -110,7 +129,7 @@ pub struct Events {
 impl Events {
     pub fn new() -> Self {
         Self {
-            events: Arc::new(Mutex::new(Vec::new())),
+            events: Arc::default(),
             metas: HashMap::new(),
             invocations: Arc::new(RwLock::new(DenseSet::new())),
         }
@@ -135,16 +154,21 @@ impl Events {
 
     pub fn add<E: Event>(&self, event: E) {
         let mut events = self.events.lock().unwrap();
-        events.push(ErasedEvent::new(event));
+        events.add(event);
+    }
+
+    pub fn append(&self, events: EventStorage) {
+        let mut _events = self.events.lock().unwrap();
+        _events.events.extend(events.events);
     }
 
     pub fn remove<E: Event>(&self) -> Vec<ErasedEvent> {
         let mut events = self.events.lock().unwrap();
         let mut drained = Vec::new();
         let mut index = 0;
-        while index < events.len() {
-            if events[index].ty == TypeId::of::<E>() {
-                drained.push(events.remove(index));
+        while index < events.events.len() {
+            if events.events[index].ty == TypeId::of::<E>() {
+                drained.push(events.events.remove(index));
             } else {
                 index += 1;
             }
@@ -155,7 +179,7 @@ impl Events {
 
     pub fn drain(&self) -> Vec<ErasedEvent> {
         let mut events = self.events.lock().unwrap();
-        events.drain(..).collect::<Vec<_>>()
+        events.events.drain(..).collect::<Vec<_>>()
     }
 
     pub(crate) fn invocations(&self) -> Vec<EventInvocation> {
@@ -171,17 +195,17 @@ impl Events {
 
     pub fn clear(&self) {
         let mut events = self.events.lock().unwrap();
-        events.clear();
+        events.events.clear();
     }
 
     pub fn is_empty(&self) -> bool {
         let events = self.events.lock().unwrap();
-        events.is_empty()
+        events.events.is_empty()
     }
 
     pub fn len(&self) -> usize {
         let events = self.events.lock().unwrap();
-        events.len()
+        events.events.len()
     }
 }
 

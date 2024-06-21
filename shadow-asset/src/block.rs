@@ -55,8 +55,8 @@ pub struct AssetBlock {
 }
 
 impl AssetBlock {
-    pub fn new<A: Asset, S: Settings>(asset: &A, settings: &S, dependencies: &[AssetId]) -> Self {
-        let mut data = asset.to_bytes();
+    pub fn new<S: Settings>(asset: &[u8], settings: &S, dependencies: &[AssetId]) -> Self {
+        let mut data = asset.to_vec();
         let asset = data.len();
 
         let settings_bytes = settings.to_bytes();
@@ -124,6 +124,7 @@ impl ToBytes for AssetBlock {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct MetadataBlock {
     id: AssetId,
     data: Vec<u8>,
@@ -149,6 +150,26 @@ impl MetadataBlock {
     pub fn into<S: Settings>(self) -> Option<AssetMetadata<S>> {
         let data = String::from_utf8(self.data).ok()?;
         toml::from_str::<AssetMetadata<S>>(&data).ok()
+    }
+}
+
+impl<S: Settings> From<AssetMetadata<S>> for MetadataBlock {
+    fn from(value: AssetMetadata<S>) -> Self {
+        let data = toml::to_string(&value).unwrap().into_bytes();
+        MetadataBlock {
+            id: value.id(),
+            data,
+        }
+    }
+}
+
+impl<S: Settings> From<&AssetMetadata<S>> for MetadataBlock {
+    fn from(value: &AssetMetadata<S>) -> Self {
+        let data = toml::to_string(value).unwrap().into_bytes();
+        MetadataBlock {
+            id: value.id(),
+            data,
+        }
     }
 }
 

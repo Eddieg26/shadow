@@ -2,7 +2,7 @@ use crate::bytes::ToBytes;
 use serde::{ser::SerializeStruct, Deserialize, Serialize};
 use shadow_ecs::ecs::core::Resource;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     hash::{Hash, Hasher},
     path::{Path, PathBuf},
 };
@@ -454,68 +454,3 @@ impl<S: Settings> AssetSettings<S> {
 }
 
 impl<S: Settings> Resource for AssetSettings<S> {}
-
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub struct FolderSettings {
-    children: HashSet<PathBuf>,
-}
-
-impl FolderSettings {
-    pub fn new() -> Self {
-        FolderSettings {
-            children: HashSet::new(),
-        }
-    }
-
-    pub fn insert(&mut self, path: PathBuf) -> bool {
-        self.children.insert(path)
-    }
-
-    pub fn remove(&mut self, path: &Path) -> bool {
-        self.children.remove(path)
-    }
-
-    pub fn set_children(&mut self, children: HashSet<PathBuf>) {
-        self.children = children;
-    }
-
-    pub fn contains(&self, path: &Path) -> bool {
-        self.children.contains(path)
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = &PathBuf> {
-        self.children.iter()
-    }
-
-    pub fn retain<F>(&mut self, mut f: F)
-    where
-        F: FnMut(&PathBuf) -> bool,
-    {
-        self.children.retain(|path| f(path));
-    }
-
-    pub fn len(&self) -> usize {
-        self.children.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.children.is_empty()
-    }
-}
-
-impl ToBytes for FolderSettings {
-    fn to_bytes(&self) -> Vec<u8> {
-        self.children.iter().cloned().collect::<Vec<_>>().to_bytes()
-    }
-
-    fn from_bytes(bytes: &[u8]) -> Option<Self> {
-        let children = Vec::<PathBuf>::from_bytes(bytes)?;
-        let mut settings = FolderSettings::new();
-        for child in children {
-            settings.insert(child);
-        }
-        Some(settings)
-    }
-}
-
-impl Settings for FolderSettings {}
