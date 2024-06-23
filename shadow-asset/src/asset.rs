@@ -224,11 +224,6 @@ impl<S: Settings> AssetMetadata<S> {
         self.id
     }
 
-    pub fn with_id(mut self, id: AssetId) -> Self {
-        self.id = id;
-        self
-    }
-
     pub fn settings(&self) -> &S {
         &self.settings
     }

@@ -1,5 +1,5 @@
 use crate::{
-    asset::{Asset, AssetId, AssetPath, AssetType},
+    asset::{Asset, AssetId, AssetType},
     bytes::ToBytes,
 };
 use std::{
@@ -10,34 +10,45 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum AssetStatus {
+pub trait AssetStatus: Copy + Clone {
+    type Id: Eq + PartialEq + Hash;
+    fn fetch(id: &Self::Id, library: &AssetLibrary) -> Self;
+    fn set(self, id: Self::Id, library: &AssetLibrary) -> Self {
+        library.set_status(id, self)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LoadStatus {
     None,
     Loading,
     Done,
-    Importing,
     Failed,
 }
 
-impl AssetStatus {
-    pub fn none(&self) -> bool {
-        matches!(self, AssetStatus::None)
-    }
+impl AssetStatus for LoadStatus {
+    type Id = AssetId;
 
-    pub fn loading(&self) -> bool {
-        matches!(self, AssetStatus::Loading)
+    fn fetch(id: &Self::Id, library: &AssetLibrary) -> Self {
+        library.load_status(id)
     }
+}
 
-    pub fn done(&self) -> bool {
-        matches!(self, AssetStatus::Done)
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImportStatus {
+    None,
+    Importing,
+    Processing,
+    PostProccessing,
+    Done,
+    Failed,
+}
 
-    pub fn importing(&self) -> bool {
-        matches!(self, AssetStatus::Importing)
-    }
+impl AssetStatus for ImportStatus {
+    type Id = PathBuf;
 
-    pub fn failed(&self) -> bool {
-        matches!(self, AssetStatus::Failed)
+    fn fetch(id: &Self::Id, library: &AssetLibrary) -> Self {
+        library.import_status(id)
     }
 }
 
@@ -84,20 +95,28 @@ impl SourceInfo {
         self.settings_modified
     }
 
-    pub fn set_id(&mut self, id: AssetId) {
-        self.id = id
+    pub fn with_id(&self, id: AssetId) -> Self {
+        let mut info = self.clone();
+        info.id = id;
+        info
     }
 
-    pub fn set_checksum(&mut self, checksum: u64) {
-        self.checksum = checksum
+    pub fn with_checksum(&self, checksum: u64) -> Self {
+        let mut info = self.clone();
+        info.checksum = checksum;
+        info
     }
 
-    pub fn set_modified(&mut self, modified: u64) {
-        self.modified = modified
+    pub fn with_modified(&self, modified: u64) -> Self {
+        let mut info = self.clone();
+        info.modified = modified;
+        info
     }
 
-    pub fn set_settings_modified(&mut self, settings_modified: u64) {
-        self.settings_modified = settings_modified
+    pub fn with_settings_modified(&self, settings_modified: u64) -> Self {
+        let mut info = self.clone();
+        info.settings_modified = settings_modified;
+        info
     }
 
     pub fn calculate_checksum(asset: &[u8], metadata: &[u8]) -> u64 {
@@ -172,7 +191,7 @@ impl BlockInfo {
         }
     }
 
-    pub fn filepath(&self) -> &Path {
+    pub fn filepath(&self) -> &PathBuf {
         &self.filepath
     }
 
@@ -209,14 +228,84 @@ impl ToBytes for BlockInfo {
     }
 }
 
+#[derive(Debug, Default)]
+pub struct DependencyMap {
+    dependencies: HashMap<AssetId, HashSet<AssetId>>,
+    dependents: HashMap<AssetId, HashSet<AssetId>>,
+}
+
+impl DependencyMap {
+    pub fn new() -> Self {
+        DependencyMap {
+            dependencies: HashMap::new(),
+            dependents: HashMap::new(),
+        }
+    }
+
+    pub fn add_dependency(&mut self, id: AssetId, dependency: AssetId) {
+        self.dependencies
+            .entry(id)
+            .or_insert_with(HashSet::new)
+            .insert(dependency);
+
+        self.dependents
+            .entry(dependency)
+            .or_insert_with(HashSet::new)
+            .insert(id);
+    }
+
+    pub fn remove_dependency(&mut self, id: &AssetId, dependency: &AssetId) {
+        if let Some(dependencies) = self.dependencies.get_mut(id) {
+            dependencies.remove(dependency);
+        }
+
+        if let Some(dependents) = self.dependents.get_mut(dependency) {
+            dependents.remove(id);
+        }
+    }
+
+    pub fn insert(&mut self, id: AssetId, dependencies: HashSet<AssetId>) {
+        for dependency in &dependencies {
+            self.dependents
+                .entry(*dependency)
+                .or_insert_with(HashSet::new)
+                .insert(id);
+        }
+
+        self.dependencies.insert(id, dependencies);
+    }
+
+    pub fn remove(&mut self, id: &AssetId) {
+        if let Some(dependents) = self.dependencies.remove(id) {
+            for dependent in dependents {
+                self.dependents
+                    .get_mut(&dependent)
+                    .map(|dependents| dependents.remove(id));
+            }
+        }
+    }
+
+    pub fn dependencies(&self, id: &AssetId) -> HashSet<AssetId> {
+        self.dependencies.get(id).cloned().unwrap_or_default()
+    }
+
+    pub fn dependents(&self, id: &AssetId) -> HashSet<AssetId> {
+        self.dependents.get(id).cloned().unwrap_or_default()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&AssetId, &HashSet<AssetId>)> {
+        self.dependencies.iter()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct AssetLibrary {
     path: PathBuf,
     sources: Arc<RwLock<HashMap<PathBuf, SourceInfo>>>,
     blocks: Arc<RwLock<HashMap<AssetId, BlockInfo>>>,
-    dependents: Arc<RwLock<HashMap<AssetId, HashSet<AssetId>>>>,
-    assets: Arc<RwLock<HashMap<AssetId, AssetStatus>>>,
-    importing: Arc<RwLock<HashSet<PathBuf>>>,
+    dependency_map: Arc<RwLock<DependencyMap>>,
+    loading: Arc<RwLock<HashMap<AssetId, LoadStatus>>>,
+    importing: Arc<RwLock<HashMap<PathBuf, ImportStatus>>>,
 }
 
 impl AssetLibrary {
@@ -225,8 +314,8 @@ impl AssetLibrary {
             path: path.as_ref().to_path_buf(),
             sources: Arc::default(),
             blocks: Arc::default(),
-            dependents: Arc::default(),
-            assets: Arc::default(),
+            dependency_map: Arc::default(),
+            loading: Arc::default(),
             importing: Arc::default(),
         }
     }
@@ -235,40 +324,8 @@ impl AssetLibrary {
         &self.path
     }
 
-    pub fn status(&self, path: impl Into<AssetPath>) -> AssetStatus {
-        let path: AssetPath = path.into();
-        let assets = self.assets.read().unwrap();
-
-        let status = match &path {
-            AssetPath::Id(id) => assets.get(id).copied().or_else(|| {
-                self.block(id).map(|info| {
-                    if self.importing(&info.filepath) {
-                        AssetStatus::Importing
-                    } else {
-                        AssetStatus::None
-                    }
-                })
-            }),
-            AssetPath::Path(path) => {
-                if let Some(source) = self.source(path) {
-                    assets.get(&source.id()).copied()
-                } else if self.importing(path) {
-                    Some(AssetStatus::Importing)
-                } else {
-                    None
-                }
-            }
-        };
-
-        status.unwrap_or(AssetStatus::None)
-    }
-
-    pub fn importing(&self, path: impl AsRef<Path>) -> bool {
-        self.importing
-            .read()
-            .unwrap()
-            .get(&path.as_ref().to_path_buf())
-            .is_some()
+    pub fn status<S: AssetStatus>(&self, id: &S::Id) -> S {
+        S::fetch(id, self)
     }
 
     pub fn source(&self, path: impl AsRef<Path>) -> Option<SourceInfo> {
@@ -279,8 +336,26 @@ impl AssetLibrary {
         self.blocks.read().unwrap().get(id).cloned()
     }
 
-    pub fn dependents(&self) -> std::sync::RwLockReadGuard<HashMap<AssetId, HashSet<AssetId>>> {
-        self.dependents.read().unwrap()
+    pub fn dependencies(&self, id: &AssetId) -> HashSet<AssetId> {
+        self.dependency_map.read().unwrap().dependencies(id)
+    }
+
+    pub fn dependents(&self, id: &AssetId) -> HashSet<AssetId> {
+        self.dependency_map.read().unwrap().dependents(id)
+    }
+
+    pub fn add_dependency(&self, id: AssetId, dependency: AssetId) {
+        self.dependency_map
+            .write()
+            .unwrap()
+            .add_dependency(id, dependency);
+    }
+
+    pub fn remove_dependency(&self, id: &AssetId, dependency: &AssetId) {
+        self.dependency_map
+            .write()
+            .unwrap()
+            .remove_dependency(id, dependency);
     }
 
     pub fn set_source(&self, path: impl AsRef<Path>, info: SourceInfo) -> Option<SourceInfo> {
@@ -302,30 +377,8 @@ impl AssetLibrary {
         self.blocks.write().unwrap().remove(id)
     }
 
-    pub fn set_status(&self, id: AssetId, status: AssetStatus) -> Option<AssetStatus> {
-        match status {
-            AssetStatus::Importing => {
-                if let Some(info) = self.block(&id) {
-                    let path = info.filepath.clone();
-                    self.importing.write().unwrap().insert(path);
-                    self.assets.write().unwrap().remove(&id)
-                } else {
-                    None
-                }
-            }
-            _ => {
-                if let Some(info) = self.block(&id) {
-                    let path = info.filepath.clone();
-                    self.importing
-                        .write()
-                        .unwrap()
-                        .remove(&path)
-                        .then(|| AssetStatus::Importing)
-                } else {
-                    self.assets.write().unwrap().insert(id, status)
-                }
-            }
-        }
+    pub fn set_status<S: AssetStatus>(&self, id: S::Id, status: S) -> S {
+        status.set(id, self)
     }
 
     pub fn save(&self) -> std::io::Result<()> {
@@ -360,14 +413,38 @@ impl AssetLibrary {
 }
 
 impl AssetLibrary {
-    pub(crate) fn add_import(&self, path: &impl AsRef<Path>) {
-        let path = path.as_ref().to_path_buf();
-        self.importing.write().unwrap().insert(path);
+    fn load_status(&self, id: &AssetId) -> LoadStatus {
+        self.loading
+            .read()
+            .unwrap()
+            .get(id)
+            .copied()
+            .unwrap_or(LoadStatus::None)
     }
 
-    pub(crate) fn remove_import(&self, path: &impl AsRef<Path>) {
-        let path = path.as_ref().to_path_buf();
-        self.importing.write().unwrap().remove(&path);
+    fn import_status(&self, path: &Path) -> ImportStatus {
+        self.importing
+            .read()
+            .unwrap()
+            .get(path)
+            .copied()
+            .unwrap_or(ImportStatus::None)
+    }
+
+    fn set_load_status(&self, id: AssetId, status: LoadStatus) -> LoadStatus {
+        self.loading
+            .write()
+            .unwrap()
+            .insert(id, status)
+            .unwrap_or(LoadStatus::None)
+    }
+
+    fn set_import_status(&self, path: PathBuf, status: ImportStatus) -> ImportStatus {
+        self.importing
+            .write()
+            .unwrap()
+            .insert(path, status)
+            .unwrap_or(ImportStatus::None)
     }
 }
 
@@ -377,7 +454,6 @@ impl ToBytes for AssetLibrary {
 
         let sources = self.sources.read().unwrap();
         let blocks = self.blocks.read().unwrap();
-        let dependents = self.dependents.read().unwrap();
 
         bytes.extend(sources.len().to_bytes());
         for (path, info) in sources.iter() {
@@ -397,15 +473,6 @@ impl ToBytes for AssetLibrary {
             let info = info.to_bytes();
             bytes.extend(info.len().to_bytes());
             bytes.extend(info);
-        }
-
-        bytes.extend(dependents.len().to_bytes());
-        for (id, dependents) in dependents.iter() {
-            bytes.extend(id.to_bytes());
-
-            let dependents = dependents.iter().copied().collect::<Vec<_>>().to_bytes();
-            bytes.extend(dependents.len().to_bytes());
-            bytes.extend(dependents);
         }
 
         bytes
@@ -449,29 +516,12 @@ impl ToBytes for AssetLibrary {
             blocks.insert(id, info);
         }
 
-        let dependents_len = usize::from_bytes(&bytes[offset..])?;
-        offset += 8;
-
-        let mut dependents = HashMap::new();
-        for _ in 0..dependents_len {
-            let id = AssetId::from_bytes(&bytes[offset..])?;
-            offset += 8;
-
-            let len = usize::from_bytes(&bytes[offset..])?;
-            offset += 8;
-
-            let set = Vec::<AssetId>::from_bytes(&bytes[offset..offset + len])?;
-            offset += len;
-
-            dependents.insert(id, set.into_iter().collect());
-        }
-
         Some(AssetLibrary {
             path: PathBuf::new(),
             sources: Arc::new(RwLock::new(sources)),
             blocks: Arc::new(RwLock::new(blocks)),
-            dependents: Arc::new(RwLock::new(dependents)),
-            assets: Arc::default(),
+            dependency_map: Arc::default(),
+            loading: Arc::default(),
             importing: Arc::default(),
         })
     }

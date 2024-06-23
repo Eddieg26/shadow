@@ -1,13 +1,9 @@
-use crate::{
-    asset::{Asset, AssetId, AssetMetadata, BasicSettings, Settings},
-    block::AssetBlock,
-    bytes::ToBytes,
-    errors::AssetError,
-};
+use crate::asset::{Asset, AssetId, AssetMetadata, BasicSettings, Settings};
+use shadow_ecs::ecs::system::SystemArg;
 use std::path::Path;
 
 pub enum LoadContextType<'a> {
-    Processed { block: AssetBlock },
+    Processed { bytes: &'a [u8] },
     UnProcessed { bytes: &'a [u8], path: &'a Path },
 }
 
@@ -18,12 +14,24 @@ pub struct LoadContext<'a, S: Settings> {
 }
 
 impl<'a, S: Settings> LoadContext<'a, S> {
-    pub fn new(ty: LoadContextType, metadata: &'a mut AssetMetadata<S>) -> Self {
+    pub fn new(ty: LoadContextType<'a>, metadata: &'a mut AssetMetadata<S>) -> Self {
         LoadContext {
             ty,
             metadata,
             dependencies: Vec::new(),
         }
+    }
+
+    pub fn processed(bytes: &'a [u8], metadata: &'a mut AssetMetadata<S>) -> Self {
+        Self::new(LoadContextType::Processed { bytes }, metadata)
+    }
+
+    pub fn unprocessed(
+        path: &'a Path,
+        bytes: &'a [u8],
+        metadata: &'a mut AssetMetadata<S>,
+    ) -> Self {
+        Self::new(LoadContextType::UnProcessed { bytes, path }, metadata)
     }
 
     pub fn path(&self) -> Option<&Path> {
@@ -54,7 +62,7 @@ pub trait AssetLoader: 'static {
     type Asset: Asset;
     type Settings: Settings;
 
-    fn load(ctx: &mut LoadContext<Self::Settings>) -> Result<Self::Asset, AssetError>;
+    fn load(ctx: &mut LoadContext<Self::Settings>) -> Result<Self::Asset, String>;
     fn extensions() -> &'static [&'static str];
 }
 
@@ -62,21 +70,31 @@ pub trait AssetSaver: 'static {
     type Asset: Asset;
     type Settings: Settings;
 
-    fn save(asset: &Self::Asset, metadata: &AssetMetadata<Self::Settings>) -> AssetBlock;
+    fn save(asset: &Self::Asset) -> &[u8];
 }
 
 pub trait AssetProcessor: 'static {
     type Asset: Asset;
     type Settings: Settings;
+    type Arg: SystemArg;
 
-    fn process(asset: &mut Self::Asset, metadata: &mut AssetMetadata<Self::Settings>);
+    fn process(
+        asset: &mut Self::Asset,
+        settings: &mut Self::Settings,
+        arg: &Self::Arg,
+    ) -> Result<(), String>;
 }
 
 pub trait AssetPostProcessor: 'static {
     type Asset: Asset;
     type Settings: Settings;
+    type Arg: SystemArg;
 
-    fn post_process(asset: &mut Self::Asset, metadata: &mut AssetMetadata<Self::Settings>);
+    fn post_process(
+        asset: &mut Self::Asset,
+        settings: &mut Self::Settings,
+        arg: &Self::Arg,
+    ) -> Result<(), String>;
 }
 
 pub trait AssetPipeline: 'static {
@@ -93,22 +111,32 @@ pub struct BasicProcessor<L: AssetLoader>(std::marker::PhantomData<L>);
 impl<L: AssetLoader> AssetProcessor for BasicProcessor<L> {
     type Asset = L::Asset;
     type Settings = L::Settings;
+    type Arg = ();
 
-    fn process(_: &mut Self::Asset, _: &mut AssetMetadata<Self::Settings>) {}
+    fn process(_: &mut Self::Asset, _: &mut Self::Settings, _: &Self::Arg) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 impl<L: AssetLoader> AssetPostProcessor for BasicProcessor<L> {
     type Asset = L::Asset;
     type Settings = L::Settings;
+    type Arg = ();
 
-    fn post_process(_: &mut Self::Asset, _: &mut AssetMetadata<Self::Settings>) {}
+    fn post_process(
+        _: &mut Self::Asset,
+        _: &mut Self::Settings,
+        _: &Self::Arg,
+    ) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 impl AssetLoader for () {
     type Asset = ();
     type Settings = BasicSettings;
 
-    fn load(_: &mut LoadContext<Self::Settings>) -> Result<Self::Asset, AssetError> {
+    fn load(_: &mut LoadContext<Self::Settings>) -> Result<Self::Asset, String> {
         Ok(())
     }
 
@@ -121,8 +149,8 @@ impl AssetSaver for () {
     type Asset = ();
     type Settings = BasicSettings;
 
-    fn save(_: &Self::Asset, _: &AssetMetadata<Self::Settings>) -> AssetBlock {
-        AssetBlock::new(&().to_bytes(), &BasicSettings, &vec![])
+    fn save(_: &Self::Asset) -> &[u8] {
+        &[]
     }
 }
 

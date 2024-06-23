@@ -1,9 +1,4 @@
-use crate::{
-    asset::{Asset, AssetId, AssetMetadata, AssetPath, Settings},
-    block::{AssetBlock, MetadataBlock},
-    bytes::ToBytes,
-    errors::AssetError,
-};
+use crate::asset::{Asset, AssetId, AssetMetadata, AssetPath, Settings};
 use config::AssetDatabaseConfig;
 use events::{ImportAsset, ImportFolder, LoadAsset, LoadLibrary, SaveLibrary};
 use library::{AssetLibrary, AssetStatus, BlockInfo, SourceInfo};
@@ -16,6 +11,7 @@ pub mod events;
 pub mod library;
 pub mod observers;
 pub mod queue;
+pub mod storage;
 
 #[derive(Clone)]
 pub struct AssetDatabase {
@@ -39,12 +35,8 @@ impl AssetDatabase {
         &self.config
     }
 
-    pub fn status(&self, path: impl Into<AssetPath>) -> AssetStatus {
-        self.library.status(path)
-    }
-
-    pub fn importing(&self, path: impl AsRef<Path>) -> bool {
-        self.library.importing(path)
+    pub fn status<S: AssetStatus>(&self, id: &S::Id) -> S {
+        self.library.status(id)
     }
 
     pub fn source(&self, path: &Path) -> Option<SourceInfo> {
@@ -89,41 +81,6 @@ impl AssetDatabase {
 }
 
 impl AssetDatabase {
-    fn save_metadata<A: Asset, S: Settings>(
-        &self,
-        path: impl AsRef<Path>,
-        asset: &[u8],
-        metadata: &AssetMetadata<S>,
-    ) -> Result<AssetId, AssetError> {
-        let mut meta_path = path.as_ref().to_path_buf();
-        meta_path.extend([".meta"].iter());
-        let data = {
-            let bytes = toml::to_string(metadata).map_err(|_| AssetError::InvalidMetadata)?;
-            std::fs::write(meta_path, &bytes).map_err(|e| AssetError::from(e))?;
-            bytes
-        };
-
-        let modified = self.config.modified(&path);
-        let settings_modified = self.config.modified(&meta_path);
-        let checksum = SourceInfo::calculate_checksum(asset, MetadataBlock::from(metadata).data());
-        let info = SourceInfo::from(metadata.id(), checksum, modified, settings_modified);
-        self.library.set_source(path, info);
-        Ok(metadata.id())
-    }
-
-    fn save_asset<A: Asset, S: Settings>(
-        &self,
-        path: impl AsRef<Path>,
-        block: &AssetBlock,
-        metadata: &AssetMetadata<S>,
-    ) -> Result<AssetId, AssetError> {
-        let cache_path = self.config.blocks().join(metadata.id().to_string());
-        std::fs::write(&cache_path, block.to_bytes()).map_err(|e| AssetError::from(e))?;
-        let info = BlockInfo::of::<A>(path.as_ref().to_path_buf());
-        self.library.set_block(metadata.id(), info);
-        Ok(metadata.id())
-    }
-
     fn load_metadata<S: Settings>(&self, path: impl AsRef<Path>) -> Option<AssetMetadata<S>> {
         let mut path = path.as_ref().to_path_buf();
         path.extend([".meta"].iter());
@@ -136,8 +93,24 @@ impl AssetDatabase {
         self.queue.push(path, action);
     }
 
-    fn dequeue_action(&self, path: &Path) -> Option<AssetAction> {
-        self.queue.pop(path)
+    fn dequeue_action<A: Asset>(&self, path: &Path) -> bool {
+        match self.queue.pop(path) {
+            Some(AssetAction::Import { reason }) => {
+                let event = ImportAsset::<A>::with_reason(reason);
+                self.events.add(event);
+            }
+            Some(AssetAction::ImportFolder) => {
+                let event = ImportFolder::new(path);
+                self.events.add(event);
+            }
+            Some(AssetAction::Load { id }) => {
+                let event = LoadAsset::<A>::new(id);
+                self.events.add(event);
+            }
+            _ => return false,
+        }
+
+        true
     }
 }
 

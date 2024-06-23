@@ -1,8 +1,7 @@
 use shadow_asset::{
     asset::{Asset, BasicSettings},
     bytes::ToBytes,
-    errors::AssetError,
-    loader::{AssetLoader, AssetPipeline, BasicProcessor},
+    loader::{AssetLoader, AssetPipeline, AssetSaver, BasicProcessor, LoadContextType},
 };
 use shadow_game::plugin::{Plugin, PluginContext, Plugins};
 
@@ -74,10 +73,21 @@ impl AssetLoader for PlainText {
 
     fn load(
         ctx: &mut shadow_asset::loader::LoadContext<Self::Settings>,
-    ) -> Result<PlainText, AssetError> {
-        let text =
-            String::from_utf8(ctx.bytes().to_vec()).map_err(|_| AssetError::InvalidMetadata)?;
-        Ok(PlainText { text })
+    ) -> Result<PlainText, String> {
+        match ctx.ty() {
+            LoadContextType::Processed { bytes } => {
+                let text = std::str::from_utf8(bytes).map_err(|e| e.to_string())?;
+                Ok(PlainText {
+                    text: text.to_string(),
+                })
+            }
+            LoadContextType::UnProcessed { bytes, .. } => {
+                let text = std::str::from_utf8(bytes).map_err(|e| e.to_string())?;
+                Ok(PlainText {
+                    text: text.to_string(),
+                })
+            }
+        }
     }
 
     fn extensions() -> &'static [&'static str] {
@@ -85,10 +95,20 @@ impl AssetLoader for PlainText {
     }
 }
 
+impl AssetSaver for PlainText {
+    type Asset = PlainText;
+    type Settings = BasicSettings;
+
+    fn save(asset: &PlainText) -> &[u8] {
+        asset.text.as_bytes()
+    }
+}
+
 impl AssetPipeline for PlainText {
     type Asset = Self;
     type Settings = BasicSettings;
     type Loader = Self;
+    type Saver = Self;
     type Processor = BasicProcessor<Self>;
     type PostProcessor = BasicProcessor<Self>;
 }

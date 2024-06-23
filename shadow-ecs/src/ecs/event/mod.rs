@@ -177,6 +177,10 @@ impl Events {
         drained
     }
 
+    pub fn storage(&self) -> std::sync::MutexGuard<EventStorage> {
+        self.events.lock().unwrap()
+    }
+
     pub fn drain(&self) -> Vec<ErasedEvent> {
         let mut events = self.events.lock().unwrap();
         events.events.drain(..).collect::<Vec<_>>()

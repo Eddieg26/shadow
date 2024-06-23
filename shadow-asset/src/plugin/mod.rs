@@ -3,14 +3,14 @@ use crate::{
     database::{
         config::{AssetConfig, AssetDatabaseConfig},
         events::{
-            AssetFailed, AssetImported, FolderImported, ImportAsset, ImportFolder, LoadAsset,
-            LoadLibrary, SaveLibrary,
+            AssetFailed, FolderImported, ImportAsset, ImportFolder, LoadAsset, LoadLibrary,
+            SaveLibrary,
         },
-        observers::{import_assets, import_folders},
+        observers::import::import_folders,
         AssetDatabase,
     },
     loader::AssetPipeline,
-    registry::AssetPipelineRegistry,
+    registry::AssetRegistry,
 };
 use shadow_game::{
     game::Game,
@@ -39,8 +39,8 @@ impl Plugin for AssetPlugin {
         ctx.register_event::<LoadLibrary>();
         ctx.observe::<ImportFolder, _>(import_folders);
 
-        if ctx.try_resource_mut::<AssetPipelineRegistry>().is_none() {
-            ctx.add_resource(AssetPipelineRegistry::new());
+        if ctx.try_resource_mut::<AssetRegistry>().is_none() {
+            ctx.add_resource(AssetRegistry::new());
         }
     }
 
@@ -61,22 +61,22 @@ impl GameAssetExt for Game {
         self.add_resource(Assets::<A>::new())
             .register_event::<LoadAsset<A>>()
             .register_event::<ImportAsset<A>>()
-            .register_event::<AssetImported<A>>()
             .register_event::<AssetFailed<A>>()
     }
 
     fn register_pipeline<P: AssetPipeline>(&mut self) -> &mut Self {
         self.register_asset::<P::Asset>();
         self.add_resource(AssetSettings::<P::Settings>::new());
-        if let Some(registry) = self.try_resource_mut::<AssetPipelineRegistry>() {
+        if let Some(registry) = self.try_resource_mut::<AssetRegistry>() {
             registry.register::<P>();
         } else {
-            let mut registry = AssetPipelineRegistry::new();
+            let mut registry = AssetRegistry::new();
             registry.register::<P>();
             self.add_resource(registry);
         }
 
-        self.observe::<ImportAsset<P::Asset>, _>(import_assets::<P>)
+        self
+        // self.observe::<ImportAsset<P::Asset>, _>(import_assets::<P>)
     }
 }
 
@@ -90,15 +90,16 @@ impl GameAssetExt for PluginContext<'_> {
 
     fn register_pipeline<P: AssetPipeline>(&mut self) -> &mut Self {
         self.register_asset::<P::Asset>();
-        if let Some(registry) = self.try_resource_mut::<AssetPipelineRegistry>() {
+        if let Some(registry) = self.try_resource_mut::<AssetRegistry>() {
             registry.register::<P>();
         } else {
-            let mut registry = AssetPipelineRegistry::new();
+            let mut registry = AssetRegistry::new();
             registry.register::<P>();
             self.add_resource(registry);
         }
 
-        self.observe::<ImportAsset<P::Asset>, _>(import_assets::<P>)
+        self
+        // self.observe::<ImportAsset<P::Asset>, _>(import_assets::<P>)
     }
 }
 

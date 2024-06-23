@@ -10,6 +10,7 @@ use std::{
 pub enum AssetAction {
     Load { id: AssetId },
     Import { reason: ImportReason },
+    ImportFolder,
 }
 
 #[derive(Clone)]

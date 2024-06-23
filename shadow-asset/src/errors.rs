@@ -3,57 +3,50 @@ use std::{error::Error, fmt::Display, path::PathBuf};
 
 #[derive(Debug)]
 pub enum AssetError {
-    AssetNotFound(AssetId),
-    InvalidPath(PathBuf),
-    InvalidExtension(PathBuf),
-    InvalidMetadata,
-    InvalidData,
-    Io(std::io::Error),
-}
-
-impl From<std::io::Error> for AssetError {
-    fn from(error: std::io::Error) -> Self {
-        AssetError::Io(error)
-    }
-}
-
-impl From<AssetError> for std::io::Error {
-    fn from(error: AssetError) -> std::io::Error {
-        match error {
-            AssetError::AssetNotFound(id) => std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                format!("asset not found {:?}", id),
-            ),
-            AssetError::InvalidPath(_) => {
-                std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid path")
-            }
-            AssetError::InvalidExtension(_) => {
-                std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid extension")
-            }
-            AssetError::InvalidMetadata => {
-                std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid metadata")
-            }
-            AssetError::InvalidData => {
-                std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid data")
-            }
-            AssetError::Io(error) => error,
-        }
-    }
+    Loading {
+        id: AssetId,
+        message: String,
+    },
+    Importing {
+        path: PathBuf,
+        message: String,
+    },
+    Processing {
+        id: AssetId,
+        message: String,
+    },
+    PostProcessing {
+        id: AssetId,
+        message: String,
+    },
+    Saving {
+        id: AssetId,
+        path: PathBuf,
+        message: String,
+    },
 }
 
 impl Display for AssetError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            AssetError::AssetNotFound(id) => f.write_fmt(format_args!("Asset Not found: {:?}", id)),
-            AssetError::InvalidPath(path) => f.write_fmt(format_args!("Invalid Path: {:?}", path)),
-            AssetError::InvalidExtension(path) => {
-                f.write_fmt(format_args!("Invalid Path: {:?}", path))
+            AssetError::Importing { path, message } => {
+                write!(f, "Failed to import asset at {:?}: {}", path, message)
             }
-            AssetError::InvalidMetadata => f.write_str("Invalid Metadata"),
-            AssetError::InvalidData => f.write_str("Invalid Data"),
-            AssetError::Io(error) => {
-                let error = error.to_string();
-                f.write_fmt(format_args!("IO Asset Error: {:?}", error))
+            AssetError::Loading { id, message } => {
+                write!(f, "Failed to load asset {:?}: {}", id, message)
+            }
+            AssetError::Processing { id, message } => {
+                write!(f, "Failed to process asset {:?}: {}", id, message)
+            }
+            AssetError::PostProcessing { id, message } => {
+                write!(f, "Failed to post-process asset {:?}: {}", id, message)
+            }
+            AssetError::Saving { id, path, message } => {
+                write!(
+                    f,
+                    "Failed to save asset {:?} at {:?}: {}",
+                    id, path, message
+                )
             }
         }
     }

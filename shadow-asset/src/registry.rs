@@ -1,15 +1,12 @@
 use crate::{
-    asset::{AssetMetadata, AssetPath, AssetType},
+    asset::{AssetId, AssetMetadata, AssetPath, AssetType},
     block::MetadataBlock,
-    database::{
-        events::{ImportAsset, ImportReason, LoadAsset},
-        AssetDatabase,
-    },
+    database::events::{ImportAsset, ImportReason, LoadAsset, ProcessAsset},
     loader::{AssetLoader, AssetPipeline},
 };
 use shadow_ecs::ecs::{
     core::Resource,
-    event::{ErasedEvent, Events},
+    event::{EventStorage, Events},
 };
 use std::{
     collections::HashMap,
@@ -20,35 +17,17 @@ use std::{
 #[derive(Clone, Copy)]
 pub struct AssetPipelineMeta {
     ty: AssetType,
-    import: fn(&AssetDatabase, &Events, ImportReason),
-    import_event: fn(&AssetDatabase, ImportReason) -> ErasedEvent,
+    import_event: fn(&mut EventStorage, ImportReason),
     load: fn(&Events, &AssetPath),
     load_meta: fn(&Path) -> std::io::Result<MetadataBlock>,
+    process: fn(&Events, AssetId),
 }
 
 impl AssetPipelineMeta {
     pub fn new<L: AssetLoader>() -> Self {
         AssetPipelineMeta {
             ty: AssetType::of::<L::Asset>(),
-            import: |db, events, reason: ImportReason| {
-                // match reason.path() {
-                //     AssetPath::Id(id) => match db.block(&id) {
-                //         Some(info) => {
-                //             let path = info.filepath().to_path_buf();
-                //             events.add(ImportAsset::<L::Asset>::new(path).with_reason(reason))
-                //         }
-                //         None => {}
-                //     },
-                //     AssetPath::Path(path) => {
-                //         events.add(ImportAsset::<L::Asset>::new(path).with_reason(reason))
-                //     }
-                // };
-            },
-            import_event: |db, reason: ImportReason| {
-                ErasedEvent::new::<ImportAsset<L::Asset>>(
-                    ImportAsset::<L::Asset>::new(reason.path()).with_reason(reason),
-                )
-            },
+            import_event: |events, reason| events.add(ImportAsset::<L::Asset>::with_reason(reason)),
             load: |events, path| events.add(LoadAsset::<L::Asset>::new(path)),
             load_meta: |path| {
                 let path = path.with_extension("meta");
@@ -62,6 +41,7 @@ impl AssetPipelineMeta {
                 }?;
                 Ok(MetadataBlock::new(metadata.id(), bytes.as_bytes().to_vec()))
             },
+            process: |events, id| events.add(ProcessAsset::<L::Asset>::new(id)),
         }
     }
 
@@ -69,12 +49,8 @@ impl AssetPipelineMeta {
         self.ty
     }
 
-    pub fn import(&self, db: &AssetDatabase, events: &Events, reason: ImportReason) {
-        (self.import)(db, events, reason);
-    }
-
-    pub fn import_event(&self, db: &AssetDatabase, reason: ImportReason) -> ErasedEvent {
-        (self.import_event)(db, reason)
+    pub fn import_event(&self, events: &mut EventStorage, reason: ImportReason) {
+        (self.import_event)(events, reason)
     }
 
     pub fn load(&self, events: &Events, path: &AssetPath) {
@@ -84,17 +60,21 @@ impl AssetPipelineMeta {
     pub fn load_meta(&self, path: &Path) -> std::io::Result<MetadataBlock> {
         (self.load_meta)(path)
     }
+
+    pub fn process(&self, events: &Events, id: AssetId) {
+        (self.process)(events, id);
+    }
 }
 
 #[derive(Clone)]
-pub struct AssetPipelineRegistry {
+pub struct AssetRegistry {
     metas: Arc<RwLock<HashMap<AssetType, AssetPipelineMeta>>>,
     ext_map: Arc<RwLock<HashMap<&'static str, AssetType>>>,
 }
 
-impl AssetPipelineRegistry {
+impl AssetRegistry {
     pub fn new() -> Self {
-        AssetPipelineRegistry {
+        AssetRegistry {
             metas: Arc::default(),
             ext_map: Arc::default(),
         }
@@ -127,4 +107,4 @@ impl AssetPipelineRegistry {
     }
 }
 
-impl Resource for AssetPipelineRegistry {}
+impl Resource for AssetRegistry {}

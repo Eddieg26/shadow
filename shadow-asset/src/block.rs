@@ -79,8 +79,8 @@ impl AssetBlock {
         &self.data
     }
 
-    pub fn asset<A: Asset>(&self) -> Option<A> {
-        A::from_bytes(&self.data[..self.header.asset])
+    pub fn asset(&self) -> &[u8] {
+        &self.data[..self.header.asset]
     }
 
     pub fn settings<S: Settings>(&self) -> Option<S> {
@@ -93,12 +93,12 @@ impl AssetBlock {
         Vec::<AssetId>::from_bytes(bytes).unwrap_or_default()
     }
 
-    pub fn take<A: Asset, S: Settings>(self) -> (Option<A>, Option<S>, Vec<AssetId>) {
+    pub fn take<A: Asset, S: Settings>(self) -> (Vec<u8>, Option<S>, Vec<AssetId>) {
         let asset = self.asset();
         let settings = self.settings();
         let dependencies = self.dependencies();
 
-        (asset, settings, dependencies)
+        (asset.to_vec(), settings, dependencies)
     }
 }
 
@@ -147,8 +147,8 @@ impl MetadataBlock {
         (self.id, self.data)
     }
 
-    pub fn into<S: Settings>(self) -> Option<AssetMetadata<S>> {
-        let data = String::from_utf8(self.data).ok()?;
+    pub fn into_metadata<S: Settings>(&self) -> Option<AssetMetadata<S>> {
+        let data = String::from_utf8(self.data.clone()).ok()?;
         toml::from_str::<AssetMetadata<S>>(&data).ok()
     }
 }
