@@ -1,116 +1,80 @@
-use crate::asset::{Asset, AssetId, AssetMetadata, AssetPath, Settings};
-use config::AssetDatabaseConfig;
-use events::{ImportAsset, ImportFolder, LoadAsset, LoadLibrary, SaveLibrary};
-use library::{AssetLibrary, AssetStatus, BlockInfo, SourceInfo};
-use queue::{AssetAction, AssetQueue};
+use crate::asset::AssetId;
+use config::AssetConfig;
+use events::{ImportAsset, ImportFolder};
+use library::AssetLibrary;
 use shadow_ecs::ecs::{core::Resource, event::Events};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use tracker::{AssetTracker, ImportStatus, LoadStatus};
 
 pub mod config;
 pub mod events;
 pub mod library;
 pub mod observers;
-pub mod queue;
-pub mod storage;
+pub mod pipeline;
+pub mod tracker;
 
 #[derive(Clone)]
 pub struct AssetDatabase {
+    config: AssetConfig,
     events: Events,
-    config: AssetDatabaseConfig,
     library: AssetLibrary,
-    queue: AssetQueue,
+    load_tracker: AssetTracker<LoadStatus>,
+    import_tracker: AssetTracker<ImportStatus>,
 }
 
 impl AssetDatabase {
-    pub fn new(config: AssetDatabaseConfig, events: &Events) -> Self {
+    pub fn new(config: AssetConfig, events: &Events) -> Self {
         AssetDatabase {
-            library: AssetLibrary::new(config.library()),
-            events: events.clone(),
-            queue: AssetQueue::new(),
             config,
+            events: events.clone(),
+            library: AssetLibrary::new(),
+            load_tracker: AssetTracker::new(),
+            import_tracker: AssetTracker::new(),
         }
     }
 
-    pub fn config(&self) -> &AssetDatabaseConfig {
+    pub fn config(&self) -> &AssetConfig {
         &self.config
     }
 
-    pub fn status<S: AssetStatus>(&self, id: &S::Id) -> S {
-        self.library.status(id)
+    pub fn library(&self) -> &AssetLibrary {
+        &self.library
     }
 
-    pub fn source(&self, path: &Path) -> Option<SourceInfo> {
-        self.library.source(path)
+    pub fn load_status(&self, id: &AssetId) -> LoadStatus {
+        self.load_tracker.status(id)
     }
 
-    pub fn block(&self, id: &AssetId) -> Option<BlockInfo> {
-        self.library.block(id)
+    pub fn import_status(&self, path: &PathBuf) -> ImportStatus {
+        let path = path.into();
+        self.import_tracker.status(&path)
     }
 
-    pub fn import<A: Asset>(&self, path: impl Into<AssetPath>) {
-        let path: AssetPath = path.into();
-
-        match path {
-            AssetPath::Id(id) => match self
-                .block(&id)
-                .and_then(|info| Some(info.filepath().to_path_buf()))
-            {
-                Some(path) => self.events.add(ImportAsset::<A>::new(path)),
-                None => {}
-            },
-            AssetPath::Path(path) => self.events.add(ImportAsset::<A>::new(path)),
-        };
+    pub fn import(&self, path: impl AsRef<Path>) {
+        self.events.add(ImportAsset::new(path));
     }
 
-    pub fn import_folder(&self, path: impl AsRef<Path>) {
-        self.events
-            .add(ImportFolder::new(path.as_ref().to_path_buf()));
-    }
-
-    pub fn load<A: Asset>(&self, path: impl Into<AssetPath>) {
-        self.events.add(LoadAsset::<A>::new(path));
-    }
-
-    pub fn save_lib(&self) {
-        self.events.add(SaveLibrary);
-    }
-
-    pub fn load_lib(&self) {
-        self.events.add(LoadLibrary)
+    pub fn import_folder(&self, path: impl Into<PathBuf>) {
+        self.events.add(ImportFolder::new(path));
     }
 }
 
 impl AssetDatabase {
-    fn load_metadata<S: Settings>(&self, path: impl AsRef<Path>) -> Option<AssetMetadata<S>> {
-        let mut path = path.as_ref().to_path_buf();
-        path.extend([".meta"].iter());
-        std::fs::read_to_string(path)
-            .ok()
-            .and_then(|data| toml::from_str(&data).ok())
+    fn set_load_status(&self, id: AssetId, status: LoadStatus) {
+        self.load_tracker.set_status(id, status);
     }
 
-    fn enqueue_action(&self, path: impl AsRef<Path>, action: AssetAction) {
-        self.queue.push(path, action);
+    fn clear_load_statuses(&self) {
+        self.load_tracker.clear();
     }
 
-    fn dequeue_action<A: Asset>(&self, path: &Path) -> bool {
-        match self.queue.pop(path) {
-            Some(AssetAction::Import { reason }) => {
-                let event = ImportAsset::<A>::with_reason(reason);
-                self.events.add(event);
-            }
-            Some(AssetAction::ImportFolder) => {
-                let event = ImportFolder::new(path);
-                self.events.add(event);
-            }
-            Some(AssetAction::Load { id }) => {
-                let event = LoadAsset::<A>::new(id);
-                self.events.add(event);
-            }
-            _ => return false,
-        }
+    fn set_import_status(&self, path: PathBuf, status: ImportStatus) {
+        let path = path.into();
+        self.import_tracker.set_status(path, status);
+    }
 
-        true
+    fn clear_import_statuses(&self) {
+        self.import_tracker.clear();
     }
 }
 

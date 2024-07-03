@@ -1,5 +1,4 @@
-use crate::bytes::ToBytes;
-use serde::{ser::SerializeStruct, Deserialize, Serialize};
+use serde::ser::SerializeStruct;
 use shadow_ecs::ecs::core::Resource;
 use std::{
     collections::HashMap,
@@ -7,76 +6,77 @@ use std::{
     path::{Path, PathBuf},
 };
 
-pub trait Asset: ToBytes + Send + Sync + 'static {}
+use crate::bytes::ToBytes;
 
-impl Asset for () {}
+pub trait Asset: Send + Sync + 'static {}
 
 pub trait Settings:
-    ToBytes + Default + Serialize + for<'a> Deserialize<'a> + Send + Sync + 'static
+    Send + Sync + Default + serde::Serialize + for<'a> serde::Deserialize<'a> + 'static
 {
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct BasicSettings;
+impl Asset for () {}
 
-impl ToBytes for BasicSettings {
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct DefaultSettings;
+
+impl ToBytes for DefaultSettings {
     fn to_bytes(&self) -> Vec<u8> {
-        vec![]
+        Vec::new()
     }
 
-    fn from_bytes(bytes: &[u8]) -> Option<Self> {
-        if bytes.is_empty() {
-            Some(BasicSettings)
-        } else {
-            None
-        }
+    fn from_bytes(_bytes: &[u8]) -> Option<Self> {
+        Some(DefaultSettings)
     }
 }
 
-impl Serialize for BasicSettings {
+impl serde::Serialize for DefaultSettings {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        let state = serializer.serialize_struct("BasicSettings", 0)?;
-        state.end()
+        let obj = serializer.serialize_struct("DefaultSettings", 0)?;
+        obj.end()
     }
 }
 
-impl<'a> Deserialize<'a> for BasicSettings {
-    fn deserialize<D>(deserializer: D) -> Result<BasicSettings, D::Error>
+impl<'de> serde::Deserialize<'de> for DefaultSettings {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
-        D: serde::Deserializer<'a>,
+        D: serde::Deserializer<'de>,
     {
-        struct Visitor;
+        struct DefaultSettingsVisitor;
 
-        impl<'a> serde::de::Visitor<'a> for Visitor {
-            type Value = BasicSettings;
+        impl<'de> serde::de::Visitor<'de> for DefaultSettingsVisitor {
+            type Value = DefaultSettings;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("struct BasicSettings")
+                formatter.write_str("struct DefaultSettings")
             }
 
-            fn visit_map<A>(self, _map: A) -> Result<Self::Value, A::Error>
+            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
             where
-                A: serde::de::MapAccess<'a>,
+                A: serde::de::MapAccess<'de>,
             {
-                Ok(BasicSettings)
+                while let Some(_) = map.next_entry::<String, serde::de::IgnoredAny>()? {}
+                Ok(DefaultSettings)
             }
         }
 
-        deserializer.deserialize_struct("BasicSettings", &[], Visitor)
+        deserializer.deserialize_struct("DefaultSettings", &[], DefaultSettingsVisitor)
     }
 }
 
-impl Settings for BasicSettings {}
+impl Settings for DefaultSettings {}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub struct AssetId(u64);
 
 impl AssetId {
-    pub fn new(id: u64) -> Self {
-        AssetId(id)
+    pub fn new(value: u64) -> Self {
+        AssetId(value)
     }
 
     pub fn gen() -> Self {
@@ -84,31 +84,6 @@ impl AssetId {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         id.hash(&mut hasher);
         AssetId(hasher.finish())
-    }
-
-    pub fn value(&self) -> u64 {
-        self.0
-    }
-}
-
-impl Serialize for AssetId {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        self.0.to_string().serialize(serializer)
-    }
-}
-
-impl<'a> Deserialize<'a> for AssetId {
-    fn deserialize<D>(deserializer: D) -> Result<AssetId, D::Error>
-    where
-        D: serde::Deserializer<'a>,
-    {
-        let id = String::deserialize(deserializer)?;
-        u64::from_str_radix(&id, 10)
-            .map(AssetId)
-            .map_err(serde::de::Error::custom)
     }
 }
 
@@ -124,36 +99,7 @@ impl ToBytes for AssetId {
     }
 
     fn from_bytes(bytes: &[u8]) -> Option<Self> {
-        u64::from_bytes(bytes).map(AssetId)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct AssetType(u64);
-
-impl AssetType {
-    pub fn of<A: Asset>() -> Self {
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        std::any::TypeId::of::<A>().hash(&mut hasher);
-        AssetType(hasher.finish())
-    }
-
-    pub fn new(id: u64) -> Self {
-        AssetType(id)
-    }
-
-    pub fn value(&self) -> u64 {
-        self.0
-    }
-}
-
-impl ToBytes for AssetType {
-    fn to_bytes(&self) -> Vec<u8> {
-        self.0.to_bytes()
-    }
-
-    fn from_bytes(bytes: &[u8]) -> Option<Self> {
-        u64::from_bytes(bytes).map(AssetType)
+        Some(AssetId(u64::from_bytes(bytes)?))
     }
 }
 
@@ -163,39 +109,15 @@ pub enum AssetPath {
     Path(PathBuf),
 }
 
-impl AssetPath {
-    pub fn id(id: AssetId) -> Self {
-        AssetPath::Id(id)
-    }
-
-    pub fn path(path: PathBuf) -> Self {
-        AssetPath::Path(path)
-    }
-
-    pub fn as_id(&self) -> Option<AssetId> {
-        match self {
-            AssetPath::Id(id) => Some(*id),
-            _ => None,
-        }
-    }
-
-    pub fn as_path(&self) -> Option<&PathBuf> {
-        match self {
-            AssetPath::Path(path) => Some(path),
-            _ => None,
-        }
-    }
-}
-
 impl From<AssetId> for AssetPath {
     fn from(id: AssetId) -> Self {
         AssetPath::Id(id)
     }
 }
 
-impl From<&AssetId> for AssetPath {
-    fn from(id: &AssetId) -> Self {
-        AssetPath::Id(*id)
+impl<A: AsRef<Path>> From<A> for AssetPath {
+    fn from(path: A) -> Self {
+        AssetPath::Path(path.as_ref().to_path_buf())
     }
 }
 
@@ -205,19 +127,42 @@ impl From<&AssetPath> for AssetPath {
     }
 }
 
-impl<A: AsRef<Path>> From<A> for AssetPath {
-    fn from(path: A) -> Self {
-        AssetPath::Path(path.as_ref().to_path_buf())
+#[derive(
+    Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
+#[repr(C)]
+pub struct AssetType(u64);
+
+impl AssetType {
+    pub fn of<A: Asset>() -> Self {
+        let ty = std::any::TypeId::of::<A>();
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        ty.hash(&mut hasher);
+        AssetType(hasher.finish())
     }
 }
+
+impl ToBytes for AssetType {
+    fn to_bytes(&self) -> Vec<u8> {
+        self.0.to_bytes()
+    }
+
+    fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        Some(AssetType(u64::from_bytes(bytes)?))
+    }
+}
+
 pub struct AssetMetadata<S: Settings> {
     id: AssetId,
     settings: S,
 }
 
 impl<S: Settings> AssetMetadata<S> {
-    pub fn new(id: AssetId, settings: S) -> Self {
-        AssetMetadata { id, settings }
+    pub fn new(settings: S) -> Self {
+        AssetMetadata {
+            id: AssetId::gen(),
+            settings,
+        }
     }
 
     pub fn id(&self) -> AssetId {
@@ -246,50 +191,26 @@ impl<S: Settings> Default for AssetMetadata<S> {
     }
 }
 
-impl<S: Settings> ToBytes for AssetMetadata<S> {
-    fn to_bytes(&self) -> Vec<u8> {
-        let mut bytes = self.id.to_bytes();
-        bytes.extend_from_slice(&self.settings.to_bytes());
-        bytes
-    }
-
-    fn from_bytes(bytes: &[u8]) -> Option<Self> {
-        let id = AssetId::from_bytes(bytes)?;
-        let settings = S::from_bytes(&bytes[8..])?;
-        Some(AssetMetadata { id, settings })
-    }
-}
-
-impl<S: Settings> Serialize for AssetMetadata<S> {
-    fn serialize<D>(&self, serializer: D) -> Result<D::Ok, D::Error>
+impl<S: Settings> serde::Serialize for AssetMetadata<S> {
+    fn serialize<Ser>(&self, serializer: Ser) -> Result<Ser::Ok, Ser::Error>
     where
-        D: serde::Serializer,
+        Ser: serde::Serializer,
     {
-        let id = &self.id;
-        let settings = &self.settings;
-
         let mut state = serializer.serialize_struct("AssetMetadata", 2)?;
-        state.serialize_field("id", id)?;
-        state.serialize_field("settings", settings)?;
+        state.serialize_field("id", &self.id)?;
+        state.serialize_field("settings", &self.settings)?;
         state.end()
     }
 }
 
-impl<'a, S: Settings> Deserialize<'a> for AssetMetadata<S> {
-    fn deserialize<'de, D>(deserializer: D) -> Result<Self, D::Error>
+impl<'de, S: Settings> serde::Deserialize<'de> for AssetMetadata<S> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
-        D: serde::Deserializer<'a>,
+        D: serde::Deserializer<'de>,
     {
-        #[derive(Deserialize)]
-        #[serde(field_identifier, rename_all = "snake_case")]
-        enum Field {
-            Id,
-            Settings,
-        }
+        struct AssetMetadataVisitor<S: Settings>(std::marker::PhantomData<S>);
 
-        struct Visitor<S: Settings>(std::marker::PhantomData<S>);
-
-        impl<'a, S: Settings> serde::de::Visitor<'a> for Visitor<S> {
+        impl<'de, S: Settings> serde::de::Visitor<'de> for AssetMetadataVisitor<S> {
             type Value = AssetMetadata<S>;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -298,55 +219,41 @@ impl<'a, S: Settings> Deserialize<'a> for AssetMetadata<S> {
 
             fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
             where
-                A: serde::de::MapAccess<'a>,
+                A: serde::de::MapAccess<'de>,
             {
                 let mut id = None;
                 let mut settings = None;
-
-                while let Some(key) = map.next_key()? {
-                    match key {
-                        Field::Id => {
+                while let Some(key) = map.next_key::<String>()? {
+                    match key.as_str() {
+                        "id" => {
                             if id.is_some() {
                                 return Err(serde::de::Error::duplicate_field("id"));
                             }
                             id = Some(map.next_value()?);
                         }
-                        Field::Settings => {
+                        "settings" => {
                             if settings.is_some() {
                                 return Err(serde::de::Error::duplicate_field("settings"));
                             }
                             settings = Some(map.next_value()?);
                         }
+                        _ => {
+                            map.next_value::<serde::de::IgnoredAny>()?;
+                        }
                     }
                 }
-
                 let id = id.ok_or_else(|| serde::de::Error::missing_field("id"))?;
                 let settings =
                     settings.ok_or_else(|| serde::de::Error::missing_field("settings"))?;
-
                 Ok(AssetMetadata { id, settings })
             }
         }
 
-        const FIELDS: &[&str] = &["id", "settings"];
-        deserializer.deserialize_struct("AssetMetadata", FIELDS, Visitor(std::marker::PhantomData))
-    }
-}
-
-pub struct Folder;
-impl Asset for Folder {}
-
-impl ToBytes for Folder {
-    fn to_bytes(&self) -> Vec<u8> {
-        vec![]
-    }
-
-    fn from_bytes(bytes: &[u8]) -> Option<Self> {
-        if bytes.is_empty() {
-            Some(Folder)
-        } else {
-            None
-        }
+        deserializer.deserialize_struct(
+            "AssetMetadata",
+            &["id", "settings"],
+            AssetMetadataVisitor(Default::default()),
+        )
     }
 }
 
@@ -365,20 +272,16 @@ impl<A: Asset> Assets<A> {
         self.assets.insert(id, asset)
     }
 
-    pub fn remove(&mut self, id: &AssetId) -> Option<A> {
-        self.assets.remove(id)
+    pub fn get(&self, id: AssetId) -> Option<&A> {
+        self.assets.get(&id)
     }
 
-    pub fn get(&self, id: &AssetId) -> Option<&A> {
-        self.assets.get(id)
+    pub fn get_mut(&mut self, id: AssetId) -> Option<&mut A> {
+        self.assets.get_mut(&id)
     }
 
-    pub fn get_mut(&mut self, id: &AssetId) -> Option<&mut A> {
-        self.assets.get_mut(id)
-    }
-
-    pub fn contains(&self, id: &AssetId) -> bool {
-        self.assets.contains_key(id)
+    pub fn remove(&mut self, id: AssetId) -> Option<A> {
+        self.assets.remove(&id)
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (&AssetId, &A)> {
@@ -395,6 +298,10 @@ impl<A: Asset> Assets<A> {
 
     pub fn is_empty(&self) -> bool {
         self.assets.is_empty()
+    }
+
+    pub fn clear(&mut self) {
+        self.assets.clear();
     }
 }
 
@@ -415,20 +322,16 @@ impl<S: Settings> AssetSettings<S> {
         self.settings.insert(id, settings)
     }
 
-    pub fn remove(&mut self, id: &AssetId) -> Option<S> {
-        self.settings.remove(id)
+    pub fn get(&self, id: AssetId) -> Option<&S> {
+        self.settings.get(&id)
     }
 
-    pub fn get(&self, id: &AssetId) -> Option<&S> {
-        self.settings.get(id)
+    pub fn get_mut(&mut self, id: AssetId) -> Option<&mut S> {
+        self.settings.get_mut(&id)
     }
 
-    pub fn get_mut(&mut self, id: &AssetId) -> Option<&mut S> {
-        self.settings.get_mut(id)
-    }
-
-    pub fn contains(&self, id: &AssetId) -> bool {
-        self.settings.contains_key(id)
+    pub fn remove(&mut self, id: AssetId) -> Option<S> {
+        self.settings.remove(&id)
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (&AssetId, &S)> {
@@ -445,6 +348,10 @@ impl<S: Settings> AssetSettings<S> {
 
     pub fn is_empty(&self) -> bool {
         self.settings.is_empty()
+    }
+
+    pub fn clear(&mut self) {
+        self.settings.clear();
     }
 }
 

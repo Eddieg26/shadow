@@ -117,6 +117,14 @@ impl EventStorage {
     pub fn push(&mut self, event: ErasedEvent) {
         self.events.push(event);
     }
+
+    pub fn len(&self) -> usize {
+        self.events.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.events.is_empty()
+    }
 }
 
 #[derive(Clone)]
@@ -188,7 +196,7 @@ impl Events {
 
     pub(crate) fn invocations(&self) -> Vec<EventInvocation> {
         let mut invocations = self.invocations.write().unwrap();
-        invocations.sort();
+        invocations.sort_by(|a, b| a.priority().cmp(&b.priority()).reverse());
         invocations.drain().collect::<Vec<_>>()
     }
 

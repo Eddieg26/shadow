@@ -4,7 +4,7 @@ use std::{
     hash::{Hash, Hasher},
 };
 
-pub struct DenseMap<K: Hash + PartialEq, V> {
+pub struct DenseMap<K, V> {
     map: HashMap<u64, usize>,
     keys: Vec<K>,
     values: Vec<V>,
@@ -310,7 +310,7 @@ fn hash<H: Hash>(value: &H) -> u64 {
     hasher.finish()
 }
 
-pub struct DenseSet<K: Hash + PartialEq> {
+pub struct DenseSet<K> {
     map: HashMap<u64, usize>,
     values: Vec<K>,
 }
@@ -371,6 +371,12 @@ impl<V: Hash + PartialEq> DenseSet<V> {
             true
         } else {
             false
+        }
+    }
+
+    pub fn extend(&mut self, values: impl IntoIterator<Item = V>) {
+        for value in values {
+            self.insert(value);
         }
     }
 
@@ -626,7 +632,7 @@ impl<V: Hash + PartialEq> From<DenseSet<V>> for ImmutableDenseSet<V> {
     }
 }
 
-pub struct ImmutableDenseMap<K: Hash + PartialEq, V> {
+pub struct ImmutableDenseMap<K, V> {
     map: DenseMap<K, V>,
 }
 

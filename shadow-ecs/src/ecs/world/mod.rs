@@ -11,7 +11,7 @@ use super::{
     event::{Event, Events},
     storage::{
         dense::{DenseMap, DenseSet},
-        table::ComponentSet,
+        table::FreeRow,
     },
     system::observer::{EventObservers, IntoObserver},
     task::TaskManager,
@@ -131,7 +131,7 @@ impl World {
         entity
     }
 
-    pub fn despawn(&mut self, entity: &Entity) -> DenseMap<Entity, ComponentSet> {
+    pub fn despawn(&mut self, entity: &Entity) -> DenseMap<Entity, FreeRow<ComponentId>> {
         let mut despawned = DenseMap::new();
         for entity in self.entities.despawn(entity) {
             if let Some((_, set)) = self.archetypes.remove_entity(&entity) {
@@ -172,7 +172,7 @@ impl World {
     pub fn add_components(
         &mut self,
         entity: &Entity,
-        components: ComponentSet,
+        components: FreeRow<ComponentId>,
     ) -> Option<ArchetypeMove> {
         self.archetypes.add_components(entity, components)
     }

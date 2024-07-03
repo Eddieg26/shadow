@@ -1,111 +1,60 @@
-use crate::{
-    asset::{Asset, AssetSettings, Assets},
-    database::{
-        config::{AssetConfig, AssetDatabaseConfig},
-        events::{
-            AssetFailed, FolderImported, ImportAsset, ImportFolder, LoadAsset, LoadLibrary,
-            SaveLibrary,
-        },
-        observers::import::import_folders,
-        AssetDatabase,
-    },
-    loader::AssetPipeline,
-    registry::AssetRegistry,
-};
 use shadow_game::{
     game::Game,
     plugin::{PhaseExt, Plugin, PluginContext},
     schedule::{DefaultPhaseRunner, Init, Phase},
 };
 
+use crate::{
+    asset::{Asset, AssetSettings, Assets},
+    database::{
+        config::AssetConfig,
+        events::{ImportAsset, ImportFailed, ImportFolder, RemoveAsset},
+        observers::{import_assets, import_folders, Folder},
+        pipeline::{AssetLoader, AssetPipeline, AssetRegistry},
+        AssetDatabase,
+    },
+};
+use std::path::{Path, PathBuf};
+
 pub struct AssetPlugin {
-    config: AssetConfig,
+    root: PathBuf,
 }
 
 impl AssetPlugin {
-    pub fn new(config: AssetConfig) -> Self {
-        AssetPlugin { config }
+    pub fn new(root: impl AsRef<Path>) -> Self {
+        AssetPlugin {
+            root: root.as_ref().to_path_buf(),
+        }
     }
 }
 
 impl Plugin for AssetPlugin {
-    fn start(&mut self, ctx: &mut shadow_game::plugin::PluginContext) {
-        ctx.add_sub_phase::<Init, AssetInitPhase>();
-        ctx.add_system(AssetInitPhase, initialize_assets);
+    fn start(&mut self, ctx: &mut PluginContext) {
+        let config = AssetConfig::new(self.root.clone());
 
-        ctx.register_event::<ImportFolder>();
-        ctx.register_event::<FolderImported>();
-        ctx.register_event::<SaveLibrary>();
-        ctx.register_event::<LoadLibrary>();
-        ctx.observe::<ImportFolder, _>(import_folders);
+        ctx.add_resource(AssetDatabase::new(config, ctx.events()))
+            .observe::<ImportAsset, _>(import_assets)
+            .observe::<ImportFolder, _>(import_folders)
+            .register_event::<ImportFolder>()
+            .register_event::<ImportAsset>()
+            .register_event::<RemoveAsset>()
+            .register_asset::<Folder>()
+            .add_sub_phase::<Init, AssetInit>()
+            .add_system(AssetInit, init);
 
-        if ctx.try_resource_mut::<AssetRegistry>().is_none() {
-            ctx.add_resource(AssetRegistry::new());
-        }
-    }
-
-    fn finish(&mut self, ctx: &mut PluginContext) {
-        let config = AssetDatabaseConfig::new(self.config.assets(), self.config.cache());
-
-        ctx.add_resource(AssetDatabase::new(config, ctx.events()));
-    }
-}
-
-pub trait GameAssetExt {
-    fn register_asset<A: Asset>(&mut self) -> &mut Self;
-    fn register_pipeline<P: AssetPipeline>(&mut self) -> &mut Self;
-}
-
-impl GameAssetExt for Game {
-    fn register_asset<A: Asset>(&mut self) -> &mut Self {
-        self.add_resource(Assets::<A>::new())
-            .register_event::<LoadAsset<A>>()
-            .register_event::<ImportAsset<A>>()
-            .register_event::<AssetFailed<A>>()
-    }
-
-    fn register_pipeline<P: AssetPipeline>(&mut self) -> &mut Self {
-        self.register_asset::<P::Asset>();
-        self.add_resource(AssetSettings::<P::Settings>::new());
-        if let Some(registry) = self.try_resource_mut::<AssetRegistry>() {
-            registry.register::<P>();
+        if let Some(registry) = ctx.try_resource_mut::<AssetRegistry>() {
+            registry.register::<Folder>();
         } else {
             let mut registry = AssetRegistry::new();
-            registry.register::<P>();
-            self.add_resource(registry);
+            registry.register::<Folder>();
+            ctx.add_resource(registry);
         }
-
-        self
-        // self.observe::<ImportAsset<P::Asset>, _>(import_assets::<P>)
     }
 }
 
-impl GameAssetExt for PluginContext<'_> {
-    fn register_asset<A: Asset>(&mut self) -> &mut Self {
-        self.add_resource(Assets::<A>::new())
-            .register_event::<LoadAsset<A>>()
-            .register_event::<ImportAsset<A>>()
-            .register_event::<AssetFailed<A>>()
-    }
+pub struct AssetInit;
 
-    fn register_pipeline<P: AssetPipeline>(&mut self) -> &mut Self {
-        self.register_asset::<P::Asset>();
-        if let Some(registry) = self.try_resource_mut::<AssetRegistry>() {
-            registry.register::<P>();
-        } else {
-            let mut registry = AssetRegistry::new();
-            registry.register::<P>();
-            self.add_resource(registry);
-        }
-
-        self
-        // self.observe::<ImportAsset<P::Asset>, _>(import_assets::<P>)
-    }
-}
-
-pub struct AssetInitPhase;
-
-impl Phase for AssetInitPhase {
+impl Phase for AssetInit {
     type Runner = DefaultPhaseRunner;
 
     fn runner() -> Self::Runner {
@@ -113,15 +62,70 @@ impl Phase for AssetInitPhase {
     }
 }
 
-fn initialize_assets(database: &AssetDatabase) {
-    let inner = || -> std::io::Result<()> {
-        std::fs::create_dir_all(database.config().assets())?;
-        std::fs::create_dir_all(database.config().cache())?;
-        std::fs::create_dir_all(database.config().blocks())
-    };
+fn init(database: &AssetDatabase) {
+    let config = database.config();
+    if !config.root().exists() {
+        std::fs::create_dir_all(config.root()).unwrap();
+    }
 
-    match inner() {
-        Ok(_) => database.import_folder(""),
-        Err(e) => println!("Failed to initialize assets: {:?}", e),
+    if !config.assets().exists() {
+        std::fs::create_dir(config.assets()).unwrap();
+    }
+
+    if !config.cache().exists() {
+        std::fs::create_dir(config.cache()).unwrap();
+    }
+
+    if !config.artifacts().exists() {
+        std::fs::create_dir(config.artifacts()).unwrap();
+    }
+
+    database.import_folder("");
+}
+
+pub trait AssetExt {
+    fn register_asset<A: Asset>(&mut self) -> &mut Self;
+    fn register_pipeline<P: AssetPipeline>(&mut self) -> &mut Self;
+}
+
+impl AssetExt for Game {
+    fn register_asset<A: Asset>(&mut self) -> &mut Self {
+        self.add_resource(Assets::<A>::new())
+            .register_event::<ImportFailed<A>>()
+    }
+
+    fn register_pipeline<P: AssetPipeline>(&mut self) -> &mut Self {
+        self.register_asset::<<P::Loader as AssetLoader>::Asset>()
+            .add_resource(AssetSettings::<<P::Loader as AssetLoader>::Settings>::new());
+        if let Some(registry) = self.try_resource_mut::<AssetRegistry>() {
+            registry.register::<P>();
+        } else {
+            let mut registry = AssetRegistry::new();
+            registry.register::<P>();
+            self.add_resource(registry);
+        }
+
+        self
+    }
+}
+
+impl AssetExt for PluginContext<'_> {
+    fn register_asset<A: Asset>(&mut self) -> &mut Self {
+        self.add_resource(Assets::<A>::new())
+            .register_event::<ImportFailed<A>>()
+    }
+
+    fn register_pipeline<P: AssetPipeline>(&mut self) -> &mut Self {
+        self.register_asset::<<P::Loader as AssetLoader>::Asset>()
+            .add_resource(AssetSettings::<<P::Loader as AssetLoader>::Settings>::new());
+        if let Some(registry) = self.try_resource_mut::<AssetRegistry>() {
+            registry.register::<P>();
+        } else {
+            let mut registry = AssetRegistry::new();
+            registry.register::<P>();
+            self.add_resource(registry);
+        }
+
+        self
     }
 }

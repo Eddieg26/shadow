@@ -1,4 +1,4 @@
-use std::{ffi::OsString, path::PathBuf};
+use std::{collections::HashSet, ffi::OsString, hash::Hash, path::PathBuf};
 
 pub trait ToBytes: Sized {
     fn to_bytes(&self) -> Vec<u8>;
@@ -223,6 +223,21 @@ impl<T: ToBytes> ToBytes for Vec<T> {
             items.push(item);
         }
         Some(items)
+    }
+}
+
+impl<T: ToBytes + Eq + Hash> ToBytes for HashSet<T> {
+    fn to_bytes(&self) -> Vec<u8> {
+        self.iter()
+            .map(|item| item.to_bytes())
+            .collect::<Vec<_>>()
+            .to_bytes()
+    }
+
+    fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        let items = Vec::<T>::from_bytes(bytes)?;
+        let set = items.into_iter().collect();
+        Some(set)
     }
 }
 

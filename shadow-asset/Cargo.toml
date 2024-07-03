@@ -11,3 +11,4 @@ shadow-game = { path = "../shadow-game", version = "0.1.0" }
 ulid = { worspace = true }
 serde = { worspace = true, features = ["derive"] }
 toml = { worspace = true }
+crc32fast = { worspace = true }

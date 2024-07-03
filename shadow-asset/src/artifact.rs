@@ -1,21 +1,16 @@
 use crate::{
-    asset::{Asset, AssetId, AssetMetadata, Settings},
+    asset::{AssetId, AssetMetadata, Settings},
     bytes::ToBytes,
 };
 
-pub struct BlockHeader {
+pub struct Header {
     asset: usize,
     settings: usize,
-    dependencies: usize,
 }
 
-impl BlockHeader {
-    pub fn new(asset: usize, settings: usize, dependencies: usize) -> Self {
-        BlockHeader {
-            asset,
-            settings,
-            dependencies,
-        }
+impl Header {
+    pub fn new(asset: usize, settings: usize) -> Self {
+        Header { asset, settings }
     }
 
     pub fn asset(&self) -> usize {
@@ -25,17 +20,12 @@ impl BlockHeader {
     pub fn settings(&self) -> usize {
         self.settings
     }
-
-    pub fn dependencies(&self) -> usize {
-        self.dependencies
-    }
 }
 
-impl ToBytes for BlockHeader {
+impl ToBytes for Header {
     fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = self.asset.to_bytes();
         bytes.extend_from_slice(&self.settings.to_bytes());
-        bytes.extend_from_slice(&self.dependencies.to_bytes());
 
         bytes
     }
@@ -43,35 +33,30 @@ impl ToBytes for BlockHeader {
     fn from_bytes(bytes: &[u8]) -> Option<Self> {
         let asset = usize::from_bytes(bytes)?;
         let settings = usize::from_bytes(&bytes[8..])?;
-        let dependencies = usize::from_bytes(&bytes[16..])?;
 
-        Some(BlockHeader::new(asset, settings, dependencies))
+        Some(Header::new(asset, settings))
     }
 }
 
-pub struct AssetBlock {
-    header: BlockHeader,
+pub struct Artifact {
+    header: Header,
     data: Vec<u8>,
 }
 
-impl AssetBlock {
-    pub fn new<S: Settings>(asset: &[u8], settings: &S, dependencies: &[AssetId]) -> Self {
+impl Artifact {
+    pub fn new(asset: &[u8], settings: &[u8]) -> Self {
         let mut data = asset.to_vec();
         let asset = data.len();
 
-        let settings_bytes = settings.to_bytes();
-        let settings = settings_bytes.len();
-        data.extend_from_slice(&settings_bytes);
+        let settings_len = settings.len();
+        data.extend_from_slice(&settings_len.to_bytes());
+        data.extend_from_slice(settings);
 
-        let dependency_bytes = dependencies.to_vec().to_bytes();
-        let dependencies = dependency_bytes.len();
-        data.extend_from_slice(&dependency_bytes);
-
-        let header = BlockHeader::new(asset, settings, dependencies);
+        let header = Header::new(asset, settings_len);
         Self { header, data }
     }
 
-    pub fn header(&self) -> &BlockHeader {
+    pub fn header(&self) -> &Header {
         &self.header
     }
 
@@ -83,26 +68,12 @@ impl AssetBlock {
         &self.data[..self.header.asset]
     }
 
-    pub fn settings<S: Settings>(&self) -> Option<S> {
-        S::from_bytes(&self.data[self.header.asset..(self.header.settings + self.header.asset)])
-    }
-
-    pub fn dependencies(&self) -> Vec<AssetId> {
-        let offset = self.header.asset + self.header.settings;
-        let bytes = &self.data[offset..self.header.settings];
-        Vec::<AssetId>::from_bytes(bytes).unwrap_or_default()
-    }
-
-    pub fn take<A: Asset, S: Settings>(self) -> (Vec<u8>, Option<S>, Vec<AssetId>) {
-        let asset = self.asset();
-        let settings = self.settings();
-        let dependencies = self.dependencies();
-
-        (asset.to_vec(), settings, dependencies)
+    pub fn settings(&self) -> &[u8] {
+        &self.data[self.header.asset..(self.header.settings + self.header.asset)]
     }
 }
 
-impl ToBytes for AssetBlock {
+impl ToBytes for Artifact {
     fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = vec![];
 
@@ -117,14 +88,14 @@ impl ToBytes for AssetBlock {
 
     fn from_bytes(bytes: &[u8]) -> Option<Self> {
         let len = usize::from_bytes(bytes)?;
-        let header = BlockHeader::from_bytes(&bytes[8..(8 + len)])?;
+        let header = Header::from_bytes(&bytes[8..(8 + len)])?;
         let data = bytes[8 + len..].to_vec();
 
-        Some(AssetBlock { header, data })
+        Some(Artifact { header, data })
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MetadataBlock {
     id: AssetId,
     data: Vec<u8>,
