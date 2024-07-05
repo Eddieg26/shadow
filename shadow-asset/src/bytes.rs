@@ -1,4 +1,11 @@
-use std::{collections::HashSet, ffi::OsString, hash::Hash, path::PathBuf};
+use std::{
+    collections::{HashMap, HashSet},
+    ffi::OsString,
+    hash::Hash,
+    path::PathBuf,
+};
+
+use shadow_ecs::ecs::storage::dense::DenseMap;
 
 pub trait ToBytes: Sized {
     fn to_bytes(&self) -> Vec<u8>;
@@ -238,6 +245,97 @@ impl<T: ToBytes + Eq + Hash> ToBytes for HashSet<T> {
         let items = Vec::<T>::from_bytes(bytes)?;
         let set = items.into_iter().collect();
         Some(set)
+    }
+}
+
+impl<K: ToBytes + Eq + Hash, V: ToBytes> ToBytes for HashMap<K, V> {
+    fn to_bytes(&self) -> Vec<u8> {
+        let mut bytes = vec![];
+
+        let len = self.len();
+        bytes.extend_from_slice(&len.to_bytes());
+        for (key, value) in self.iter() {
+            let key_bytes = key.to_bytes();
+            let key_len = key_bytes.len();
+            bytes.extend_from_slice(&key_len.to_bytes());
+            bytes.extend_from_slice(&key_bytes);
+
+            let value_bytes = value.to_bytes();
+            let value_len = value_bytes.len();
+            bytes.extend_from_slice(&value_len.to_bytes());
+            bytes.extend_from_slice(&value_bytes);
+        }
+
+        bytes
+    }
+
+    fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        let mut map = HashMap::new();
+        let mut offset = 0;
+
+        let len = usize::from_bytes(&bytes[offset..offset + 8])?;
+        offset += 8;
+        for _ in 0..len {
+            let key_len = usize::from_bytes(&bytes[offset..offset + 8])?;
+            offset += 8;
+            let key = K::from_bytes(&bytes[offset..offset + key_len])?;
+            offset += key_len;
+
+            let value_len = usize::from_bytes(&bytes[offset..offset + 8])?;
+            offset += 8;
+            let value = V::from_bytes(&bytes[offset..offset + value_len])?;
+            offset += value_len;
+
+            map.insert(key, value);
+        }
+
+        Some(map)
+    }
+}
+
+impl<K: ToBytes + Eq + Hash, V: ToBytes> ToBytes for DenseMap<K, V> {
+    fn to_bytes(&self) -> Vec<u8> {
+        let mut bytes = vec![];
+
+        let len = self.len();
+        bytes.extend_from_slice(&len.to_bytes());
+
+        for (key, value) in self.iter() {
+            let key_bytes = key.to_bytes();
+            let key_len = key_bytes.len();
+            bytes.extend_from_slice(&key_len.to_bytes());
+            bytes.extend_from_slice(&key_bytes);
+
+            let value_bytes = value.to_bytes();
+            let value_len = value_bytes.len();
+            bytes.extend_from_slice(&value_len.to_bytes());
+            bytes.extend_from_slice(&value_bytes);
+        }
+
+        bytes
+    }
+
+    fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        let mut map = DenseMap::new();
+        let mut offset = 0;
+
+        let len = usize::from_bytes(&bytes[offset..offset + 8])?;
+        offset += 8;
+        for _ in 0..len {
+            let key_len = usize::from_bytes(&bytes[offset..offset + 8])?;
+            offset += 8;
+            let key = K::from_bytes(&bytes[offset..offset + key_len])?;
+            offset += key_len;
+
+            let value_len = usize::from_bytes(&bytes[offset..offset + 8])?;
+            offset += 8;
+            let value = V::from_bytes(&bytes[offset..offset + value_len])?;
+            offset += value_len;
+
+            map.insert(key, value);
+        }
+
+        Some(map)
     }
 }
 

@@ -1,12 +1,10 @@
-use crate::{
-    asset::{Asset, AssetId, AssetType},
-    bytes::ToBytes,
-};
+use super::config::AssetConfig;
+use crate::{artifact::ArtifactMeta, asset::AssetId, bytes::ToBytes};
 use shadow_ecs::ecs::storage::dense::DenseMap;
 use std::{
     collections::HashSet,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, MutexGuard},
+    sync::{RwLock, RwLockReadGuard, RwLockWriteGuard},
     time::SystemTime,
 };
 
@@ -25,6 +23,15 @@ impl SourceInfo {
             checksum: 0,
             asset_modified: 0,
             settings_modified: 0,
+        }
+    }
+
+    pub fn raw(id: AssetId, checksum: u32, asset_modified: u64, settings_modified: u64) -> Self {
+        SourceInfo {
+            id,
+            checksum,
+            asset_modified,
+            settings_modified,
         }
     }
 
@@ -59,10 +66,10 @@ impl SourceInfo {
         self.settings_modified
     }
 
-    pub fn calculate_checksum(asset: &[u8], settings: &[u8]) -> u32 {
+    pub fn calculate_checksum(asset: &[u8], metadata: &[u8]) -> u32 {
         let mut hasher = crc32fast::Hasher::new();
         hasher.update(asset);
-        hasher.update(settings);
+        hasher.update(metadata);
         hasher.finalize()
     }
 
@@ -104,284 +111,275 @@ impl ToBytes for SourceInfo {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct ArtifactInfo {
-    id: AssetId,
-    filepath: PathBuf,
-    ty: AssetType,
+#[derive(Debug, Default)]
+pub struct DependencyInfo {
     dependencies: HashSet<AssetId>,
     dependents: HashSet<AssetId>,
 }
 
-impl ArtifactInfo {
-    pub fn new<A: Asset>(id: AssetId, filepath: impl AsRef<Path>) -> Self {
-        ArtifactInfo {
-            id,
-            filepath: filepath.as_ref().to_path_buf(),
-            ty: AssetType::of::<A>(),
+impl DependencyInfo {
+    pub fn new() -> Self {
+        DependencyInfo {
             dependencies: HashSet::new(),
             dependents: HashSet::new(),
         }
     }
 
-    pub fn of_ty(id: AssetId, filepath: impl AsRef<Path>, ty: AssetType) -> Self {
-        ArtifactInfo {
-            id,
-            filepath: filepath.as_ref().to_path_buf(),
-            ty,
-            dependencies: HashSet::new(),
-            dependents: HashSet::new(),
-        }
+    pub fn dependencies(&self) -> impl Iterator<Item = &AssetId> {
+        self.dependencies.iter()
     }
 
-    pub fn with_id(mut self, id: AssetId) -> Self {
-        self.id = id;
-        self
-    }
-
-    pub fn with_ty(mut self, ty: AssetType) -> Self {
-        self.ty = ty;
-        self
-    }
-
-    pub fn with_path(mut self, path: impl AsRef<Path>) -> Self {
-        self.filepath = path.as_ref().to_path_buf();
-        self
-    }
-
-    pub fn with_dependencies(mut self, dependencies: HashSet<AssetId>) -> Self {
-        self.dependencies = dependencies;
-        self
-    }
-
-    pub fn with_dependents(mut self, dependents: HashSet<AssetId>) -> Self {
-        self.dependents = dependents;
-        self
+    pub fn dependents(&self) -> impl Iterator<Item = &AssetId> {
+        self.dependents.iter()
     }
 
     pub fn add_dependency(&mut self, id: AssetId) {
         self.dependencies.insert(id);
     }
 
-    pub fn remove_dependency(&mut self, id: &AssetId) {
-        self.dependencies.retain(|x| x != id);
-    }
-
     pub fn add_dependent(&mut self, id: AssetId) {
         self.dependents.insert(id);
     }
 
-    pub fn remove_dependent(&mut self, id: &AssetId) {
-        self.dependents.retain(|x| x != id);
+    pub fn remove_dependency(&mut self, id: &AssetId) -> bool {
+        self.dependencies.remove(id)
     }
 
-    pub fn id(&self) -> AssetId {
-        self.id
+    pub fn remove_dependent(&mut self, id: &AssetId) -> bool {
+        self.dependents.remove(id)
     }
 
-    pub fn filepath(&self) -> &PathBuf {
-        &self.filepath
+    pub fn set_dependencies(&mut self, dependencies: HashSet<AssetId>) -> Vec<AssetId> {
+        let removed = self
+            .dependencies
+            .difference(&dependencies)
+            .copied()
+            .collect::<Vec<_>>();
+        self.dependencies = dependencies;
+
+        removed
     }
 
-    pub fn ty(&self) -> AssetType {
-        self.ty
-    }
+    pub fn set_dependents(&mut self, dependents: HashSet<AssetId>) -> Vec<AssetId> {
+        let removed = self
+            .dependents
+            .difference(&dependents)
+            .copied()
+            .collect::<Vec<_>>();
 
-    pub fn dependencies(&self) -> &HashSet<AssetId> {
-        &self.dependencies
-    }
+        self.dependents = dependents;
 
-    pub fn dependents(&self) -> &HashSet<AssetId> {
-        &self.dependents
+        removed
     }
 }
 
-impl ToBytes for ArtifactInfo {
+impl ToBytes for DependencyInfo {
     fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
-        bytes.extend_from_slice(&self.id.to_bytes());
-        bytes.extend_from_slice(&self.ty.to_bytes());
-        bytes.extend_from_slice(&self.filepath.to_bytes());
+
+        let dependencies = self.dependents.to_bytes();
+        bytes.extend(dependencies.len().to_bytes());
+        bytes.extend(dependencies);
+
+        let dependents = self.dependents.to_bytes();
+        bytes.extend(dependents.len().to_bytes());
+        bytes.extend(dependents);
+
         bytes
     }
 
     fn from_bytes(bytes: &[u8]) -> Option<Self> {
-        let id = AssetId::from_bytes(&bytes[..8])?;
-        let ty = AssetType::from_bytes(&bytes[8..16])?;
-        let filepath = PathBuf::from_bytes(&bytes[16..])?;
-        Some(ArtifactInfo::of_ty(id, PathBuf::from(filepath), ty))
+        let mut offset = 0;
+
+        let dependencies_len = usize::from_bytes(&bytes[offset..(offset + 8)])?;
+        offset += 8;
+
+        let dependencies = HashSet::from_bytes(&bytes[offset..(offset + dependencies_len)])?;
+        offset += dependencies_len;
+
+        let dependents_len = usize::from_bytes(&bytes[offset..(offset + 8)])?;
+        offset += 8;
+
+        let dependents = HashSet::from_bytes(&bytes[offset..(offset + dependents_len)])?;
+
+        Some(DependencyInfo {
+            dependencies,
+            dependents,
+        })
     }
 }
 
-pub struct Sources<'a> {
-    sources: MutexGuard<'a, DenseMap<PathBuf, SourceInfo>>,
+#[derive(Debug, Default)]
+pub struct DependencyMap {
+    infos: DenseMap<AssetId, DependencyInfo>,
 }
 
-impl Sources<'_> {
-    pub fn get(&self, path: &PathBuf) -> Option<&SourceInfo> {
-        self.sources.get(path)
+impl DependencyMap {
+    pub fn new() -> Self {
+        DependencyMap {
+            infos: DenseMap::new(),
+        }
     }
 
-    pub fn get_mut(&mut self, path: &PathBuf) -> Option<&mut SourceInfo> {
-        self.sources.get_mut(path)
+    pub fn get(&self, id: &AssetId) -> Option<&DependencyInfo> {
+        self.infos.get(id)
     }
 
-    pub fn insert(&mut self, path: PathBuf, info: SourceInfo) {
-        self.sources.insert(path, info);
+    pub fn get_mut(&mut self, id: &AssetId) -> Option<&mut DependencyInfo> {
+        self.infos.get_mut(id)
     }
 
-    pub fn remove(&mut self, path: &PathBuf) -> Option<SourceInfo> {
-        self.sources.remove(path)
+    pub fn insert(&mut self, id: AssetId, info: DependencyInfo) {
+        self.infos.insert(id, info);
+    }
+
+    pub fn remove(&mut self, id: &AssetId) -> Option<DependencyInfo> {
+        self.infos.remove(id)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&AssetId, &DependencyInfo)> {
+        self.infos.iter()
+    }
+
+    pub fn drain(&mut self) -> impl Iterator<Item = (AssetId, DependencyInfo)> + '_ {
+        self.infos.drain()
+    }
+
+    pub fn save(&self, config: &AssetConfig) -> std::io::Result<()> {
+        for (id, info) in self.infos.iter() {
+            let path = config.dependency_map().join(id.to_string());
+            std::fs::write(path, info.to_bytes())?;
+        }
+
+        Ok(())
     }
 }
 
-pub struct Artifacts<'a> {
-    artifacts: MutexGuard<'a, DenseMap<AssetId, ArtifactInfo>>,
-}
-
-impl Artifacts<'_> {
-    pub fn get(&self, id: &AssetId) -> Option<&ArtifactInfo> {
-        self.artifacts.get(id)
+impl ToBytes for DependencyMap {
+    fn to_bytes(&self) -> Vec<u8> {
+        self.infos.to_bytes()
     }
 
-    pub fn get_mut(&mut self, id: &AssetId) -> Option<&mut ArtifactInfo> {
-        self.artifacts.get_mut(id)
-    }
+    fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        let infos = DenseMap::from_bytes(bytes)?;
 
-    pub fn insert(&mut self, id: AssetId, info: ArtifactInfo) {
-        self.artifacts.insert(id, info);
-    }
-
-    pub fn remove(&mut self, id: &AssetId) -> Option<ArtifactInfo> {
-        self.artifacts.remove(id)
+        Some(DependencyMap { infos })
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AssetStatus {
+    None,
+    Loading,
+    Done,
+    Failed,
+}
+
 pub struct AssetLibrary {
-    source_info: Arc<Mutex<DenseMap<PathBuf, SourceInfo>>>,
-    artifact_info: Arc<Mutex<DenseMap<AssetId, ArtifactInfo>>>,
+    sources: DenseMap<PathBuf, SourceInfo>,
+    artifacts: DenseMap<AssetId, ArtifactMeta>,
+    status: DenseMap<AssetId, AssetStatus>,
 }
 
 impl AssetLibrary {
     pub fn new() -> Self {
         AssetLibrary {
-            source_info: Arc::default(),
-            artifact_info: Arc::default(),
+            sources: DenseMap::default(),
+            artifacts: DenseMap::default(),
+            status: DenseMap::default(),
         }
     }
 
-    pub fn sources(&self) -> Sources {
-        self.source_info
-            .lock()
-            .map(|sources| Sources { sources })
-            .unwrap()
+    pub fn source(&self, path: &PathBuf) -> Option<&SourceInfo> {
+        self.sources.get(path)
     }
 
-    pub fn artifacts(&self) -> Artifacts {
-        self.artifact_info
-            .lock()
-            .map(|artifacts| Artifacts { artifacts })
-            .unwrap()
+    pub fn artifact(&self, id: &AssetId) -> Option<&ArtifactMeta> {
+        self.artifacts.get(id)
     }
 
-    pub fn save(&self, path: &PathBuf) -> std::io::Result<()> {
-        let sources = self.sources();
-        let artifacts = self.artifacts();
-
-        let mut bytes = Vec::new();
-        bytes.extend(sources.sources.len().to_bytes());
-
-        for (path, source) in sources.sources.iter() {
-            let path = path.to_bytes();
-            let path_len = path.len();
-
-            bytes.extend_from_slice(&path_len.to_bytes());
-            bytes.extend_from_slice(&path);
-
-            let info = source.to_bytes();
-            let len = info.len();
-
-            bytes.extend_from_slice(&len.to_bytes());
-            bytes.extend_from_slice(&info);
-        }
-
-        bytes.extend(sources.sources.len().to_bytes());
-        for artifact in artifacts.artifacts.values() {
-            let info = artifact.to_bytes();
-            let len = info.len();
-
-            bytes.extend_from_slice(&len.to_bytes());
-            bytes.extend_from_slice(&info);
-        }
-
-        std::fs::write(path, bytes)
+    pub fn status(&self, id: &AssetId) -> AssetStatus {
+        *self.status.get(id).unwrap_or(&AssetStatus::None)
     }
 
-    pub fn load(&self, path: &PathBuf) -> std::io::Result<()> {
-        let bytes = std::fs::read(path)?;
+    pub fn insert_source(&mut self, path: PathBuf, info: SourceInfo) {
+        self.sources.insert(path, info);
+    }
 
-        let mut sources = DenseMap::new();
-        let mut artifacts = DenseMap::new();
+    pub fn insert_artifact(&mut self, id: AssetId, meta: ArtifactMeta) {
+        self.artifacts.insert(id, meta);
+    }
 
-        let len = usize::from_bytes(&bytes[..8]).ok_or(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            "Failed to read source info length",
-        ))?;
-        let mut offset = 8;
-        for _ in 0..len {
-            let path_len =
-                usize::from_bytes(&bytes[offset..offset + 8]).ok_or(std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "Failed to read source path length",
-                ))?;
+    pub fn remove_source(&mut self, path: &PathBuf) -> Option<SourceInfo> {
+        self.sources.remove(path)
+    }
 
-            let path = PathBuf::from_bytes(&bytes[offset + 8..offset + 8 + path_len]).ok_or(
-                std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "Failed to read source path",
-                ),
-            )?;
+    pub fn remove_artifact(&mut self, id: &AssetId) -> Option<ArtifactMeta> {
+        self.artifacts.remove(id)
+    }
 
-            let info_len =
-                usize::from_bytes(&bytes[offset..offset + 8]).ok_or(std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "Failed to read source info length",
-                ))?;
-            let info = SourceInfo::from_bytes(&bytes[offset + 8..offset + 8 + info_len]).ok_or(
-                std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "Failed to read source info",
-                ),
-            )?;
-            sources.insert(path, info);
-            offset += 8 + info_len;
-        }
+    pub fn set_status(&mut self, id: AssetId, status: AssetStatus) -> Option<AssetStatus> {
+        self.status.insert(id, status)
+    }
 
-        let len = usize::from_bytes(&bytes[offset..offset + 8]).ok_or(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            "Failed to read artifact info length",
-        ))?;
-        offset += 8;
-        for _ in 0..len {
-            let info_len =
-                usize::from_bytes(&bytes[offset..offset + 8]).ok_or(std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "Failed to read artifact info length",
-                ))?;
-            let info = ArtifactInfo::from_bytes(&bytes[offset + 8..offset + 8 + info_len]).ok_or(
-                std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "Failed to read artifact info",
-                ),
-            )?;
-            artifacts.insert(info.id(), info);
-            offset += 8 + info_len;
-        }
-
-        *self.source_info.lock().unwrap() = sources;
-        *self.artifact_info.lock().unwrap() = artifacts;
-
+    pub fn save(&self, config: &AssetConfig) -> std::io::Result<()> {
+        std::fs::write(config.sources_db(), self.sources.to_bytes())?;
+        std::fs::write(config.artifacts_db(), self.artifacts.to_bytes())?;
         Ok(())
     }
+
+    pub fn load(config: &AssetConfig) -> std::io::Result<Self> {
+        let sources = DenseMap::from_bytes(&std::fs::read(config.sources_db())?).ok_or(
+            std::io::Error::new(std::io::ErrorKind::InvalidData, "Failed to load sources"),
+        )?;
+        let artifacts = DenseMap::from_bytes(&std::fs::read(config.artifacts_db())?).ok_or(
+            std::io::Error::new(std::io::ErrorKind::InvalidData, "Failed to load artifacts"),
+        )?;
+
+        Ok(AssetLibrary {
+            sources,
+            artifacts,
+            status: DenseMap::new(),
+        })
+    }
 }
+
+pub struct AssetLibraryRef<'a>(RwLockReadGuard<'a, AssetLibrary>);
+
+impl std::ops::Deref for AssetLibraryRef<'_> {
+    type Target = AssetLibrary;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<'a> From<RwLockReadGuard<'a, AssetLibrary>> for AssetLibraryRef<'a> {
+    fn from(guard: RwLockReadGuard<'a, AssetLibrary>) -> Self {
+        AssetLibraryRef(guard)
+    }
+}
+
+pub struct AssetLibraryRefMut<'a>(RwLockWriteGuard<'a, AssetLibrary>);
+
+impl<'a> From<RwLockWriteGuard<'a, AssetLibrary>> for AssetLibraryRefMut<'a> {
+    fn from(guard: RwLockWriteGuard<'a, AssetLibrary>) -> Self {
+        AssetLibraryRefMut(guard)
+    }
+}
+
+impl std::ops::Deref for AssetLibraryRefMut<'_> {
+    type Target = AssetLibrary;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for AssetLibraryRefMut<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+pub type AssetLibraryShared = RwLock<AssetLibrary>;

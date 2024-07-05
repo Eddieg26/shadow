@@ -37,7 +37,7 @@ impl Event for Spawn {
     type Output = Entity;
     const PRIORITY: i32 = i32::MAX - 1000;
 
-    fn invoke(&mut self, world: &mut super::World) -> Option<Self::Output> {
+    fn invoke(mut self, world: &mut super::World) -> Option<Self::Output> {
         let entity = world.spawn(self.parent);
         if matches!(self.parent, Some(_)) {
             world.events().add(SetParent::new(entity, self.parent));
@@ -78,7 +78,7 @@ impl Event for Despawn {
     type Output = Vec<Entity>;
     const PRIORITY: i32 = i32::MIN + 1000;
 
-    fn invoke(&mut self, world: &mut super::World) -> Option<Self::Output> {
+    fn invoke(self, world: &mut super::World) -> Option<Self::Output> {
         let mut entities = vec![];
         for (entity, mut set) in world.despawn(&self.entity).drain() {
             entities.push(entity);
@@ -145,7 +145,7 @@ impl Event for SetParent {
     type Output = ParentUpdate;
     const PRIORITY: i32 = Spawn::PRIORITY - 1000;
 
-    fn invoke(&mut self, world: &mut super::World) -> Option<Self::Output> {
+    fn invoke(self, world: &mut super::World) -> Option<Self::Output> {
         let old_parent = world.set_parent(&self.entity, self.parent.as_ref());
         Some(ParentUpdate::new(self.entity, self.parent, old_parent))
     }
@@ -166,7 +166,7 @@ impl Event for AddChildren {
     type Output = Vec<ParentUpdate>;
     const PRIORITY: i32 = SetParent::PRIORITY - 1000;
 
-    fn invoke(&mut self, world: &mut super::World) -> Option<Self::Output> {
+    fn invoke(self, world: &mut super::World) -> Option<Self::Output> {
         let updates = self
             .children
             .iter()
@@ -203,7 +203,7 @@ impl Event for RemoveChildren {
     type Output = Vec<ParentUpdate>;
     const PRIORITY: i32 = AddChildren::PRIORITY - 1000;
 
-    fn invoke(&mut self, world: &mut super::World) -> Option<Self::Output> {
+    fn invoke(self, world: &mut super::World) -> Option<Self::Output> {
         let updates = self
             .children
             .iter()
@@ -219,15 +219,12 @@ impl Event for RemoveChildren {
 
 pub struct AddComponent<C: Component> {
     entity: Entity,
-    component: Option<C>,
+    component: C,
 }
 
 impl<C: Component> AddComponent<C> {
     pub fn new(entity: Entity, component: C) -> Self {
-        Self {
-            entity,
-            component: Some(component),
-        }
+        Self { entity, component }
     }
 }
 
@@ -235,8 +232,8 @@ impl<C: Component> Event for AddComponent<C> {
     type Output = Entity;
     const PRIORITY: i32 = Spawn::PRIORITY - 1000;
 
-    fn invoke(&mut self, world: &mut super::World) -> Option<Self::Output> {
-        let component = self.component.take()?;
+    fn invoke(self, world: &mut super::World) -> Option<Self::Output> {
+        let component = self.component;
         let mut info = world.add_component(&self.entity, component)?;
 
         for (component, mut column) in info.removed_mut().drain() {
@@ -279,7 +276,7 @@ impl Event for AddComponents {
     type Output = Entity;
     const PRIORITY: i32 = AddComponent::<()>::PRIORITY;
 
-    fn invoke(&mut self, world: &mut super::World) -> Option<Self::Output> {
+    fn invoke(self, world: &mut super::World) -> Option<Self::Output> {
         let components = FreeRow::<ComponentId>::new();
         let mut info = world.add_components(&self.entity, components)?;
 
@@ -315,7 +312,7 @@ impl<C: Component> Event for RemoveComponent<C> {
     type Output = (Entity, C);
     const PRIORITY: i32 = AddComponent::<C>::PRIORITY - 1000;
 
-    fn invoke(&mut self, world: &mut super::World) -> Option<Self::Output> {
+    fn invoke(self, world: &mut super::World) -> Option<Self::Output> {
         let id = ComponentId::new::<C>();
         let mut _move = world.remove_component(&self.entity, &id)?;
         let component = _move.removed_mut().remove_component::<C>(&id)?;
@@ -346,7 +343,7 @@ impl Event for RemoveComponents {
     type Output = Entity;
     const PRIORITY: i32 = RemoveComponent::<()>::PRIORITY;
 
-    fn invoke(&mut self, world: &mut super::World) -> Option<Self::Output> {
+    fn invoke(mut self, world: &mut super::World) -> Option<Self::Output> {
         let components = std::mem::take(&mut self.components);
         let mut info = world.remove_components(&self.entity, components)?;
 

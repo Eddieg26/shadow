@@ -18,7 +18,7 @@ pub trait Event: Send + Sync + 'static {
         Self::PRIORITY
     }
 
-    fn invoke(&mut self, world: &mut World) -> Option<Self::Output>;
+    fn invoke(self, world: &mut World) -> Option<Self::Output>;
 }
 
 pub type EventType = TypeId;
@@ -54,9 +54,9 @@ impl ErasedEvent {
         }
     }
 
-    pub fn cast_mut<E: Event>(&mut self) -> Option<&mut E> {
+    pub fn cast_mut<E: Event>(mut self) -> Option<E> {
         if self.ty == TypeId::of::<E>() {
-            self.event.get_mut::<E>(0)
+            self.event.remove::<E>(0)
         } else {
             None
         }
@@ -65,7 +65,7 @@ impl ErasedEvent {
 
 pub struct EventMeta {
     priority: i32,
-    invoke: Box<dyn Fn(&mut ErasedEvent, &mut World) + Send + Sync>,
+    invoke: Box<dyn Fn(ErasedEvent, &mut World) + Send + Sync>,
     clear: Box<dyn Fn(&World) + Send + Sync>,
 }
 
@@ -91,7 +91,7 @@ impl EventMeta {
         self.priority
     }
 
-    pub fn invoke(&self, event: &mut ErasedEvent, world: &mut World) {
+    pub fn invoke(&self, event: ErasedEvent, world: &mut World) {
         (self.invoke)(event, world)
     }
 

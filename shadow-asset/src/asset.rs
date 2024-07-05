@@ -152,6 +152,18 @@ impl ToBytes for AssetType {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Type(u64);
+
+impl Type {
+    pub fn of<T: 'static>() -> Self {
+        let ty = std::any::TypeId::of::<T>();
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        ty.hash(&mut hasher);
+        Type(hasher.finish())
+    }
+}
+
 pub struct AssetMetadata<S: Settings> {
     id: AssetId,
     settings: S,
@@ -272,16 +284,16 @@ impl<A: Asset> Assets<A> {
         self.assets.insert(id, asset)
     }
 
-    pub fn get(&self, id: AssetId) -> Option<&A> {
-        self.assets.get(&id)
+    pub fn get(&self, id: &AssetId) -> Option<&A> {
+        self.assets.get(id)
     }
 
-    pub fn get_mut(&mut self, id: AssetId) -> Option<&mut A> {
-        self.assets.get_mut(&id)
+    pub fn get_mut(&mut self, id: &AssetId) -> Option<&mut A> {
+        self.assets.get_mut(id)
     }
 
-    pub fn remove(&mut self, id: AssetId) -> Option<A> {
-        self.assets.remove(&id)
+    pub fn remove(&mut self, id: &AssetId) -> Option<A> {
+        self.assets.remove(id)
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (&AssetId, &A)> {
@@ -290,6 +302,10 @@ impl<A: Asset> Assets<A> {
 
     pub fn iter_mut(&mut self) -> impl Iterator<Item = (&AssetId, &mut A)> {
         self.assets.iter_mut()
+    }
+
+    pub fn contains(&self, id: &AssetId) -> bool {
+        self.assets.contains_key(id)
     }
 
     pub fn len(&self) -> usize {
@@ -322,16 +338,16 @@ impl<S: Settings> AssetSettings<S> {
         self.settings.insert(id, settings)
     }
 
-    pub fn get(&self, id: AssetId) -> Option<&S> {
-        self.settings.get(&id)
+    pub fn get(&self, id: &AssetId) -> Option<&S> {
+        self.settings.get(id)
     }
 
-    pub fn get_mut(&mut self, id: AssetId) -> Option<&mut S> {
-        self.settings.get_mut(&id)
+    pub fn get_mut(&mut self, id: &AssetId) -> Option<&mut S> {
+        self.settings.get_mut(id)
     }
 
-    pub fn remove(&mut self, id: AssetId) -> Option<S> {
-        self.settings.remove(&id)
+    pub fn remove(&mut self, id: &AssetId) -> Option<S> {
+        self.settings.remove(id)
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (&AssetId, &S)> {
@@ -340,6 +356,10 @@ impl<S: Settings> AssetSettings<S> {
 
     pub fn iter_mut(&mut self) -> impl Iterator<Item = (&AssetId, &mut S)> {
         self.settings.iter_mut()
+    }
+
+    pub fn contains(&self, id: &AssetId) -> bool {
+        self.settings.contains_key(id)
     }
 
     pub fn len(&self) -> usize {
