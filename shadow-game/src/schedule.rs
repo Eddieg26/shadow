@@ -39,12 +39,14 @@ impl PhaseType {
 }
 
 pub struct PhaseSystems {
+    mode: RunMode,
     systems: DenseMap<PhaseType, Systems>,
 }
 
 impl PhaseSystems {
-    pub fn new() -> Self {
+    pub fn new(mode: RunMode) -> Self {
         Self {
+            mode,
             systems: DenseMap::new(),
         }
     }
@@ -54,7 +56,7 @@ impl PhaseSystems {
         if let Some(systems) = self.systems.get_mut(&ty) {
             systems.add_system(system);
         } else {
-            let mut systems = Systems::new(RunMode::Sequential);
+            let mut systems = Systems::new(self.mode);
             systems.add_system(system);
             self.systems.insert(ty, systems);
         }
@@ -307,7 +309,7 @@ pub struct MainSchedule {
 }
 
 impl MainSchedule {
-    pub fn new() -> Self {
+    pub fn new(mode: RunMode) -> Self {
         let mut schedule = Schedule::new();
         schedule.add_phase::<phases::Init>();
         schedule.add_phase::<phases::Execute>();
@@ -321,7 +323,7 @@ impl MainSchedule {
         }
 
         let mut systems = SystemDatabase::new();
-        systems.add_systems("global", PhaseSystems::new());
+        systems.add_systems("global", PhaseSystems::new(mode));
 
         Self { schedule, systems }
     }

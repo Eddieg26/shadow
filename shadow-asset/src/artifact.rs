@@ -2,7 +2,7 @@ use crate::{
     asset::{AssetId, AssetMetadata, AssetType, Settings},
     bytes::ToBytes,
 };
-use std::{mem::size_of, path::PathBuf};
+use std::{collections::HashSet, mem::size_of, path::PathBuf};
 
 pub struct Header {
     asset: usize,
@@ -97,15 +97,29 @@ impl ToBytes for Artifact {
     }
 }
 
+#[derive(Debug)]
 pub struct ArtifactMeta {
     id: AssetId,
     ty: AssetType,
     filepath: PathBuf,
+    dependencies: HashSet<AssetId>,
+    dependents: HashSet<AssetId>,
 }
 
 impl ArtifactMeta {
-    pub fn new(id: AssetId, ty: AssetType, filepath: PathBuf) -> Self {
-        ArtifactMeta { id, ty, filepath }
+    pub fn new(
+        id: AssetId,
+        ty: AssetType,
+        filepath: PathBuf,
+        dependencies: HashSet<AssetId>,
+    ) -> Self {
+        ArtifactMeta {
+            id,
+            ty,
+            filepath,
+            dependencies,
+            dependents: HashSet::new(),
+        }
     }
 
     pub fn empty() -> Self {
@@ -113,6 +127,8 @@ impl ArtifactMeta {
             id: AssetId::new(0),
             ty: AssetType::of::<()>(),
             filepath: PathBuf::new(),
+            dependencies: HashSet::new(),
+            dependents: HashSet::new(),
         }
     }
 
@@ -128,8 +144,40 @@ impl ArtifactMeta {
         &self.filepath
     }
 
+    pub fn dependencies(&self) -> &HashSet<AssetId> {
+        &self.dependencies
+    }
+
+    pub fn dependents(&self) -> &HashSet<AssetId> {
+        &self.dependents
+    }
+
     pub fn is_empty(&self) -> bool {
         self.id == AssetId::new(0) && self.ty == AssetType::of::<()>()
+    }
+
+    pub fn set_dependencies(&mut self, dependencies: HashSet<AssetId>) {
+        self.dependencies = dependencies;
+    }
+
+    pub fn set_dependents(&mut self, dependents: HashSet<AssetId>) {
+        self.dependents = dependents;
+    }
+
+    pub fn add_dependency(&mut self, id: AssetId) {
+        self.dependencies.insert(id);
+    }
+
+    pub fn add_dependent(&mut self, id: AssetId) {
+        self.dependents.insert(id);
+    }
+
+    pub fn remove_dependency(&mut self, id: &AssetId) {
+        self.dependencies.remove(id);
+    }
+
+    pub fn remove_dependent(&mut self, id: &AssetId) {
+        self.dependents.remove(id);
     }
 }
 
@@ -141,6 +189,13 @@ impl ToBytes for ArtifactMeta {
         let path = self.filepath.to_bytes();
         bytes.extend(path.len().to_bytes());
         bytes.extend(path);
+
+        let deps = self.dependencies.to_bytes();
+        bytes.extend(deps.len().to_bytes());
+        bytes.extend(deps);
+
+        let deps = self.dependents.to_bytes();
+        bytes.extend(deps);
 
         bytes
     }
@@ -155,8 +210,23 @@ impl ToBytes for ArtifactMeta {
         offset += 8;
 
         let filepath = PathBuf::from_bytes(&bytes[offset..(offset + path_len)])?;
+        offset += path_len;
 
-        Some(ArtifactMeta { id, ty, filepath })
+        let deps_len = usize::from_bytes(&bytes[offset..(offset + 8)])?;
+        offset += 8;
+
+        let dependencies = HashSet::<AssetId>::from_bytes(&bytes[offset..(offset + deps_len)])?;
+        offset += deps_len;
+
+        let dependents = HashSet::<AssetId>::from_bytes(&bytes[offset..])?;
+
+        Some(ArtifactMeta {
+            id,
+            ty,
+            filepath,
+            dependencies,
+            dependents,
+        })
     }
 }
 

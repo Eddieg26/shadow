@@ -1,4 +1,4 @@
-use super::{scene::Scene, schedule::Phase};
+use super::schedule::Phase;
 use crate::game::{Game, GameRunner};
 use shadow_ecs::ecs::{
     core::{Component, LocalResource, Resource},
@@ -44,11 +44,6 @@ impl<'a> PluginContext<'a> {
 
     pub fn add_system<M>(&mut self, phase: impl Phase, system: impl IntoSystem<M>) -> &mut Self {
         self.game.add_system(phase, system);
-        self
-    }
-
-    pub fn add_scene<S: Scene>(&mut self, scene: S) -> &mut Self {
-        self.game.add_scene(scene);
         self
     }
 

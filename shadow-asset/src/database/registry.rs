@@ -1,114 +1,77 @@
-use super::{
-    config::AssetConfig,
-    library::{AssetLibraryRefMut, DependencyInfo, DependencyMap, SourceInfo},
-};
+use super::{config::AssetConfig, library::SourceInfo};
 use crate::{
     artifact::ArtifactMeta,
-    asset::{AssetId, AssetMetadata, AssetType, Settings, Type},
-    bytes::ToBytes,
-    loader::{
-        AssetCacher, AssetLoader, AssetProcessor, AssetStorage, LoadContext, LoadError,
-        ProcessError, SaveError,
+    asset::{AssetMetadata, AssetPath, AssetType, Settings, Type},
+    importer::{
+        AssetImporter, AssetLoader, AssetProcessor, ImportContext, ImportFailed, LoadFailed,
     },
 };
-use shadow_ecs::ecs::{core::Resource, storage::dense::DenseMap};
-use std::path::{Path, PathBuf};
+use shadow_ecs::ecs::{core::Resource, event::EventStorage, storage::dense::DenseMap};
+use std::path::PathBuf;
 
-pub struct AssetLoaderMeta {
-    import: fn(
-        &PathBuf,
-        &AssetConfig,
-        &AssetLoaderRegistry,
-        &mut AssetLibraryRefMut,
-        &mut AssetStorage,
-        &mut DependencyMap,
-    ) -> Result<ArtifactMeta, LoadError>,
-    process: fn(&AssetId, &mut AssetStorage) -> Result<(), ProcessError>,
-    save: fn(&AssetId, &AssetStorage) -> Result<Vec<u8>, SaveError>,
-    load: fn(&AssetId, &AssetConfig, &mut AssetStorage) -> Result<(), LoadError>,
+pub struct ImportResult {
+    pub source: SourceInfo,
+    pub artifact: ArtifactMeta,
+}
+
+impl ImportResult {
+    pub fn new(source: SourceInfo, artifact: ArtifactMeta) -> Self {
+        ImportResult { source, artifact }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct AssetMeta {
+    import: fn(&PathBuf, &AssetConfig) -> Result<ImportResult, ImportFailed>,
+    load_failed: fn(AssetPath, String, &mut EventStorage),
     asset_ty: AssetType,
     settings_ty: Type,
 }
 
-impl AssetLoaderMeta {
-    pub fn new<L: AssetLoader>() -> Self {
-        AssetLoaderMeta {
-            import: |path, config, registry, library, assets, map| {
-                let metadata = match std::fs::read_to_string(config.metadata(&path)) {
-                    Ok(content) => toml::from_str(&content).unwrap_or_default(),
+impl AssetMeta {
+    pub fn new<L: AssetImporter>() -> Self {
+        AssetMeta {
+            import: |path, config| {
+                let metadata = match config.load_metadata::<L::Settings>(path) {
+                    Ok(metadata) => metadata,
                     Err(_) => AssetMetadata::<L::Settings>::default(),
                 };
 
-                let bytes = std::fs::read(path).map_err(LoadError::Io)?;
-                let source = AssetLoaderMeta::save_metadata(config, path, &bytes, &metadata)?;
+                let bytes = match path.is_dir() {
+                    true => vec![],
+                    false => std::fs::read(path)
+                        .map_err(|e| ImportFailed::import(path.clone(), metadata.id(), e))?,
+                };
+                let source = AssetMeta::save_metadata(config, path, &bytes, &metadata)?;
 
-                let (asset, dependencies) = {
-                    let mut ctx = LoadContext::new(&path, &bytes, &metadata);
-                    (L::load(&mut ctx)?, ctx.finish())
+                let (mut asset, dependencies) = {
+                    let mut ctx = ImportContext::new(&path, &bytes, &metadata);
+                    let asset = L::import(&mut ctx)
+                        .map_err(|e| ImportFailed::import(path.clone(), metadata.id(), e))?;
+                    (asset, ctx.finish())
                 };
 
-                let mut dependency_info =
-                    match std::fs::read(config.dependency_map().join(metadata.id().to_string())) {
-                        Ok(bytes) => DependencyInfo::from_bytes(&bytes).unwrap_or_default(),
-                        Err(_) => DependencyInfo::default(),
-                    };
-
-                AssetLoaderMeta::load_dependencies(
-                    &metadata.id(),
-                    dependencies.iter(),
-                    config,
-                    registry,
-                    library,
-                    assets,
-                    map,
-                );
-
-                dependency_info.set_dependencies(dependencies);
-
                 let (id, settings) = metadata.take();
-                assets.insert(id, asset);
-                assets.insert_settings(id, settings);
-                library.insert_source(path.clone(), source);
-                map.insert(id, dependency_info);
 
-                let artifact = ArtifactMeta::new(id, AssetType::of::<L::Asset>(), path.clone());
-                Ok(artifact)
-            },
-            process: |_, _| Ok(()),
-            save: |id, assets| {
-                let asset = assets
-                    .asset::<L::Asset>(id)
-                    .ok_or(SaveError::AssetNotFound { id: *id })?;
+                L::Processor::process(&mut asset, &settings)
+                    .map_err(|e| ImportFailed::process(path.clone(), id, e))?;
 
-                Ok(L::Cacher::cache(asset))
+                if !path.is_dir() {
+                    std::fs::write(config.artifact(&id), L::Loader::save(&asset))
+                        .map_err(|e| ImportFailed::save(path.clone(), id, e))?;
+                }
+
+                let artifact =
+                    ArtifactMeta::new(id, AssetType::of::<L::Asset>(), path.clone(), dependencies);
+
+                Ok(ImportResult::new(source, artifact))
             },
-            load: |id, config, assets| {
-                let asset = std::fs::read(config.artifact(id)).map_err(LoadError::Io)?;
-                let asset = L::Cacher::load(&asset)?;
-                assets.insert(*id, asset);
-                Ok(())
+            load_failed: |path, message, events| {
+                let event = LoadFailed::<L::Asset>::new(path, message);
+                events.add(event)
             },
             asset_ty: AssetType::of::<L::Asset>(),
             settings_ty: Type::of::<L::Settings>(),
-        }
-    }
-
-    pub fn set_processor<P: AssetProcessor>(&mut self) {
-        self.process = |id, assets| {
-            let mut asset = assets
-                .remove::<<P::Loader as AssetLoader>::Asset>(id)
-                .ok_or(ProcessError::AssetNotFound { id: *id })?;
-
-            let settings = assets
-                .remove_settings::<<P::Loader as AssetLoader>::Settings>(id)
-                .ok_or(ProcessError::SettingsNotFound { id: *id })?;
-
-            let result = P::process(&mut asset, &settings, assets);
-
-            assets.insert(*id, asset);
-            assets.insert_settings(*id, settings);
-
-            result
         }
     }
 
@@ -116,43 +79,23 @@ impl AssetLoaderMeta {
         &self,
         path: &PathBuf,
         config: &AssetConfig,
-        registry: &AssetLoaderRegistry,
-        library: &mut AssetLibraryRefMut,
-        assets: &mut AssetStorage,
-        map: &mut DependencyMap,
-    ) -> Result<ArtifactMeta, LoadError> {
-        (self.import)(path, config, registry, library, assets, map)
+    ) -> Result<ImportResult, ImportFailed> {
+        (self.import)(path, config)
     }
 
-    pub fn process(&self, id: &AssetId, assets: &mut AssetStorage) -> Result<(), ProcessError> {
-        (self.process)(id, assets)
-    }
-
-    pub fn save(&self, id: &AssetId, assets: &AssetStorage) -> Result<Vec<u8>, SaveError> {
-        (self.save)(id, assets)
-    }
-
-    pub fn load(
-        &self,
-        id: &AssetId,
-        config: &AssetConfig,
-        assets: &mut AssetStorage,
-    ) -> Result<(), LoadError> {
-        (self.load)(id, config, assets)
+    pub fn load_failed(&self, path: AssetPath, message: impl ToString, events: &mut EventStorage) {
+        (self.load_failed)(path, message.to_string(), events)
     }
 
     fn save_metadata<S: Settings>(
         config: &AssetConfig,
-        path: &Path,
+        path: &PathBuf,
         asset: &[u8],
         metadata: &AssetMetadata<S>,
-    ) -> Result<SourceInfo, LoadError> {
-        let meta_bytes =
-            toml::to_string(metadata.settings()).map_err(|e| LoadError::InvalidMetadata {
-                message: e.to_string(),
-            })?;
-
-        std::fs::write(config.metadata(path), &meta_bytes).map_err(LoadError::Io)?;
+    ) -> Result<SourceInfo, ImportFailed> {
+        let meta_bytes = config
+            .save_metadata(path, metadata)
+            .map_err(|e| ImportFailed::import(path.clone(), metadata.id(), e))?;
         let checksum = SourceInfo::calculate_checksum(asset, meta_bytes.as_bytes());
         let asset_modified = SourceInfo::modified(&path);
         let settings_modified = SourceInfo::modified(&config.metadata(&path));
@@ -164,42 +107,6 @@ impl AssetLoaderMeta {
         ))
     }
 
-    fn load_dependencies<'a>(
-        id: &AssetId,
-        dependencies: impl Iterator<Item = &'a AssetId>,
-        config: &AssetConfig,
-        registry: &AssetLoaderRegistry,
-        library: &AssetLibraryRefMut,
-        assets: &mut AssetStorage,
-        map: &mut DependencyMap,
-    ) {
-        for dependency in dependencies {
-            let ty = match library.artifact(dependency) {
-                Some(artifact) => artifact.ty(),
-                None => continue,
-            };
-
-            if assets.contains_asset(dependency, &ty) {
-                continue;
-            }
-
-            let meta = match registry.meta(&ty) {
-                Some(meta) => meta,
-                None => continue,
-            };
-
-            if let Some(info) = map.get_mut(dependency) {
-                info.add_dependent(*id)
-            } else {
-                let mut info = DependencyInfo::new();
-                info.add_dependent(*id);
-                map.insert(*dependency, info);
-            }
-
-            let _ = (meta.load)(dependency, config, assets);
-        }
-    }
-
     pub fn asset_ty(&self) -> AssetType {
         self.asset_ty
     }
@@ -209,40 +116,41 @@ impl AssetLoaderMeta {
     }
 }
 
-pub struct AssetLoaderRegistry {
-    loaders: DenseMap<AssetType, AssetLoaderMeta>,
+#[derive(Clone)]
+pub struct AssetRegistry {
+    loaders: DenseMap<AssetType, AssetMeta>,
     ext_map: DenseMap<&'static str, AssetType>,
 }
 
-impl AssetLoaderRegistry {
+impl AssetRegistry {
     pub fn new() -> Self {
-        AssetLoaderRegistry {
+        AssetRegistry {
             loaders: DenseMap::new(),
             ext_map: DenseMap::new(),
         }
     }
 
-    pub fn register<L: AssetLoader>(&mut self) {
-        let meta = AssetLoaderMeta::new::<L>();
+    pub fn register<L: AssetImporter>(&mut self) {
+        let meta = AssetMeta::new::<L>();
         self.loaders.insert(AssetType::of::<L::Asset>(), meta);
         for ext in L::extensions() {
             self.ext_map.insert(ext, AssetType::of::<L::Asset>());
         }
     }
 
-    pub fn meta(&self, asset: &AssetType) -> Option<&AssetLoaderMeta> {
+    pub fn meta(&self, asset: &AssetType) -> Option<&AssetMeta> {
         self.loaders.get(asset)
     }
 
-    pub fn meta_by_ext(&self, ext: &str) -> Option<&AssetLoaderMeta> {
+    pub fn meta_by_ext(&self, ext: &str) -> Option<&AssetMeta> {
         self.ext_map.get(&ext).and_then(|asset| self.meta(asset))
     }
 
-    pub fn meta_mut(&mut self, asset: AssetType) -> Option<&mut AssetLoaderMeta> {
+    pub fn meta_mut(&mut self, asset: AssetType) -> Option<&mut AssetMeta> {
         self.loaders.get_mut(&asset)
     }
 
-    pub fn meta_by_ext_mut(&mut self, ext: &str) -> Option<&mut AssetLoaderMeta> {
+    pub fn meta_by_ext_mut(&mut self, ext: &str) -> Option<&mut AssetMeta> {
         self.ext_map
             .get(&ext)
             .copied()
@@ -254,4 +162,4 @@ impl AssetLoaderRegistry {
     }
 }
 
-impl Resource for AssetLoaderRegistry {}
+impl Resource for AssetRegistry {}

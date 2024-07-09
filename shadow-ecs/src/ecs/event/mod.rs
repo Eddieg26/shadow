@@ -10,8 +10,8 @@ use std::{
     sync::{Arc, Mutex, RwLock},
 };
 
-pub trait Event: Send + Sync + 'static {
-    type Output: Send + Sync + 'static;
+pub trait Event: Send + 'static {
+    type Output: Send + 'static;
     const PRIORITY: i32 = 0;
 
     fn priority(&self) -> i32 {
@@ -151,12 +151,18 @@ impl Events {
 
     pub fn meta<E: Event>(&self) -> Arc<EventMeta> {
         let ty = TypeId::of::<E>();
-        let meta = self.metas.get(&ty).expect("Event not registered");
+        let meta = self.metas.get(&ty).expect(&format!(
+            "Event not registered: {}",
+            std::any::type_name::<E>()
+        ));
         meta.clone()
     }
 
     pub fn meta_dynamic(&self, ty: &EventType) -> Arc<EventMeta> {
-        let meta = self.metas.get(ty).expect("Event not registered");
+        let meta = self
+            .metas
+            .get(ty)
+            .expect(&format!("Event not registered: {:?}", ty));
         meta.clone()
     }
 

@@ -1,10 +1,10 @@
 use super::config::AssetConfig;
-use crate::{artifact::ArtifactMeta, asset::AssetId, bytes::ToBytes};
-use shadow_ecs::ecs::storage::dense::DenseMap;
+use crate::{artifact::ArtifactMeta, asset::AssetId, bytes::ToBytes, importer::AssetStatus};
+use shadow_ecs::ecs::{event::Event, storage::dense::DenseMap};
 use std::{
     collections::HashSet,
     path::{Path, PathBuf},
-    sync::{RwLock, RwLockReadGuard, RwLockWriteGuard},
+    sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
     time::SystemTime,
 };
 
@@ -78,10 +78,13 @@ impl SourceInfo {
             Ok(data) => data
                 .modified()
                 .unwrap_or(SystemTime::now())
-                .elapsed()
+                .duration_since(SystemTime::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs(),
-            Err(_) => 0,
+            Err(_) => SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
         }
     }
 }
@@ -210,75 +213,11 @@ impl ToBytes for DependencyInfo {
 }
 
 #[derive(Debug, Default)]
-pub struct DependencyMap {
-    infos: DenseMap<AssetId, DependencyInfo>,
-}
-
-impl DependencyMap {
-    pub fn new() -> Self {
-        DependencyMap {
-            infos: DenseMap::new(),
-        }
-    }
-
-    pub fn get(&self, id: &AssetId) -> Option<&DependencyInfo> {
-        self.infos.get(id)
-    }
-
-    pub fn get_mut(&mut self, id: &AssetId) -> Option<&mut DependencyInfo> {
-        self.infos.get_mut(id)
-    }
-
-    pub fn insert(&mut self, id: AssetId, info: DependencyInfo) {
-        self.infos.insert(id, info);
-    }
-
-    pub fn remove(&mut self, id: &AssetId) -> Option<DependencyInfo> {
-        self.infos.remove(id)
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = (&AssetId, &DependencyInfo)> {
-        self.infos.iter()
-    }
-
-    pub fn drain(&mut self) -> impl Iterator<Item = (AssetId, DependencyInfo)> + '_ {
-        self.infos.drain()
-    }
-
-    pub fn save(&self, config: &AssetConfig) -> std::io::Result<()> {
-        for (id, info) in self.infos.iter() {
-            let path = config.dependency_map().join(id.to_string());
-            std::fs::write(path, info.to_bytes())?;
-        }
-
-        Ok(())
-    }
-}
-
-impl ToBytes for DependencyMap {
-    fn to_bytes(&self) -> Vec<u8> {
-        self.infos.to_bytes()
-    }
-
-    fn from_bytes(bytes: &[u8]) -> Option<Self> {
-        let infos = DenseMap::from_bytes(bytes)?;
-
-        Some(DependencyMap { infos })
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AssetStatus {
-    None,
-    Loading,
-    Done,
-    Failed,
-}
-
 pub struct AssetLibrary {
     sources: DenseMap<PathBuf, SourceInfo>,
     artifacts: DenseMap<AssetId, ArtifactMeta>,
     status: DenseMap<AssetId, AssetStatus>,
+    is_dirty: bool,
 }
 
 impl AssetLibrary {
@@ -287,6 +226,7 @@ impl AssetLibrary {
             sources: DenseMap::default(),
             artifacts: DenseMap::default(),
             status: DenseMap::default(),
+            is_dirty: false,
         }
     }
 
@@ -294,8 +234,18 @@ impl AssetLibrary {
         self.sources.get(path)
     }
 
+    pub fn source_mut(&mut self, path: &PathBuf) -> Option<&mut SourceInfo> {
+        self.is_dirty = true;
+        self.sources.get_mut(path)
+    }
+
     pub fn artifact(&self, id: &AssetId) -> Option<&ArtifactMeta> {
         self.artifacts.get(id)
+    }
+
+    pub fn artifact_mut(&mut self, id: &AssetId) -> Option<&mut ArtifactMeta> {
+        self.is_dirty = true;
+        self.artifacts.get_mut(id)
     }
 
     pub fn status(&self, id: &AssetId) -> AssetStatus {
@@ -303,18 +253,22 @@ impl AssetLibrary {
     }
 
     pub fn insert_source(&mut self, path: PathBuf, info: SourceInfo) {
+        self.is_dirty = true;
         self.sources.insert(path, info);
     }
 
     pub fn insert_artifact(&mut self, id: AssetId, meta: ArtifactMeta) {
+        self.is_dirty = true;
         self.artifacts.insert(id, meta);
     }
 
     pub fn remove_source(&mut self, path: &PathBuf) -> Option<SourceInfo> {
+        self.is_dirty = true;
         self.sources.remove(path)
     }
 
     pub fn remove_artifact(&mut self, id: &AssetId) -> Option<ArtifactMeta> {
+        self.is_dirty = true;
         self.artifacts.remove(id)
     }
 
@@ -322,24 +276,43 @@ impl AssetLibrary {
         self.status.insert(id, status)
     }
 
-    pub fn save(&self, config: &AssetConfig) -> std::io::Result<()> {
-        std::fs::write(config.sources_db(), self.sources.to_bytes())?;
-        std::fs::write(config.artifacts_db(), self.artifacts.to_bytes())?;
+    pub fn replace(&mut self, other: AssetLibrary) {
+        self.sources = other.sources;
+        self.artifacts = other.artifacts;
+        self.status = other.status;
+        self.is_dirty = other.is_dirty;
+    }
+
+    pub fn save(&self, config: &AssetConfig, force: bool) -> std::io::Result<()> {
+        if self.is_dirty || force {
+            std::fs::write(config.sources_db(), self.sources.to_bytes())?;
+            std::fs::write(config.artifacts_db(), self.artifacts.to_bytes())?;
+        }
         Ok(())
     }
 
     pub fn load(config: &AssetConfig) -> std::io::Result<Self> {
-        let sources = DenseMap::from_bytes(&std::fs::read(config.sources_db())?).ok_or(
-            std::io::Error::new(std::io::ErrorKind::InvalidData, "Failed to load sources"),
-        )?;
-        let artifacts = DenseMap::from_bytes(&std::fs::read(config.artifacts_db())?).ok_or(
-            std::io::Error::new(std::io::ErrorKind::InvalidData, "Failed to load artifacts"),
-        )?;
+        let sources = if config.sources_db().exists() {
+            DenseMap::from_bytes(&std::fs::read(config.sources_db())?).ok_or(
+                std::io::Error::new(std::io::ErrorKind::InvalidData, "Failed to load sources"),
+            )?
+        } else {
+            DenseMap::default()
+        };
+
+        let artifacts = if config.artifacts_db().exists() {
+            DenseMap::from_bytes(&std::fs::read(config.artifacts_db())?).ok_or(
+                std::io::Error::new(std::io::ErrorKind::InvalidData, "Failed to load artifacts"),
+            )?
+        } else {
+            DenseMap::default()
+        };
 
         Ok(AssetLibrary {
             sources,
             artifacts,
             status: DenseMap::new(),
+            is_dirty: false,
         })
     }
 }
@@ -360,6 +333,7 @@ impl<'a> From<RwLockReadGuard<'a, AssetLibrary>> for AssetLibraryRef<'a> {
     }
 }
 
+#[derive(Debug)]
 pub struct AssetLibraryRefMut<'a>(RwLockWriteGuard<'a, AssetLibrary>);
 
 impl<'a> From<RwLockWriteGuard<'a, AssetLibrary>> for AssetLibraryRefMut<'a> {
@@ -382,4 +356,27 @@ impl std::ops::DerefMut for AssetLibraryRefMut<'_> {
     }
 }
 
-pub type AssetLibraryShared = RwLock<AssetLibrary>;
+pub type AssetLibraryShared = Arc<RwLock<AssetLibrary>>;
+
+#[derive(Debug)]
+pub struct AssetLibraryError {
+    error: std::io::Error,
+}
+
+impl AssetLibraryError {
+    pub fn new(error: std::io::Error) -> Self {
+        AssetLibraryError { error }
+    }
+
+    pub fn error(&self) -> &std::io::Error {
+        &self.error
+    }
+}
+
+impl Event for AssetLibraryError {
+    type Output = AssetLibraryError;
+
+    fn invoke(self, _: &mut shadow_ecs::ecs::world::World) -> Option<Self::Output> {
+        Some(self)
+    }
+}

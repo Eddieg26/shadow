@@ -1,23 +1,28 @@
 use config::AssetConfig;
-use library::{AssetLibrary, AssetLibraryRef, AssetLibraryRefMut, AssetLibraryShared};
+use library::{AssetLibraryRef, AssetLibraryRefMut, AssetLibraryShared};
 use shadow_ecs::ecs::core::Resource;
+use std::sync::Arc;
+use task::{AssetQueueRef, AssetQueueShared, AssetTaskExecutor};
 
 pub mod config;
-pub mod events;
 pub mod library;
 pub mod observers;
 pub mod registry;
+pub mod task;
 
+#[derive(Clone)]
 pub struct AssetDatabase {
-    config: AssetConfig,
+    config: Arc<AssetConfig>,
     library: AssetLibraryShared,
+    tasks: AssetQueueShared,
 }
 
 impl AssetDatabase {
     pub fn new(config: AssetConfig) -> AssetDatabase {
         AssetDatabase {
-            config,
-            library: AssetLibraryShared::new(AssetLibrary::new()),
+            config: Arc::new(config),
+            library: Arc::default(),
+            tasks: Arc::default(),
         }
     }
 
@@ -31,6 +36,14 @@ impl AssetDatabase {
 
     pub(crate) fn library_mut(&self) -> AssetLibraryRefMut {
         AssetLibraryRefMut::from(self.library.write().unwrap())
+    }
+
+    pub(crate) fn tasks(&self) -> AssetQueueRef {
+        self.tasks.lock().unwrap()
+    }
+
+    pub(crate) fn pop_task(&self) -> Option<Box<dyn AssetTaskExecutor>> {
+        self.tasks.lock().unwrap().pop()
     }
 }
 

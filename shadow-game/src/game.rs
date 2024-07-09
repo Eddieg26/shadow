@@ -1,14 +1,12 @@
-use crate::plugin::{PhaseExt, Plugin, PluginContext};
-
 use super::{
     plugin::Plugins,
-    scene::{Scene, SceneTracker, Scenes},
     schedule::{Execute, Init, MainSchedule, Phase, Shutdown},
 };
+use crate::plugin::{PhaseExt, Plugin, PluginContext};
 use shadow_ecs::ecs::{
     core::{Component, LocalResource, Resource},
     event::{Event, Events},
-    system::{observer::IntoObserver, IntoSystem},
+    system::{observer::IntoObserver, IntoSystem, RunMode},
     world::World,
 };
 
@@ -16,7 +14,6 @@ pub struct Game {
     world: World,
     plugins: Plugins,
     schedule: MainSchedule,
-    scenes: Scenes,
     runner: Box<dyn GameRunner>,
 }
 
@@ -25,8 +22,16 @@ impl Game {
         Self {
             world: World::new(),
             plugins: Plugins::new(),
-            schedule: MainSchedule::new(),
-            scenes: Scenes::new(),
+            schedule: MainSchedule::new(RunMode::Sequential),
+            runner: Box::new(default_runner),
+        }
+    }
+
+    pub fn mode(mode: RunMode) -> Self {
+        Self {
+            world: World::new(),
+            plugins: Plugins::new(),
+            schedule: MainSchedule::new(mode),
             runner: Box::new(default_runner),
         }
     }
@@ -97,11 +102,6 @@ impl Game {
         self
     }
 
-    pub fn add_scene<S: Scene>(&mut self, scene: S) -> &mut Self {
-        self.scenes.add(scene);
-        self
-    }
-
     pub fn add_plugin<P: Plugin>(&mut self, plugin: P) -> &mut Self {
         self.plugins.add_plugin(plugin);
         self
@@ -121,43 +121,20 @@ impl Game {
 
         let runner = std::mem::replace(&mut self.runner, Box::new(default_runner));
         let mut game = std::mem::take(self);
-        game.add_resource(SceneTracker::new());
         game.schedule.build();
         runner.run(GameInstance::new(game));
     }
 
     fn init(&mut self) {
-        self.update_scene();
         self.schedule.run::<Init>(&mut self.world);
     }
 
     fn update(&mut self) {
         self.schedule.run::<Execute>(&mut self.world);
-        self.update_scene();
     }
 
     fn shutdown(&mut self) {
         self.schedule.run::<Shutdown>(&mut self.world);
-    }
-
-    fn update_scene(&mut self) {
-        let tracker = self.world.resource_mut::<SceneTracker>();
-        match (tracker.next(), tracker.current()) {
-            (Some(next), None) => {
-                if let Some(scene) = self.scenes.get(next) {
-                    self.schedule.add_systems(next, scene.systems());
-                }
-                tracker.swap();
-            }
-            (Some(next), Some(current)) => {
-                if let Some(scene) = self.scenes.get(next) {
-                    self.schedule.add_systems(next, scene.systems());
-                }
-                self.schedule.remove_systems(current);
-                tracker.swap();
-            }
-            _ => (),
-        }
     }
 }
 

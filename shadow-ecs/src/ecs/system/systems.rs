@@ -3,10 +3,9 @@ use super::{
     IntoSystem, System,
 };
 use crate::ecs::{
-    task::{max_thread_count, JobBarrier, ScopedTaskPool},
+    task::{max_thread_count, ScopedTaskPool},
     world::World,
 };
-use std::sync::{Arc, Mutex};
 
 impl GraphNode for System {
     fn is_dependency(&self, other: &Self) -> bool {
@@ -116,24 +115,12 @@ impl Runner for ParallelRunner {
         for row in graph.iter() {
             let num_threads = row.len().min(available_threads);
 
-            ScopedTaskPool::new(num_threads, |sender| {
-                let (barrier, lock) = JobBarrier::new(row.len());
-                let barrier = Arc::new(Mutex::new(barrier));
+            let mut pool = ScopedTaskPool::new(num_threads);
+            for system in row {
+                pool.spawn(move || system.run(world));
+            }
 
-                for system in &row {
-                    let barrier = barrier.clone();
-
-                    sender.send(move || {
-                        system.run(world);
-
-                        barrier.lock().unwrap().notify();
-                    });
-                }
-
-                sender.join();
-
-                lock.wait(barrier.lock().unwrap());
-            });
+            pool.run();
         }
     }
 }

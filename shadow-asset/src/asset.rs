@@ -75,6 +75,8 @@ impl Settings for DefaultSettings {}
 pub struct AssetId(u64);
 
 impl AssetId {
+    pub const ZERO: AssetId = AssetId(0);
+
     pub fn new(value: u64) -> Self {
         AssetId(value)
     }
@@ -112,6 +114,12 @@ pub enum AssetPath {
 impl From<AssetId> for AssetPath {
     fn from(id: AssetId) -> Self {
         AssetPath::Id(id)
+    }
+}
+
+impl From<&AssetId> for AssetPath {
+    fn from(id: &AssetId) -> Self {
+        AssetPath::Id(*id)
     }
 }
 
