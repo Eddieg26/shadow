@@ -213,12 +213,11 @@ impl Schedule {
         let phase = ErasedPhase::new::<P>();
         if self.has(phase.ty) {
             let before_ty = PhaseType::new::<Before>();
-            self.phases.insert_before(phase.ty, phase, before_ty);
+            self.phases.insert_before(phase.ty, phase, &before_ty);
             true
         } else {
             self.phases
                 .values_mut()
-                .iter_mut()
                 .any(|phase| phase.insert_before::<P, Before>())
         }
     }
@@ -227,12 +226,11 @@ impl Schedule {
         let phase = ErasedPhase::new::<P>();
         if self.has(phase.ty) {
             let after_ty = PhaseType::new::<After>();
-            self.phases.insert_after(phase.ty, phase, after_ty);
+            self.phases.insert_after(phase.ty, phase, &after_ty);
             true
         } else {
             self.phases
                 .values_mut()
-                .iter_mut()
                 .any(|phase| phase.insert_after::<P, After>())
         }
     }
@@ -240,7 +238,6 @@ impl Schedule {
     pub fn phases(&self) -> Vec<PhaseType> {
         self.phases
             .values()
-            .iter()
             .map(|phase| phase.phases())
             .flatten()
             .collect::<Vec<_>>()
@@ -291,7 +288,6 @@ impl SystemDatabase {
     pub fn get_phase_systems(&self, ty: &PhaseType) -> Vec<&Systems> {
         self.systems
             .values()
-            .iter()
             .filter_map(|systems| systems.get_dyn(ty))
             .collect()
     }
@@ -364,7 +360,7 @@ impl MainSchedule {
     }
 
     pub fn phases(&self) -> Vec<PhaseType> {
-        self.schedule.phases.keys().iter().copied().collect()
+        self.schedule.phases.keys().copied().collect()
     }
 
     pub fn run<P: Phase>(&self, world: &mut World) -> Option<()> {

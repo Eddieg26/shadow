@@ -7,13 +7,12 @@ use std::{
 
 use shadow_ecs::ecs::storage::dense::DenseMap;
 
-pub trait ToBytes: Sized {
-    fn to_bytes(&self) -> Vec<u8>;
+pub trait IntoBytes: Sized {
+    fn into_bytes(&self) -> Vec<u8>;
     fn from_bytes(bytes: &[u8]) -> Option<Self>;
 }
-
-impl ToBytes for () {
-    fn to_bytes(&self) -> Vec<u8> {
+impl IntoBytes for () {
+    fn into_bytes(&self) -> Vec<u8> {
         vec![]
     }
 
@@ -22,20 +21,20 @@ impl ToBytes for () {
     }
 }
 
-impl ToBytes for usize {
-    fn to_bytes(&self) -> Vec<u8> {
+impl IntoBytes for usize {
+    fn into_bytes(&self) -> Vec<u8> {
         self.to_le_bytes().to_vec()
     }
 
     fn from_bytes(bytes: &[u8]) -> Option<Self> {
-        Some(Self::from_le_bytes([
-            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
-        ]))
+        let mut buf = [0; 8];
+        buf.copy_from_slice(&bytes);
+        Some(Self::from_le_bytes(buf))
     }
 }
 
-impl ToBytes for u8 {
-    fn to_bytes(&self) -> Vec<u8> {
+impl IntoBytes for u8 {
+    fn into_bytes(&self) -> Vec<u8> {
         vec![*self]
     }
 
@@ -44,8 +43,8 @@ impl ToBytes for u8 {
     }
 }
 
-impl ToBytes for u16 {
-    fn to_bytes(&self) -> Vec<u8> {
+impl IntoBytes for u16 {
+    fn into_bytes(&self) -> Vec<u8> {
         self.to_le_bytes().to_vec()
     }
 
@@ -54,45 +53,44 @@ impl ToBytes for u16 {
     }
 }
 
-impl ToBytes for u32 {
-    fn to_bytes(&self) -> Vec<u8> {
+impl IntoBytes for u32 {
+    fn into_bytes(&self) -> Vec<u8> {
         self.to_le_bytes().to_vec()
     }
 
     fn from_bytes(bytes: &[u8]) -> Option<Self> {
-        Some(Self::from_le_bytes([
-            bytes[0], bytes[1], bytes[2], bytes[3],
-        ]))
+        let mut buf = [0; 4];
+        buf.copy_from_slice(&bytes);
+        Some(Self::from_le_bytes(buf))
     }
 }
 
-impl ToBytes for u64 {
-    fn to_bytes(&self) -> Vec<u8> {
+impl IntoBytes for u64 {
+    fn into_bytes(&self) -> Vec<u8> {
         self.to_le_bytes().to_vec()
     }
 
     fn from_bytes(bytes: &[u8]) -> Option<Self> {
-        Some(Self::from_le_bytes([
-            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
-        ]))
+        let mut buf = [0; 8];
+        buf.copy_from_slice(&bytes);
+        Some(Self::from_le_bytes(buf))
     }
 }
 
-impl ToBytes for u128 {
-    fn to_bytes(&self) -> Vec<u8> {
+impl IntoBytes for u128 {
+    fn into_bytes(&self) -> Vec<u8> {
         self.to_le_bytes().to_vec()
     }
 
     fn from_bytes(bytes: &[u8]) -> Option<Self> {
-        Some(Self::from_le_bytes([
-            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
-            bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15],
-        ]))
+        let mut buf = [0; 16];
+        buf.copy_from_slice(&bytes);
+        Some(Self::from_le_bytes(buf))
     }
 }
 
-impl ToBytes for i8 {
-    fn to_bytes(&self) -> Vec<u8> {
+impl IntoBytes for i8 {
+    fn into_bytes(&self) -> Vec<u8> {
         vec![*self as u8]
     }
 
@@ -101,8 +99,8 @@ impl ToBytes for i8 {
     }
 }
 
-impl ToBytes for i16 {
-    fn to_bytes(&self) -> Vec<u8> {
+impl IntoBytes for i16 {
+    fn into_bytes(&self) -> Vec<u8> {
         self.to_le_bytes().to_vec()
     }
 
@@ -111,69 +109,68 @@ impl ToBytes for i16 {
     }
 }
 
-impl ToBytes for i32 {
-    fn to_bytes(&self) -> Vec<u8> {
+impl IntoBytes for i32 {
+    fn into_bytes(&self) -> Vec<u8> {
         self.to_le_bytes().to_vec()
     }
 
     fn from_bytes(bytes: &[u8]) -> Option<Self> {
-        Some(Self::from_le_bytes([
-            bytes[0], bytes[1], bytes[2], bytes[3],
-        ]))
+        let mut buf = [0; 4];
+        buf.copy_from_slice(&bytes);
+        Some(Self::from_le_bytes(buf))
     }
 }
 
-impl ToBytes for i64 {
-    fn to_bytes(&self) -> Vec<u8> {
+impl IntoBytes for i64 {
+    fn into_bytes(&self) -> Vec<u8> {
         self.to_le_bytes().to_vec()
     }
 
     fn from_bytes(bytes: &[u8]) -> Option<Self> {
-        Some(Self::from_le_bytes([
-            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
-        ]))
+        let mut buf = [0; 8];
+        buf.copy_from_slice(&bytes);
+        Some(Self::from_le_bytes(buf))
     }
 }
 
-impl ToBytes for i128 {
-    fn to_bytes(&self) -> Vec<u8> {
+impl IntoBytes for i128 {
+    fn into_bytes(&self) -> Vec<u8> {
         self.to_le_bytes().to_vec()
     }
 
     fn from_bytes(bytes: &[u8]) -> Option<Self> {
-        Some(Self::from_le_bytes([
-            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
-            bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15],
-        ]))
+        let mut buf = [0; 16];
+        buf.copy_from_slice(&bytes);
+        Some(Self::from_le_bytes(buf))
     }
 }
 
-impl ToBytes for f32 {
-    fn to_bytes(&self) -> Vec<u8> {
+impl IntoBytes for f32 {
+    fn into_bytes(&self) -> Vec<u8> {
         self.to_le_bytes().to_vec()
     }
 
     fn from_bytes(bytes: &[u8]) -> Option<Self> {
-        Some(Self::from_le_bytes([
-            bytes[0], bytes[1], bytes[2], bytes[3],
-        ]))
+        let mut buf = [0; 4];
+        buf.copy_from_slice(&bytes);
+        Some(Self::from_le_bytes(buf))
     }
 }
 
-impl ToBytes for f64 {
-    fn to_bytes(&self) -> Vec<u8> {
+impl IntoBytes for f64 {
+    fn into_bytes(&self) -> Vec<u8> {
         self.to_le_bytes().to_vec()
     }
 
     fn from_bytes(bytes: &[u8]) -> Option<Self> {
-        Some(Self::from_le_bytes([
-            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
-        ]))
+        let mut buf = [0; 8];
+        buf.copy_from_slice(&bytes);
+        Some(Self::from_le_bytes(buf))
     }
 }
 
-impl ToBytes for bool {
-    fn to_bytes(&self) -> Vec<u8> {
+impl IntoBytes for bool {
+    fn into_bytes(&self) -> Vec<u8> {
         vec![*self as u8]
     }
 
@@ -182,8 +179,8 @@ impl ToBytes for bool {
     }
 }
 
-impl ToBytes for char {
-    fn to_bytes(&self) -> Vec<u8> {
+impl IntoBytes for char {
+    fn into_bytes(&self) -> Vec<u8> {
         self.to_string().as_bytes().to_vec()
     }
 
@@ -193,8 +190,8 @@ impl ToBytes for char {
     }
 }
 
-impl ToBytes for String {
-    fn to_bytes(&self) -> Vec<u8> {
+impl IntoBytes for String {
+    fn into_bytes(&self) -> Vec<u8> {
         self.as_bytes().to_vec()
     }
 
@@ -204,15 +201,15 @@ impl ToBytes for String {
     }
 }
 
-impl<T: ToBytes> ToBytes for Vec<T> {
-    fn to_bytes(&self) -> Vec<u8> {
+impl<T: IntoBytes> IntoBytes for Vec<T> {
+    fn into_bytes(&self) -> Vec<u8> {
         let mut bytes = vec![];
         let len = self.len() as u32;
-        bytes.extend_from_slice(&len.to_bytes());
+        bytes.extend_from_slice(&len.into_bytes());
         for item in self {
-            let item_bytes = item.to_bytes();
+            let item_bytes = item.into_bytes();
             let len = item_bytes.len() as u32;
-            bytes.extend_from_slice(&len.to_bytes());
+            bytes.extend_from_slice(&len.into_bytes());
             bytes.extend_from_slice(&item_bytes);
         }
         bytes
@@ -226,19 +223,19 @@ impl<T: ToBytes> ToBytes for Vec<T> {
         for _ in 0..len {
             let len = u32::from_bytes(&bytes[offset..offset + 4])?;
             let item = T::from_bytes(&bytes[offset + 4..offset + 4 + len as usize])?;
-            offset += item.to_bytes().len() as usize + 4;
+            offset += item.into_bytes().len() as usize + 4;
             items.push(item);
         }
         Some(items)
     }
 }
 
-impl<T: ToBytes + Eq + Hash> ToBytes for HashSet<T> {
-    fn to_bytes(&self) -> Vec<u8> {
+impl<T: IntoBytes + Eq + Hash> IntoBytes for HashSet<T> {
+    fn into_bytes(&self) -> Vec<u8> {
         self.iter()
-            .map(|item| item.to_bytes())
+            .map(|item| item.into_bytes())
             .collect::<Vec<_>>()
-            .to_bytes()
+            .into_bytes()
     }
 
     fn from_bytes(bytes: &[u8]) -> Option<Self> {
@@ -248,21 +245,21 @@ impl<T: ToBytes + Eq + Hash> ToBytes for HashSet<T> {
     }
 }
 
-impl<K: ToBytes + Eq + Hash, V: ToBytes> ToBytes for HashMap<K, V> {
-    fn to_bytes(&self) -> Vec<u8> {
+impl<K: IntoBytes + Eq + Hash, V: IntoBytes> IntoBytes for HashMap<K, V> {
+    fn into_bytes(&self) -> Vec<u8> {
         let mut bytes = vec![];
 
         let len = self.len();
-        bytes.extend_from_slice(&len.to_bytes());
+        bytes.extend_from_slice(&len.into_bytes());
         for (key, value) in self.iter() {
-            let key_bytes = key.to_bytes();
+            let key_bytes = key.into_bytes();
             let key_len = key_bytes.len();
-            bytes.extend_from_slice(&key_len.to_bytes());
+            bytes.extend_from_slice(&key_len.into_bytes());
             bytes.extend_from_slice(&key_bytes);
 
-            let value_bytes = value.to_bytes();
+            let value_bytes = value.into_bytes();
             let value_len = value_bytes.len();
-            bytes.extend_from_slice(&value_len.to_bytes());
+            bytes.extend_from_slice(&value_len.into_bytes());
             bytes.extend_from_slice(&value_bytes);
         }
 
@@ -293,22 +290,22 @@ impl<K: ToBytes + Eq + Hash, V: ToBytes> ToBytes for HashMap<K, V> {
     }
 }
 
-impl<K: ToBytes + Eq + Hash, V: ToBytes> ToBytes for DenseMap<K, V> {
-    fn to_bytes(&self) -> Vec<u8> {
+impl<K: IntoBytes + Eq + Hash + Clone, V: IntoBytes> IntoBytes for DenseMap<K, V> {
+    fn into_bytes(&self) -> Vec<u8> {
         let mut bytes = vec![];
 
         let len = self.len();
-        bytes.extend_from_slice(&len.to_bytes());
+        bytes.extend_from_slice(&len.into_bytes());
 
         for (key, value) in self.iter() {
-            let key_bytes = key.to_bytes();
+            let key_bytes = key.into_bytes();
             let key_len = key_bytes.len();
-            bytes.extend_from_slice(&key_len.to_bytes());
+            bytes.extend_from_slice(&key_len.into_bytes());
             bytes.extend_from_slice(&key_bytes);
 
-            let value_bytes = value.to_bytes();
+            let value_bytes = value.into_bytes();
             let value_len = value_bytes.len();
-            bytes.extend_from_slice(&value_len.to_bytes());
+            bytes.extend_from_slice(&value_len.into_bytes());
             bytes.extend_from_slice(&value_bytes);
         }
 
@@ -339,14 +336,14 @@ impl<K: ToBytes + Eq + Hash, V: ToBytes> ToBytes for DenseMap<K, V> {
     }
 }
 
-impl<T: ToBytes> ToBytes for Option<T> {
-    fn to_bytes(&self) -> Vec<u8> {
+impl<T: IntoBytes> IntoBytes for Option<T> {
+    fn into_bytes(&self) -> Vec<u8> {
         match self {
             Some(value) => {
                 let mut bytes = vec![1];
-                let item_bytes = value.to_bytes();
+                let item_bytes = value.into_bytes();
                 let len = item_bytes.len() as u32;
-                bytes.extend_from_slice(&len.to_bytes());
+                bytes.extend_from_slice(&len.into_bytes());
                 bytes.extend_from_slice(&item_bytes);
                 bytes
             }
@@ -365,9 +362,9 @@ impl<T: ToBytes> ToBytes for Option<T> {
     }
 }
 
-impl<T: ToBytes> ToBytes for Box<T> {
-    fn to_bytes(&self) -> Vec<u8> {
-        self.as_ref().to_bytes()
+impl<T: IntoBytes> IntoBytes for Box<T> {
+    fn into_bytes(&self) -> Vec<u8> {
+        self.as_ref().into_bytes()
     }
 
     fn from_bytes(bytes: &[u8]) -> Option<Self> {
@@ -376,8 +373,8 @@ impl<T: ToBytes> ToBytes for Box<T> {
     }
 }
 
-impl ToBytes for OsString {
-    fn to_bytes(&self) -> Vec<u8> {
+impl IntoBytes for OsString {
+    fn into_bytes(&self) -> Vec<u8> {
         self.as_encoded_bytes().iter().copied().collect::<Vec<_>>()
     }
 
@@ -390,9 +387,9 @@ impl ToBytes for OsString {
     }
 }
 
-impl ToBytes for PathBuf {
-    fn to_bytes(&self) -> Vec<u8> {
-        self.clone().into_os_string().to_bytes()
+impl IntoBytes for PathBuf {
+    fn into_bytes(&self) -> Vec<u8> {
+        self.clone().into_os_string().into_bytes()
     }
 
     fn from_bytes(bytes: &[u8]) -> Option<Self> {

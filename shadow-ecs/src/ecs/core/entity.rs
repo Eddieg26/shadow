@@ -1,3 +1,5 @@
+use crate::ecs::storage::table::RowIndex;
+
 use super::allocator::{Allocator, GenId};
 use std::collections::HashMap;
 
@@ -33,6 +35,15 @@ impl Into<GenId> for Entity {
     }
 }
 
+impl RowIndex for Entity {
+    fn index(&self) -> usize {
+        self.id
+    }
+
+    fn gen(&self) -> usize {
+        self.gen
+    }
+}
 pub struct EntityNode {
     parent: Option<Entity>,
     children: Vec<Entity>,

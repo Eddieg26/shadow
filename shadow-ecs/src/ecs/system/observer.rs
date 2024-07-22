@@ -66,7 +66,7 @@ impl ErasedObservers {
     pub fn new<E: Event>() -> Self {
         Self {
             ty: TypeId::of::<E>(),
-            observers: Blob::new::<Observer<E>>(),
+            observers: Blob::new::<Observer<E>>(1),
             observe: Box::new(|blob, world| {
                 let outputs = world.resource_mut::<EventOutputs<E>>().drain();
                 for observer in blob.iter::<Observer<E>>() {

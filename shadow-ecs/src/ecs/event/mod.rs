@@ -1,5 +1,5 @@
 use super::{
-    core::{internal::blob::Blob, Resource},
+    core::{internal::blob::BlobCell, Resource},
     storage::dense::DenseSet,
     world::World,
 };
@@ -25,16 +25,14 @@ pub type EventType = TypeId;
 
 pub struct ErasedEvent {
     ty: EventType,
-    event: Blob,
+    event: BlobCell,
 }
 
 impl ErasedEvent {
     pub fn new<E: Event>(event: E) -> Self {
-        let mut data = Blob::new::<E>();
-        data.push(event);
         Self {
             ty: TypeId::of::<E>(),
-            event: data,
+            event: BlobCell::new(event),
         }
     }
 
@@ -42,21 +40,21 @@ impl ErasedEvent {
         &self.ty
     }
 
-    pub fn data(&self) -> &Blob {
+    pub fn data(&self) -> &BlobCell {
         &self.event
     }
 
     pub fn cast<E: Event>(&self) -> Option<&E> {
         if self.ty == TypeId::of::<E>() {
-            self.event.get::<E>(0)
+            Some(self.event.value::<E>())
         } else {
             None
         }
     }
 
-    pub fn cast_mut<E: Event>(mut self) -> Option<E> {
+    pub fn cast_mut<E: Event>(self) -> Option<E> {
         if self.ty == TypeId::of::<E>() {
-            self.event.remove::<E>(0)
+            Some(self.event.take())
         } else {
             None
         }
@@ -176,6 +174,13 @@ impl Events {
         _events.events.extend(events.events);
     }
 
+    pub fn extend<E: Event>(&self, events: Vec<E>) {
+        let mut _events = self.events.lock().unwrap();
+        for event in events {
+            _events.add(event);
+        }
+    }
+
     pub fn remove<E: Event>(&self) -> Vec<ErasedEvent> {
         let mut events = self.events.lock().unwrap();
         let mut drained = Vec::new();
@@ -203,7 +208,7 @@ impl Events {
     pub(crate) fn invocations(&self) -> Vec<EventInvocation> {
         let mut invocations = self.invocations.write().unwrap();
         invocations.sort_by(|a, b| a.priority().cmp(&b.priority()).reverse());
-        invocations.drain().collect::<Vec<_>>()
+        invocations.drain()
     }
 
     pub(crate) fn invocation_type<E: Event>(&self) -> Option<EventInvocation> {

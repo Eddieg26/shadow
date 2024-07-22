@@ -2,7 +2,7 @@ use super::{
     core::{Component, ComponentId, Entity},
     storage::{
         dense::{DenseMap, DenseSet},
-        table::{FreeRow, Row, SelectedRow, Table},
+        table::{Row, SelectedRow, Table},
     },
 };
 use std::{
@@ -33,30 +33,6 @@ impl ArchetypeId {
         let mut hasher = DefaultHasher::new();
         ids.hash(&mut hasher);
         ArchetypeId(hasher.finish())
-    }
-
-    pub fn add(ids: &[ComponentId], added: &[ComponentId]) -> (ArchetypeId, Vec<ComponentId>) {
-        let mut ids = ids.iter().cloned().collect::<Vec<_>>();
-        ids.extend(added.iter().cloned());
-        ids.sort_unstable();
-        (ArchetypeId::new(&ids), ids)
-    }
-
-    pub fn remove(ids: &[ComponentId], removed: &[ComponentId]) -> (ArchetypeId, Vec<ComponentId>) {
-        let mut ids = ids.iter().cloned().collect::<Vec<_>>();
-        ids.retain(|c| !removed.contains(c));
-        (ArchetypeId::new(&ids), ids)
-    }
-
-    pub fn moved(
-        ids: &[ComponentId],
-        other: &[ComponentId],
-        ty: EdgeType,
-    ) -> (ArchetypeId, Vec<ComponentId>) {
-        match ty {
-            EdgeType::Add => ArchetypeId::add(ids, other),
-            EdgeType::Remove => ArchetypeId::remove(ids, other),
-        }
     }
 }
 
@@ -100,12 +76,13 @@ impl From<&ArchetypeId> for EdgeId {
     }
 }
 
-impl From<&[ComponentId]> for EdgeId {
-    fn from(ids: &[ComponentId]) -> Self {
+impl<C: Into<ComponentId>, I: Iterator<Item = C>> From<I> for EdgeId {
+    fn from(ids: I) -> Self {
+        let ids = ids.map(|id| id.into()).collect::<Vec<_>>();
         if ids.len() == 1 {
             EdgeId::Component(ids[0])
         } else {
-            EdgeId::Archetype(ArchetypeId::new(ids))
+            EdgeId::Archetype(ArchetypeId::new(&ids))
         }
     }
 }
@@ -115,14 +92,17 @@ pub struct Archetype {
     components: DenseSet<ComponentId>,
     add_edges: HashMap<EdgeId, ArchetypeId>,
     remove_edges: HashMap<EdgeId, ArchetypeId>,
-    table: Table<Entity, ComponentId>,
+    table: Table<Entity>,
 }
 
 impl Archetype {
-    pub fn new(id: ArchetypeId, table: Table<Entity, ComponentId>) -> Self {
+    pub fn new(id: ArchetypeId, table: Table<Entity>) -> Self {
         Archetype {
             id,
-            components: table.columns().iter().copied().collect::<DenseSet<_>>(),
+            components: table
+                .columns()
+                .map(|k| ComponentId::from(k))
+                .collect::<DenseSet<_>>(),
             add_edges: HashMap::new(),
             remove_edges: HashMap::new(),
             table,
@@ -134,15 +114,15 @@ impl Archetype {
     }
 
     pub fn components(&self) -> &[ComponentId] {
-        self.components.values()
+        self.components.keys()
     }
 
     pub fn component<C: Component>(&self, entity: &Entity) -> Option<&C> {
-        self.table.item::<C>(entity, ComponentId::new::<C>())
+        self.table.field(*entity)
     }
 
     pub fn component_mut<C: Component>(&self, entity: &Entity) -> Option<&mut C> {
-        self.table.item_mut::<C>(entity, ComponentId::new::<C>())
+        self.table.field_mut(*entity)
     }
 
     pub fn entities(&self) -> &[Entity] {
@@ -167,20 +147,20 @@ impl Archetype {
         }
     }
 
-    pub fn select(&self, entity: &Entity) -> Option<SelectedRow<ComponentId>> {
-        self.table.select(entity)
+    pub fn select(&self, entity: &Entity) -> Option<SelectedRow> {
+        self.table.select(*entity)
     }
 
-    pub fn insert(&mut self, entity: &Entity, row: Row<ComponentId>) {
+    pub fn insert(&mut self, entity: &Entity, row: Row) {
         self.table.insert(*entity, row)
     }
 
-    pub fn remove(&mut self, entity: &Entity) -> Option<FreeRow<ComponentId>> {
-        self.table.remove(entity)
+    pub fn remove(&mut self, entity: &Entity) -> Option<Row> {
+        self.table.remove(*entity)
     }
 
     pub fn contains(&self, entity: &Entity) -> bool {
-        self.table.contains(entity)
+        self.table.contains(*entity)
     }
 
     pub fn has_component(&self, id: &ComponentId) -> bool {
@@ -198,7 +178,7 @@ pub struct Archetypes {
 impl Archetypes {
     pub fn new() -> Self {
         let root_id = ArchetypeId::new(&[]);
-        let table = Table::<Entity, ComponentId>::new().build();
+        let table = Table::<Entity>::builder().build();
         let root_archetype = Archetype::new(root_id, table);
         let mut archetypes = DenseMap::new();
         archetypes.insert(root_id, root_archetype);
@@ -242,7 +222,7 @@ impl Archetypes {
 
         archetypes.retain(|_, count| *count >= ids.len());
 
-        archetypes.destruct().0
+        archetypes.drain_keys()
     }
 
     pub fn add_entity(&mut self, entity: &Entity) {
@@ -251,13 +231,10 @@ impl Archetypes {
         self.archetypes
             .get_mut(&root_id)
             .unwrap()
-            .insert(entity, Row::new().build());
+            .insert(entity, Row::new());
     }
 
-    pub fn remove_entity(
-        &mut self,
-        entity: &Entity,
-    ) -> Option<(ArchetypeId, FreeRow<ComponentId>)> {
+    pub fn remove_entity(&mut self, entity: &Entity) -> Option<(ArchetypeId, Row)> {
         self.entities.remove(entity).map(|id| {
             let archetype = self.archetypes.get_mut(&id).unwrap();
             let components = archetype.remove(entity).unwrap();
@@ -286,11 +263,10 @@ impl Archetypes {
     ) -> Option<ArchetypeMove> {
         let (archetype, mut components) = self.remove_entity(entity)?;
         let mut added = DenseSet::new();
-        let mut removed = FreeRow::<ComponentId>::new();
-        components.insert(*id, component).map(|c| {
-            removed.add_column(*id, c);
+        let mut removed = Row::new();
+        components.add_field(component).map(|c| {
+            removed.add_cell(*id, c);
         });
-        components.sort();
         added.insert(*id);
 
         let edge = EdgeId::from(id);
@@ -298,36 +274,32 @@ impl Archetypes {
         self.move_entity(entity, &archetype, &edge, components, ty)
     }
 
-    pub fn add_components(
-        &mut self,
-        entity: &Entity,
-        mut set: FreeRow<ComponentId>,
-    ) -> Option<ArchetypeMove> {
+    pub fn add_components(&mut self, entity: &Entity, mut set: Row) -> Option<ArchetypeMove> {
         let (archetype, mut components) = self.remove_entity(entity)?;
         let mut added = DenseSet::new();
-        let mut removed = FreeRow::<ComponentId>::new();
+        let mut removed = Row::new();
         let mut unique = DenseSet::new();
-        set.drain().for_each(|(id, column)| {
-            added.insert(id);
-            if !components.has(&id) {
+
+        for (id, column) in set.drain() {
+            added.insert(ComponentId::from(id));
+            if !components.contains(&id) {
                 unique.insert(id);
             }
-            components.add_column(id, column).map(|c| {
-                removed.add_column(id, c);
+            components.add_cell(id, column).map(|c| {
+                removed.add_cell(id, c);
             });
-        });
-        components.sort();
+        }
 
-        let edge = EdgeId::from(unique.values());
+        let edge = EdgeId::from(unique.keys().iter());
         let ty = MoveType::Add(added, removed);
         self.move_entity(entity, &archetype, &edge, components, ty)
     }
 
     pub fn remove_component(&mut self, entity: &Entity, id: &ComponentId) -> Option<ArchetypeMove> {
         let (archetype, mut components) = self.remove_entity(entity)?;
-        let mut removed = FreeRow::<ComponentId>::new();
-        components.remove(id).map(|c| {
-            removed.add_column(*id, c);
+        let mut removed = Row::new();
+        components.remove_cell(*id).map(|c| {
+            removed.add_cell(*id, c);
         });
 
         let edge = EdgeId::from(id);
@@ -341,14 +313,14 @@ impl Archetypes {
         ids: DenseSet<ComponentId>,
     ) -> Option<ArchetypeMove> {
         let (archetype, mut components) = self.remove_entity(entity)?;
-        let mut removed = FreeRow::<ComponentId>::new();
+        let mut removed = Row::new();
         ids.iter().for_each(|id| {
-            components.remove(id).map(|c| {
-                removed.add_column(*id, c);
+            components.remove_cell(*id).map(|c| {
+                removed.add_cell(*id, c);
             });
         });
 
-        let edge = EdgeId::from(removed.keys());
+        let edge = EdgeId::from(removed.columns());
         let ty = MoveType::Remove(removed);
         self.move_entity(entity, &archetype, &edge, components, ty)
     }
@@ -382,13 +354,18 @@ impl Archetypes {
         entity: &Entity,
         from: &ArchetypeId,
         edge: &EdgeId,
-        components: FreeRow<ComponentId>,
+        components: Row,
         ty: EdgeType,
     ) -> ArchetypeId {
-        let id = ArchetypeId::new(components.keys());
-        let mut next = Archetype::new(id, components.layout().build());
+        let mut ids = components
+            .columns()
+            .map(|id| ComponentId::from(id))
+            .collect::<Vec<_>>();
+        ids.sort_unstable();
+        let id = ArchetypeId::new(&ids);
+        let mut next = Archetype::new(id, components.table_layout().build());
 
-        self.add_archetypes(components.keys(), id);
+        self.add_archetypes(&ids, id);
         next.insert(entity, components.into());
 
         let reverse = ty.reverse();
@@ -403,7 +380,7 @@ impl Archetypes {
         entity: &Entity,
         from: &ArchetypeId,
         edge: &EdgeId,
-        components: FreeRow<ComponentId>,
+        components: Row,
         ty: MoveType,
     ) -> Option<ArchetypeMove> {
         let (added, removed, ty) = match ty {
@@ -433,8 +410,8 @@ impl Archetypes {
 }
 
 pub enum MoveType {
-    Add(DenseSet<ComponentId>, FreeRow<ComponentId>),
-    Remove(FreeRow<ComponentId>),
+    Add(DenseSet<ComponentId>, Row),
+    Remove(Row),
 }
 
 impl MoveType {
@@ -451,7 +428,7 @@ pub struct ArchetypeMove {
     from: ArchetypeId,
     to: ArchetypeId,
     added: DenseSet<ComponentId>,
-    removed: FreeRow<ComponentId>,
+    removed: Row,
 }
 
 impl ArchetypeMove {
@@ -460,7 +437,7 @@ impl ArchetypeMove {
             entity,
             from,
             to,
-            removed: FreeRow::<ComponentId>::new(),
+            removed: Row::new(),
             added: DenseSet::new(),
         }
     }
@@ -470,7 +447,7 @@ impl ArchetypeMove {
         self
     }
 
-    pub fn with_removed(mut self, removed: FreeRow<ComponentId>) -> Self {
+    pub fn with_removed(mut self, removed: Row) -> Self {
         self.removed = removed;
         self
     }
@@ -487,11 +464,11 @@ impl ArchetypeMove {
         self.to
     }
 
-    pub fn removed(&self) -> &FreeRow<ComponentId> {
+    pub fn removed(&self) -> &Row {
         &self.removed
     }
 
-    pub fn removed_mut(&mut self) -> &mut FreeRow<ComponentId> {
+    pub fn removed_mut(&mut self) -> &mut Row {
         &mut self.removed
     }
 

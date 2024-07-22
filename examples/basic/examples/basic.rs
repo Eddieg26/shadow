@@ -5,10 +5,9 @@ use std::{
 };
 
 use shadow_asset::{
-    asset::{Asset, DefaultSettings},
-    bytes::ToBytes,
-    importer::{AssetImporter, AssetLoader, DefaultProcessor},
-    plugin::{AssetExt, AssetInit, AssetPlugin},
+    asset::Asset,
+    importer::{AssetImporter, AssetSaver, CustomError},
+    DefaultSettings, IntoBytes,
 };
 use shadow_ecs::ecs::{
     core::{Component, Entity},
@@ -38,8 +37,8 @@ pub struct PlainText {
 
 impl Asset for PlainText {}
 
-impl ToBytes for PlainText {
-    fn to_bytes(&self) -> Vec<u8> {
+impl IntoBytes for PlainText {
+    fn into_bytes(&self) -> Vec<u8> {
         self.content.as_bytes().to_vec()
     }
 
@@ -50,16 +49,29 @@ impl ToBytes for PlainText {
     }
 }
 
+impl AssetSaver for PlainText {
+    type Asset = PlainText;
+    type Settings = DefaultSettings;
+
+    fn save(asset: &Self::Asset, _: &shadow_asset::AssetMetadata<Self::Settings>) -> Vec<u8> {
+        asset.into_bytes()
+    }
+
+    fn load(bytes: &[u8]) -> Self::Asset {
+        PlainText::from_bytes(bytes).unwrap()
+    }
+}
+
 impl AssetImporter for PlainText {
     type Asset = PlainText;
     type Settings = DefaultSettings;
-    type Loader = PlainText;
-    type Processor = DefaultProcessor<PlainText>;
+    type Saver = PlainText;
+    type Error = CustomError;
 
     fn import(
-        context: &mut shadow_asset::importer::ImportContext<Self::Settings>,
-    ) -> Result<Self::Asset, String> {
-        let content = String::from_bytes(context.asset()).ok_or("Failed to load content")?;
+        context: &mut shadow_asset::importer::LoadContext<Self::Settings>,
+    ) -> Result<Self::Asset, CustomError> {
+        let content = String::from_bytes(context.bytes()).ok_or("Failed to load content")?;
         Ok(PlainText { content })
     }
 
@@ -69,9 +81,9 @@ impl AssetImporter for PlainText {
 }
 
 fn main() {
-    Game::new()
-        .add_plugin(AssetPlugin::new("data"))
-        .set_runner(game_runner)
-        .register_importer::<PlainText>()
-        .run();
+    // Game::new()
+    //     .add_plugin(AssetPlugin::new("data"))
+    //     .set_runner(game_runner)
+    //     .register_importer::<PlainText>()
+    //     .run();
 }

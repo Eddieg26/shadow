@@ -1,4 +1,4 @@
-use super::internal::blob::Blob;
+use super::internal::blob::BlobCell;
 use crate::ecs::storage::dense::DenseMap;
 use std::hash::{Hash, Hasher};
 pub trait Resource: 'static {}
@@ -40,22 +40,21 @@ impl ResourceType {
 }
 
 pub(crate) struct ResourceData {
-    data: Blob,
+    data: BlobCell,
 }
 
 impl ResourceData {
     pub fn new<R: 'static>(resource: R) -> Self {
-        let mut data = Blob::new::<R>();
-        data.push(resource);
+        let data = BlobCell::new(resource);
         Self { data }
     }
 
     pub fn get<R: 'static>(&self) -> &R {
-        self.data.get::<R>(0).unwrap()
+        self.data.value()
     }
 
     pub fn get_mut<R: 'static>(&self) -> &mut R {
-        self.data.get_mut::<R>(0).unwrap()
+        self.data.value_mut()
     }
 }
 

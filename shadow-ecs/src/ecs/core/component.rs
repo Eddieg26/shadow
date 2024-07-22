@@ -1,4 +1,4 @@
-use crate::ecs::storage::dense::DenseMap;
+use crate::ecs::storage::{dense::DenseMap, table::ColumnKey};
 use std::{
     alloc::Layout,
     any::{Any, TypeId},
@@ -31,6 +31,24 @@ impl ComponentId {
 
     pub fn is<C: Component>(&self) -> bool {
         self.0 == Self::new::<C>().0
+    }
+}
+
+impl From<ColumnKey> for ComponentId {
+    fn from(key: ColumnKey) -> Self {
+        ComponentId::raw(*key)
+    }
+}
+
+impl From<&ColumnKey> for ComponentId {
+    fn from(key: &ColumnKey) -> Self {
+        ComponentId::raw(**key)
+    }
+}
+
+impl From<ComponentId> for ColumnKey {
+    fn from(id: ComponentId) -> Self {
+        ColumnKey::raw(id.0)
     }
 }
 

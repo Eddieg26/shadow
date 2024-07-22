@@ -39,8 +39,6 @@ impl TaskPool {
         }
     }
 
-    // pub fn scoped(&self, )
-
     pub fn spawn(&self, task: impl FnOnce() + Send + 'static) {
         let mut state = self.state.lock().unwrap();
         state.spawn(task);

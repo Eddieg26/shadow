@@ -1,134 +1,39 @@
 use crate::{
-    asset::{Asset, Assets},
-    database::{
-        config::AssetConfig,
-        library::AssetLibraryError,
-        observers::{on_asset_library_error, on_task_event},
-        registry::AssetRegistry,
-        task::{
-            AssetTaskComplete, ImportAsset, ImportAssets, ImportFolder, LoadLibrary, RemoveAsset,
-            RemoveAssets, SaveLibrary, StartAssetTask,
-        },
-        AssetDatabase,
+    events::{ImportAsset, LoadAsset, ReloadAsset, StartAssetEvent},
+    importer::ImportError,
+    observers::{
+        on_import_asset, on_import_error, on_load_asset, on_reload_assets, on_start_asset_event,
     },
-    importer::{AssetImporter, Folder, ImportFailed, LoadFailed},
+    AssetConfig, AssetDatabase, AssetFileSystem, LocalFileSystem,
 };
-use shadow_ecs::ecs::event::Events;
-use shadow_game::{
-    game::Game,
-    plugin::{PhaseExt, Plugin, PluginContext},
-    schedule::{DefaultPhaseRunner, Init, Phase},
-};
-use std::path::Path;
+use shadow_game::plugin::Plugin;
+use std::path::{Path, PathBuf};
 
 pub struct AssetPlugin {
-    config: AssetConfig,
+    root: PathBuf,
 }
 
 impl AssetPlugin {
-    pub fn new(root: impl AsRef<Path>) -> AssetPlugin {
-        AssetPlugin {
-            config: AssetConfig::new(root),
+    pub fn new(root: impl AsRef<Path>) -> Self {
+        Self {
+            root: root.as_ref().to_path_buf(),
         }
     }
 }
 
 impl Plugin for AssetPlugin {
-    fn start(&mut self, ctx: &mut PluginContext) {
-        ctx.add_sub_phase::<Init, AssetInit>()
-            .add_system(AssetInit, init)
-            .register_event::<StartAssetTask>()
-            .register_event::<AssetTaskComplete>()
-            .register_event::<ImportFolder>()
-            .register_event::<ImportAsset>()
-            .register_event::<ImportAssets>()
-            .register_event::<RemoveAsset>()
-            .register_event::<RemoveAssets>()
-            .register_event::<SaveLibrary>()
-            .register_event::<LoadLibrary>()
-            .register_event::<AssetLibraryError>()
-            .register_event::<ImportFailed>()
-            .observe::<StartAssetTask, _>(on_task_event)
-            .observe::<AssetTaskComplete, _>(on_task_event)
-            .observe::<AssetLibraryError, _>(on_asset_library_error);
+    fn start(&mut self, ctx: &mut shadow_game::plugin::PluginContext) {
+        let config = AssetConfig::new(&self.root);
+        ctx.add_resource(AssetFileSystem::new(config, LocalFileSystem));
+        ctx.add_resource(AssetDatabase::new());
+        ctx.observe::<ImportAsset, _>(on_import_asset);
+        ctx.observe::<LoadAsset, _>(on_load_asset);
+        ctx.observe::<ReloadAsset, _>(on_reload_assets);
+        ctx.observe::<StartAssetEvent, _>(on_start_asset_event);
+        ctx.observe::<ImportError, _>(on_import_error);
     }
 
-    fn finish(&mut self, ctx: &mut PluginContext) {
-        ctx.add_resource(AssetDatabase::new(self.config.clone()));
-        ctx.register_importer::<Folder>();
-    }
-}
+    fn run(&mut self, _ctx: &mut shadow_game::plugin::PluginContext) {}
 
-pub struct AssetInit;
-
-impl Phase for AssetInit {
-    type Runner = DefaultPhaseRunner;
-
-    fn runner() -> Self::Runner {
-        DefaultPhaseRunner
-    }
-}
-
-fn init(database: &AssetDatabase, events: &Events) {
-    let config = database.config();
-
-    if !config.assets().exists() {
-        std::fs::create_dir_all(config.assets()).unwrap();
-    }
-
-    if !config.cache().exists() {
-        std::fs::create_dir_all(config.cache()).unwrap();
-    }
-
-    if !config.artifacts().exists() {
-        std::fs::create_dir_all(config.artifacts()).unwrap();
-    }
-
-    events.add(LoadLibrary);
-    events.add(ImportFolder::new(""));
-}
-
-pub trait AssetExt {
-    fn register_asset<A: Asset>(&mut self) -> &mut Self;
-    fn register_importer<A: AssetImporter>(&mut self) -> &mut Self;
-}
-
-impl AssetExt for Game {
-    fn register_asset<A: Asset>(&mut self) -> &mut Self {
-        self.add_resource(Assets::<A>::new())
-            .register_event::<LoadFailed<A>>()
-    }
-
-    fn register_importer<A: AssetImporter>(&mut self) -> &mut Self {
-        self.register_asset::<A::Asset>();
-        if let Some(registry) = self.try_resource_mut::<AssetRegistry>() {
-            registry.register::<A>();
-        } else {
-            let mut registry = AssetRegistry::new();
-            registry.register::<A>();
-            self.add_resource(registry);
-        }
-
-        self
-    }
-}
-
-impl AssetExt for PluginContext<'_> {
-    fn register_asset<A: Asset>(&mut self) -> &mut Self {
-        self.add_resource(Assets::<A>::new())
-            .register_event::<LoadFailed<A>>()
-    }
-
-    fn register_importer<A: AssetImporter>(&mut self) -> &mut Self {
-        self.register_asset::<A::Asset>();
-        if let Some(registry) = self.try_resource_mut::<AssetRegistry>() {
-            registry.register::<A>();
-        } else {
-            let mut registry = AssetRegistry::new();
-            registry.register::<A>();
-            self.add_resource(registry);
-        }
-
-        self
-    }
+    fn finish(&mut self, _ctx: &mut shadow_game::plugin::PluginContext) {}
 }

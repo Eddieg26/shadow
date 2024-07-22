@@ -11,7 +11,7 @@ use super::{
     event::{Event, Events},
     storage::{
         dense::{DenseMap, DenseSet},
-        table::FreeRow,
+        table::Row,
     },
     system::observer::{EventObservers, IntoObserver},
     task::{max_thread_count, TaskPool},
@@ -131,7 +131,7 @@ impl World {
         entity
     }
 
-    pub fn despawn(&mut self, entity: &Entity) -> DenseMap<Entity, FreeRow<ComponentId>> {
+    pub fn despawn(&mut self, entity: &Entity) -> DenseMap<Entity, Row> {
         let mut despawned = DenseMap::new();
         for entity in self.entities.despawn(entity) {
             if let Some((_, set)) = self.archetypes.remove_entity(&entity) {
@@ -156,8 +156,7 @@ impl World {
     }
 
     pub fn has_components(&self, entity: &Entity, components: &[ComponentId]) -> bool {
-        let ids = components.into();
-        self.archetypes.has_components(entity, ids)
+        self.archetypes.has_components(entity, components.into())
     }
 
     pub fn add_component<C: Component>(
@@ -169,11 +168,7 @@ impl World {
         self.archetypes.add_component(entity, &id, component)
     }
 
-    pub fn add_components(
-        &mut self,
-        entity: &Entity,
-        components: FreeRow<ComponentId>,
-    ) -> Option<ArchetypeMove> {
+    pub fn add_components(&mut self, entity: &Entity, components: Row) -> Option<ArchetypeMove> {
         self.archetypes.add_components(entity, components)
     }
 
