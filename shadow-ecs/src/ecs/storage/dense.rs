@@ -221,7 +221,7 @@ impl<K: Clone + Hash + Eq> DenseSet<K> {
 
     pub fn drain(&mut self) -> Vec<K> {
         self.map.clear();
-        self.keys.drain(..).collect()
+        std::mem::take(&mut self.keys)
     }
 
     pub fn keys(&self) -> &[K] {

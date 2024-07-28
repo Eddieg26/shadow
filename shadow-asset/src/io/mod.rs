@@ -1,20 +1,20 @@
-use shadow_ecs::core::Resource;
-
-use crate::IntoBytes;
-
 use super::{
     artifact::{Artifact, ArtifactMeta},
     config::AssetConfig,
-    AssetId, AssetMetadata, PathExt, Settings,
+    AssetId, AssetMetadata, Settings,
 };
+use crate::IntoBytes;
+use shadow_ecs::core::Resource;
 use std::{
     error::Error,
     hash::Hash,
     io::Read,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, Mutex},
     time::SystemTime,
 };
+
+pub mod vfs;
 
 #[derive(Debug, Clone)]
 pub enum AssetIoError {
@@ -60,12 +60,12 @@ impl std::fmt::Display for AssetIoError {
 
 impl Error for AssetIoError {}
 
-pub struct FileReader {
-    reader: Box<dyn Read>,
+pub struct FileReader<'a> {
+    reader: Box<dyn Read + 'a>,
 }
 
-impl FileReader {
-    pub fn new<R: Read + 'static>(reader: R) -> Self {
+impl<'a> FileReader<'a> {
+    pub fn new<R: Read + 'a>(reader: R) -> Self {
         Self {
             reader: Box::new(reader),
         }
@@ -93,43 +93,43 @@ impl FileReader {
 }
 
 pub trait FileSystem: Send + Sync + 'static {
-    fn read(&self, path: &Path) -> Result<Vec<u8>, AssetIoError>;
-    fn read_to_string(&self, path: &Path) -> Result<String, AssetIoError>;
-    fn read_exact(&self, path: &Path, buffer: &mut [u8]) -> Result<(), AssetIoError>;
-    fn reader(&self, path: &Path) -> Result<FileReader, AssetIoError>;
-    fn write(&self, path: &Path, data: &[u8]) -> Result<(), AssetIoError>;
-    fn remove(&self, path: &Path) -> Result<Vec<PathBuf>, AssetIoError>;
-    fn rename(&self, old: &Path, new: &Path) -> Result<(), AssetIoError>;
+    fn read(&mut self, path: &Path) -> Result<Vec<u8>, AssetIoError>;
+    fn read_to_string(&mut self, path: &Path) -> Result<String, AssetIoError>;
+    fn read_exact(&mut self, path: &Path, buffer: &mut [u8]) -> Result<(), AssetIoError>;
+    fn reader(&mut self, path: &Path) -> Result<FileReader, AssetIoError>;
+    fn write(&mut self, path: &Path, data: &[u8]) -> Result<(), AssetIoError>;
+    fn remove(&mut self, path: &Path) -> Result<Vec<PathBuf>, AssetIoError>;
+    fn rename(&mut self, old: &Path, new: &Path) -> Result<(), AssetIoError>;
     fn read_directory(&self, path: &Path, recursive: bool) -> Result<Vec<PathBuf>, AssetIoError>;
-    fn create_dir(&self, path: &Path) -> Result<(), AssetIoError>;
+    fn create_dir(&mut self, path: &Path) -> Result<(), AssetIoError>;
 }
 
 pub struct LocalFileSystem;
 
 impl FileSystem for LocalFileSystem {
-    fn read(&self, path: &Path) -> Result<Vec<u8>, AssetIoError> {
+    fn read(&mut self, path: &Path) -> Result<Vec<u8>, AssetIoError> {
         std::fs::read(path).map_err(|e| e.into())
     }
 
-    fn read_exact(&self, path: &Path, buffer: &mut [u8]) -> Result<(), AssetIoError> {
+    fn read_exact(&mut self, path: &Path, buffer: &mut [u8]) -> Result<(), AssetIoError> {
         let mut file = std::fs::File::open(path)?;
         file.read_exact(buffer).map_err(|e| e.into())
     }
 
-    fn read_to_string(&self, path: &Path) -> Result<String, AssetIoError> {
+    fn read_to_string(&mut self, path: &Path) -> Result<String, AssetIoError> {
         std::fs::read_to_string(path).map_err(|e| e.into())
     }
 
-    fn reader(&self, path: &Path) -> Result<FileReader, AssetIoError> {
+    fn reader(&mut self, path: &Path) -> Result<FileReader, AssetIoError> {
         let file = std::fs::File::open(path)?;
         Ok(FileReader::new(file))
     }
 
-    fn write(&self, path: &Path, data: &[u8]) -> Result<(), AssetIoError> {
+    fn write(&mut self, path: &Path, data: &[u8]) -> Result<(), AssetIoError> {
         std::fs::write(path, data).map_err(|e| e.into())
     }
 
-    fn remove(&self, path: &Path) -> Result<Vec<PathBuf>, AssetIoError> {
+    fn remove(&mut self, path: &Path) -> Result<Vec<PathBuf>, AssetIoError> {
         if path.is_dir() {
             let entries = self.read_directory(path, true).unwrap_or_default();
             if entries.is_empty() {
@@ -150,7 +150,7 @@ impl FileSystem for LocalFileSystem {
         }
     }
 
-    fn rename(&self, from: &Path, to: &Path) -> Result<(), AssetIoError> {
+    fn rename(&mut self, from: &Path, to: &Path) -> Result<(), AssetIoError> {
         std::fs::rename(from, to).map_err(|e| e.into())
     }
 
@@ -169,7 +169,7 @@ impl FileSystem for LocalFileSystem {
         Ok(paths)
     }
 
-    fn create_dir(&self, path: &Path) -> Result<(), AssetIoError> {
+    fn create_dir(&mut self, path: &Path) -> Result<(), AssetIoError> {
         std::fs::create_dir_all(path).map_err(|e| e.into())
     }
 }
@@ -177,14 +177,14 @@ impl FileSystem for LocalFileSystem {
 #[derive(Clone)]
 pub struct AssetFileSystem {
     config: Arc<AssetConfig>,
-    system: Arc<Box<dyn FileSystem>>,
+    system: Arc<Mutex<Box<dyn FileSystem>>>,
 }
 
 impl AssetFileSystem {
     pub fn new(config: AssetConfig, system: impl FileSystem) -> Self {
         Self {
             config: Arc::new(config),
-            system: Arc::new(Box::new(system)),
+            system: Arc::new(Mutex::new(Box::new(system))),
         }
     }
 
@@ -193,7 +193,8 @@ impl AssetFileSystem {
     }
 
     pub fn read(&self, path: impl AsRef<Path>) -> Result<Vec<u8>, AssetIoError> {
-        self.system.read(path.as_ref())
+        let mut system = self.system.lock().unwrap();
+        system.read(path.as_ref())
     }
 
     pub fn read_exact(
@@ -201,15 +202,13 @@ impl AssetFileSystem {
         path: impl AsRef<Path>,
         buffer: &mut [u8],
     ) -> Result<(), AssetIoError> {
-        self.system.read_exact(path.as_ref(), buffer)
+        let mut system = self.system.lock().unwrap();
+        system.read_exact(path.as_ref(), buffer)
     }
 
     pub fn read_to_string(&self, path: impl AsRef<Path>) -> Result<String, AssetIoError> {
-        self.system.read_to_string(path.as_ref())
-    }
-
-    pub fn reader(&self, path: impl AsRef<Path>) -> Result<FileReader, AssetIoError> {
-        self.system.reader(path.as_ref())
+        let mut system = self.system.lock().unwrap();
+        system.read_to_string(path.as_ref())
     }
 
     pub fn write(
@@ -217,15 +216,19 @@ impl AssetFileSystem {
         path: impl AsRef<Path>,
         data: impl AsRef<[u8]>,
     ) -> Result<(), AssetIoError> {
-        self.system.write(path.as_ref(), data.as_ref())
+        let mut system = self.system.lock().unwrap();
+        system.write(path.as_ref(), data.as_ref())
     }
 
     pub fn remove(&self, path: impl AsRef<Path>) -> Result<Vec<PathBuf>, AssetIoError> {
-        self.system.remove(path.as_ref())
+        let mut system = self.system.lock().unwrap();
+
+        system.remove(path.as_ref())
     }
 
     pub fn rename(&self, old: impl AsRef<Path>, new: impl AsRef<Path>) -> Result<(), AssetIoError> {
-        self.system.rename(old.as_ref(), new.as_ref())
+        let mut system = self.system.lock().unwrap();
+        system.rename(old.as_ref(), new.as_ref())
     }
 
     pub fn read_directory(
@@ -233,7 +236,8 @@ impl AssetFileSystem {
         path: impl AsRef<Path>,
         recursive: bool,
     ) -> Result<Vec<PathBuf>, AssetIoError> {
-        self.system.read_directory(path.as_ref(), recursive)
+        let system = self.system.lock().unwrap();
+        system.read_directory(path.as_ref(), recursive)
     }
 
     pub fn load_metadata<S: Settings>(
@@ -259,8 +263,9 @@ impl AssetFileSystem {
     }
 
     pub fn load_artifact_meta(&self, id: &AssetId) -> Result<ArtifactMeta, AssetIoError> {
+        let mut system = self.system.lock().unwrap();
         let path = self.config.artifact(id);
-        let mut reader = self.reader(&path)?;
+        let mut reader = system.reader(&path)?;
         let mut len_buffer = [0u8; 8];
         reader.read_exact(&mut len_buffer)?;
         let len = usize::from_bytes(&len_buffer).ok_or(std::io::Error::new(
@@ -303,3 +308,18 @@ impl AssetFileSystem {
 }
 
 impl Resource for AssetFileSystem {}
+
+pub trait PathExt {
+    fn append_extension(&self, ext: &str) -> PathBuf;
+    fn ext(&self) -> Option<&str>;
+}
+
+impl<T: AsRef<Path>> PathExt for T {
+    fn append_extension(&self, ext: &str) -> PathBuf {
+        PathBuf::from(format!("{}.{}", self.as_ref().display(), ext))
+    }
+
+    fn ext(&self) -> Option<&str> {
+        self.as_ref().extension().and_then(|ext| ext.to_str())
+    }
+}

@@ -2,9 +2,8 @@ use super::AssetId;
 use events::AssetEvents;
 use importer::AssetImporters;
 use shadow_ecs::core::Resource;
-use status::{AssetStatus, AssetTracker};
+use status::{AssetLibrary, AssetStatus, AssetTracker};
 use std::{
-    collections::HashMap,
     path::{Path, PathBuf},
     sync::{Arc, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard},
 };
@@ -36,6 +35,10 @@ impl AssetDatabase {
         self.library.read().unwrap()
     }
 
+    pub fn tracker(&self) -> RwLockReadGuard<AssetTracker> {
+        self.tracker.read().unwrap()
+    }
+
     pub fn importers(&self) -> RwLockReadGuard<AssetImporters> {
         self.importers.read().unwrap()
     }
@@ -44,57 +47,29 @@ impl AssetDatabase {
         self.tracker.read().unwrap().status(id)
     }
 
+    pub fn contains(&self, id: &AssetId) -> bool {
+        self.library().contains(id)
+    }
+
+    pub fn asset_path(&self, id: &AssetId) -> Option<PathBuf> {
+        self.library().id_path(id).cloned()
+    }
+
+    pub fn path_id(&self, path: &Path) -> Option<AssetId> {
+        self.library().path_id(path).copied()
+    }
+
     pub(crate) fn library_mut(&self) -> RwLockWriteGuard<AssetLibrary> {
         self.library.write().unwrap()
-    }
-
-    pub(crate) fn events(&self) -> std::sync::MutexGuard<AssetEvents> {
-        self.events.lock().unwrap()
-    }
-
-    pub(crate) fn tracker(&self) -> RwLockReadGuard<AssetTracker> {
-        self.tracker.read().unwrap()
     }
 
     pub(crate) fn tracker_mut(&self) -> RwLockWriteGuard<AssetTracker> {
         self.tracker.write().unwrap()
     }
+
+    pub(crate) fn events(&self) -> std::sync::MutexGuard<AssetEvents> {
+        self.events.lock().unwrap()
+    }
 }
 
 impl Resource for AssetDatabase {}
-
-pub struct AssetLibrary {
-    ids: HashMap<PathBuf, AssetId>,
-    paths: HashMap<AssetId, PathBuf>,
-}
-
-impl AssetLibrary {
-    pub fn new() -> Self {
-        AssetLibrary {
-            ids: HashMap::new(),
-            paths: HashMap::new(),
-        }
-    }
-
-    pub fn add(&mut self, id: AssetId, path: PathBuf) -> (Option<AssetId>, Option<PathBuf>) {
-        let ret_id = self.ids.insert(path.clone(), id);
-        let ret_path = self.paths.insert(id, path);
-
-        (ret_id, ret_path)
-    }
-
-    pub fn remove(&mut self, id: &AssetId) -> Option<PathBuf> {
-        let path = self.paths.remove(id)?;
-        self.ids.remove(&path);
-
-        Some(path)
-    }
-
-    pub fn id_path(&self, id: &AssetId) -> Option<&PathBuf> {
-        self.paths.get(id)
-    }
-
-    pub fn path_id(&self, path: &Path) -> Option<&AssetId> {
-        self.ids.get(path)
-    }
-}

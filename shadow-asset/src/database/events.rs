@@ -3,12 +3,16 @@ use super::{
     AssetDatabase,
 };
 use crate::{
-    asset::{Asset, AssetId, AssetMetadata, PathExt, Settings},
+    artifact::ArtifactMeta,
+    asset::{Asset, AssetId, AssetMetadata, Settings},
     importer::LoadError,
-    status::{AssetState, AssetStatus},
-    AssetConfig, AssetFileSystem, AssetIoError, AssetPath, AssetType, Assets, IntoBytes,
+    status::AssetStatus,
+    AssetConfig, AssetFileSystem, AssetIoError, AssetPath, Assets, IntoBytes, PathExt,
 };
-use shadow_ecs::event::{Event, EventStorage, Events};
+use shadow_ecs::{
+    event::{Event, EventStorage, Events},
+    storage::dense::DenseSet,
+};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     path::{Path, PathBuf},
@@ -247,10 +251,8 @@ impl AssetEvent for ImportFolder {
             }
         }
 
-        let mut db_events = db.events();
-        db_events.push_front(ImportAssets::new(imports));
-        db_events.push_front(RemoveAssets::new(removed));
-
+        db.events().push_front(ImportAssets::new(imports));
+        db.events().push_front(RemoveAssets::new(removed));
         events.extend(errors);
     }
 }
@@ -438,10 +440,10 @@ impl AssetEvent for ImportAssets {
         let mut assets = AssetStore::new();
 
         let (imported, errors) = Self::import(&self.paths, fs, db, &mut assets);
+        let reloads = imported.into_iter().map(|id| LoadRequest::soft(id));
 
-        let reloads = imported.into_iter().map(|id| ReloadAsset::new(id));
         events.extend(errors);
-        events.extend(reloads.collect());
+        db.events().push_back(LoadAssets::new(reloads.collect()));
     }
 }
 
@@ -468,6 +470,7 @@ impl RemoveAssets {
 impl AssetEvent for RemoveAssets {
     fn execute(&self, fs: &AssetFileSystem, db: &AssetDatabase, _: &Events) {
         let mut updates = HashMap::new();
+        let mut reloads = DenseSet::new();
         for path in &self.paths {
             let id = match db.library().path_id(path) {
                 Some(id) => *id,
@@ -483,19 +486,25 @@ impl AssetEvent for RemoveAssets {
                 }
             };
 
-            let artifact = match fs.load_artifact_meta(&id) {
-                Ok(artifact) => artifact,
-                Err(_) => continue,
-            };
-
-            for dependency in artifact.dependencies() {
-                let updates = updates
-                    .entry(*dependency)
-                    .or_insert(DependentUpdates::new());
-                updates.remove(id);
+            if let Ok(artifact) = fs.load_artifact_meta(&id) {
+                for dependency in artifact.dependencies() {
+                    let updates = updates
+                        .entry(*dependency)
+                        .or_insert(DependentUpdates::new());
+                    updates.remove(id);
+                }
             }
 
             let dep_path = fs.config().temp().join("dependents").join(id.to_string());
+
+            match fs
+                .read(&dep_path)
+                .ok()
+                .and_then(|bytes| HashSet::<AssetId>::from_bytes(&bytes))
+            {
+                Some(set) => reloads.extend(set),
+                None => todo!(),
+            }
 
             fs.remove(&dep_path).ok();
             fs.remove(fs.config().artifact(&id)).ok();
@@ -505,6 +514,9 @@ impl AssetEvent for RemoveAssets {
         for (id, updates) in updates.drain() {
             let _ = ImportAssets::update_dependents(id, fs, &updates);
         }
+
+        let reloads = reloads.iter().map(|id| LoadRequest::soft(*id)).collect();
+        db.events().push_back(LoadAssets::new(reloads));
     }
 }
 
@@ -531,24 +543,23 @@ impl LoadRequest {
             load_dependencies,
         }
     }
+
+    pub fn soft(id: AssetId) -> Self {
+        Self::new(id, false)
+    }
+
+    pub fn hard(id: AssetId) -> Self {
+        Self::new(id, true)
+    }
 }
 
 pub struct LoadAsset {
     path: AssetPath,
-    load_dependencies: bool,
 }
 
 impl LoadAsset {
     pub fn new(path: impl Into<AssetPath>) -> Self {
-        Self {
-            path: path.into(),
-            load_dependencies: true,
-        }
-    }
-
-    pub fn soft(mut self) -> Self {
-        self.load_dependencies = false;
-        self
+        Self { path: path.into() }
     }
 }
 
@@ -563,11 +574,11 @@ impl Event for LoadAsset {
 
     fn invoke(self, world: &mut shadow_ecs::world::World) -> Option<Self::Output> {
         match self.path {
-            AssetPath::Id(id) => Some(LoadRequest::new(id, self.load_dependencies)),
+            AssetPath::Id(id) => Some(LoadRequest::hard(id)),
             AssetPath::Path(path) => {
                 let db = world.resource::<AssetDatabase>();
                 let id = db.library().path_id(&path).copied();
-                id.map(|id| LoadRequest::new(id, self.load_dependencies))
+                id.map(|id| LoadRequest::hard(id))
             }
         }
     }
@@ -635,8 +646,9 @@ impl LoadAssets {
                 });
                 dependencies.extend(deps);
             }
+
+            db.tracker_mut().load(id, asset.meta().ty());
             assets.insert(id, asset);
-            db.tracker_mut().load(id);
         }
 
         errors.extend(Self::load(dependencies.iter(), fs, db, assets));
@@ -652,7 +664,7 @@ impl AssetEvent for LoadAssets {
 
         let errors = Self::load(&self.requests, fs, db, &mut assets);
 
-        for asset in assets.empty() {
+        for asset in assets.drain() {
             let importers = db.importers();
             let importer = importers.importer(asset.meta().ty()).unwrap();
 
@@ -664,21 +676,29 @@ impl AssetEvent for LoadAssets {
     }
 }
 
-pub struct ReloadAsset {
-    id: AssetId,
+pub struct AssetLoaded<A: Asset> {
+    asset: A,
+    meta: ArtifactMeta,
 }
 
-impl ReloadAsset {
-    pub fn new(id: AssetId) -> Self {
-        Self { id }
+impl<A: Asset> AssetLoaded<A> {
+    pub fn new(asset: A, meta: ArtifactMeta) -> Self {
+        AssetLoaded { asset, meta }
     }
 }
 
-impl Event for ReloadAsset {
+impl<A: Asset> Event for AssetLoaded<A> {
     type Output = AssetId;
 
-    fn invoke(self, _: &mut shadow_ecs::world::World) -> Option<Self::Output> {
-        Some(self.id)
+    fn invoke(self, world: &mut shadow_ecs::world::World) -> Option<Self::Output> {
+        let id = self.meta.id();
+        let assets = world.resource_mut::<Assets<A>>();
+        assets.insert(id, self.asset);
+
+        let db = world.resource::<AssetDatabase>();
+        db.tracker_mut().loaded(id, self.meta.dependencies);
+
+        Some(id)
     }
 }
 
@@ -697,42 +717,44 @@ impl<A: Asset> UnloadAsset<A> {
 }
 
 impl<A: Asset> Event for UnloadAsset<A> {
-    type Output = AssetState;
+    type Output = AssetUnload<A>;
 
     fn invoke(self, world: &mut shadow_ecs::world::World) -> Option<Self::Output> {
         let assets = world.resource_mut::<Assets<A>>();
         let asset = assets.remove(&self.id)?;
 
         let db = world.resource::<AssetDatabase>();
-        let mut tracker = db.tracker_mut();
-        let state = tracker.unload(&self.id)?;
-        world.events().add(AssetUnloaded::new(self.id, asset));
+        let state = db.tracker_mut().unload(&self.id)?;
+        let dependencies = state.dependencies().iter().copied().collect();
 
-        for dependent in state.dependents() {
-            if db.status(dependent) == AssetStatus::Loaded {
-                world.events().add(ReloadAsset::new(*dependent));
-            }
+        Some(AssetUnload::new(self.id, asset, dependencies))
+    }
+}
+
+pub struct AssetUnload<A: Asset> {
+    id: AssetId,
+    asset: A,
+    dependencies: Vec<AssetId>,
+}
+
+impl<A: Asset> AssetUnload<A> {
+    pub fn new(id: AssetId, asset: A, dependencies: Vec<AssetId>) -> Self {
+        Self {
+            id,
+            asset,
+            dependencies,
         }
-
-        Some(state)
     }
-}
 
-pub struct AssetUnloaded<A: Asset> {
-    pub id: AssetId,
-    pub asset: A,
-}
-
-impl<A: Asset> AssetUnloaded<A> {
-    pub fn new(id: AssetId, asset: A) -> Self {
-        Self { id, asset }
+    pub fn id(&self) -> &AssetId {
+        &self.id
     }
-}
 
-impl<A: Asset> Event for AssetUnloaded<A> {
-    type Output = Self;
+    pub fn asset(self) -> A {
+        self.asset
+    }
 
-    fn invoke(self, _: &mut shadow_ecs::world::World) -> Option<Self::Output> {
-        Some(self)
+    pub fn dependencies(&self) -> &[AssetId] {
+        &self.dependencies
     }
 }

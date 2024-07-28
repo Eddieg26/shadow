@@ -7,7 +7,7 @@ pub struct ArtifactMeta {
     ty: AssetType,
     checksum: u32,
     modified: u64,
-    dependencies: HashSet<AssetId>,
+    pub dependencies: HashSet<AssetId>,
 }
 
 impl ArtifactMeta {

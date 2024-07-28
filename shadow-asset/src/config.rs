@@ -1,4 +1,5 @@
-use super::{AssetId, PathExt};
+use super::AssetId;
+use crate::PathExt;
 use std::path::{Path, PathBuf};
 
 pub struct AssetConfig {

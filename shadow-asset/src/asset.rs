@@ -245,20 +245,7 @@ impl<'de, S: Settings> serde::Deserialize<'de> for AssetMetadata<S> {
     }
 }
 
-pub trait PathExt {
-    fn append_extension(&self, ext: &str) -> PathBuf;
-    fn ext(&self) -> Option<&str>;
-}
 
-impl<T: AsRef<Path>> PathExt for T {
-    fn append_extension(&self, ext: &str) -> PathBuf {
-        PathBuf::from(format!("{}.{}", self.as_ref().display(), ext))
-    }
-
-    fn ext(&self) -> Option<&str> {
-        self.as_ref().extension().and_then(|ext| ext.to_str())
-    }
-}
 
 pub struct Assets<A: Asset> {
     assets: HashMap<AssetId, A>,

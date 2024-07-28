@@ -1,8 +1,8 @@
 use crate::{
     artifact::{Artifact, ArtifactMeta},
     asset::{Asset, AssetId, AssetMetadata, AssetType, Settings},
-    status::AssetStatus,
-    AssetDatabase, AssetFileSystem, AssetIoError, AssetPath, Assets, IntoBytes,
+    events::{AssetLoaded, UnloadAsset},
+    AssetFileSystem, AssetIoError, AssetPath, IntoBytes,
 };
 use shadow_ecs::{
     ecs::{core::internal::blob::BlobCell, storage::dense::DenseMap},
@@ -30,12 +30,7 @@ impl ImportError {
         }
     }
 
-    pub fn with_artifact(mut self, artifact: ArtifactMeta) -> Self {
-        self.artifact = Some(artifact);
-        self
-    }
-
-    pub fn with_option_artifact(mut self, artifact: Option<ArtifactMeta>) -> Self {
+    pub fn with_artifact(mut self, artifact: Option<ArtifactMeta>) -> Self {
         self.artifact = artifact;
         self
     }
@@ -74,22 +69,7 @@ impl LoadError {
 impl Event for LoadError {
     type Output = Self;
 
-    fn invoke(self, world: &mut shadow_ecs::world::World) -> Option<Self::Output> {
-        let db = world.resource::<AssetDatabase>();
-        let id = match &self.path {
-            AssetPath::Id(id) => Some(*id),
-            AssetPath::Path(path) => {
-                let library = db.library();
-                library.path_id(path).copied()
-            }
-        };
-
-        if let Some(id) = id {
-            if db.status(&id) == AssetStatus::Loading {
-                db.tracker_mut().unload(&id);
-            }
-        }
-
+    fn invoke(self, _: &mut shadow_ecs::world::World) -> Option<Self::Output> {
         Some(self)
     }
 }
@@ -245,7 +225,7 @@ impl AssetStore {
         self.assets.contains_key(id)
     }
 
-    pub fn empty(&mut self) -> Vec<LoadedAsset> {
+    pub fn drain(&mut self) -> Vec<LoadedAsset> {
         self.assets.drain().map(|(_, v)| v).collect()
     }
 
@@ -302,7 +282,7 @@ impl ImportedAsset {
 
 pub struct LoadedAsset {
     pub(crate) asset: BlobCell,
-    meta: ArtifactMeta,
+    pub meta: ArtifactMeta,
 }
 
 impl LoadedAsset {
@@ -376,6 +356,7 @@ pub struct ErasedAssetImporter {
     load: fn(Artifact) -> std::io::Result<LoadedAsset>,
     load_metadata: fn(&Path, &AssetFileSystem) -> Result<LoadedMetadata, AssetIoError>,
     asset_loaded_event: fn(LoadedAsset, &mut EventStorage),
+    asset_unload_event: fn(AssetId, &mut EventStorage),
 }
 
 impl ErasedAssetImporter {
@@ -414,7 +395,7 @@ impl ErasedAssetImporter {
                 let artifact_bytes = artifact.into_bytes();
 
                 if let Err(e) = fs.write(path, artifact_bytes) {
-                    let error = ImportError::new(path, e).with_option_artifact(prev_artifact);
+                    let error = ImportError::new(path, e).with_artifact(prev_artifact);
                     return Err(error);
                 }
 
@@ -444,9 +425,13 @@ impl ErasedAssetImporter {
                 Ok(LoadedMetadata::new(id, data.into_bytes()))
             },
             asset_loaded_event: |loaded, events| {
-                let asset = loaded.asset.take::<I::Asset>();
-                let meta = loaded.meta;
-                events.add(AssetLoaded::new(asset, meta));
+                events.add(AssetLoaded::<I::Asset>::new(
+                    loaded.asset.take(),
+                    loaded.meta,
+                ));
+            },
+            asset_unload_event: |id, events| {
+                events.add(UnloadAsset::<I::Asset>::new(id));
             },
         }
     }
@@ -488,6 +473,10 @@ impl ErasedAssetImporter {
 
     pub fn asset_loaded(&self, loaded: LoadedAsset, events: &mut EventStorage) {
         (self.asset_loaded_event)(loaded, events)
+    }
+
+    pub fn asset_unload(&self, id: AssetId, events: &mut EventStorage) {
+        (self.asset_unload_event)(id, events)
     }
 }
 
@@ -550,32 +539,5 @@ impl DependentUpdates {
 
     pub fn removed(&self) -> &HashSet<AssetId> {
         &self.removed
-    }
-}
-
-pub struct AssetLoaded<A: Asset> {
-    asset: A,
-    meta: ArtifactMeta,
-}
-
-impl<A: Asset> AssetLoaded<A> {
-    pub fn new(asset: A, meta: ArtifactMeta) -> Self {
-        AssetLoaded { asset, meta }
-    }
-}
-
-impl<A: Asset> Event for AssetLoaded<A> {
-    type Output = AssetId;
-
-    fn invoke(self, world: &mut shadow_ecs::world::World) -> Option<Self::Output> {
-        let id = self.meta.id();
-        let assets = world.resource_mut::<Assets<A>>();
-        assets.insert(id, self.asset);
-
-        let db = world.resource::<AssetDatabase>();
-        db.tracker_mut()
-            .loaded(id, self.meta.ty(), self.meta.dependencies());
-
-        Some(id)
     }
 }
