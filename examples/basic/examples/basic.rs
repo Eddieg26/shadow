@@ -1,27 +1,13 @@
-use std::{
-    hash::{Hash, Hasher},
-    path::PathBuf,
-    time::Instant,
-};
-
 use shadow_asset::{
     asset::Asset,
-    importer::{AssetImporter, AssetSaver, CustomError},
-    DefaultSettings, IntoBytes,
+    importer::{AssetError, AssetImporter, AssetSaver},
+    AssetDatabase, AssetInit, AssetPlugin, AssetPluginExt, DefaultSettings, IntoBytes,
 };
-use shadow_ecs::ecs::{
-    core::{Component, Entity},
-    event::{Event, Events},
-    system::RunMode,
-    world::{
-        events::{self, AddComponent, RemoveComponent, Spawn},
-        query::Query,
-        World,
-    },
-};
+use shadow_ecs::{event::Events, world::events::Spawn};
 use shadow_game::{
     game::{Game, GameInstance},
-    schedule::{Init, PostUpdate, Update},
+    plugin::PhaseExt,
+    schedule::Init,
 };
 
 fn game_runner(mut game: GameInstance) {
@@ -66,12 +52,13 @@ impl AssetImporter for PlainText {
     type Asset = PlainText;
     type Settings = DefaultSettings;
     type Saver = PlainText;
-    type Error = CustomError;
+    type Error = AssetError;
 
     fn import(
         context: &mut shadow_asset::importer::LoadContext<Self::Settings>,
-    ) -> Result<Self::Asset, CustomError> {
-        let content = String::from_bytes(context.bytes()).ok_or("Failed to load content")?;
+    ) -> Result<Self::Asset, AssetError> {
+        let content = String::from_bytes(context.bytes())
+            .ok_or(AssetError::from("Failed to load content"))?;
         Ok(PlainText { content })
     }
 
@@ -81,9 +68,13 @@ impl AssetImporter for PlainText {
 }
 
 fn main() {
-    // Game::new()
-    //     .add_plugin(AssetPlugin::new("data"))
-    //     .set_runner(game_runner)
-    //     .register_importer::<PlainText>()
-    //     .run();
+    Game::new()
+        .add_sub_phase::<Init, AssetInit>()
+        .add_system(AssetInit, asset_init)
+        .set_runner(game_runner)
+        .run();
+}
+
+fn asset_init(events: &Events) {
+    events.add(Spawn::new())
 }

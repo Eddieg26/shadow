@@ -11,8 +11,8 @@ pub struct AssetConfig {
 }
 
 impl AssetConfig {
-    pub fn new(root: impl AsRef<Path>) -> Self {
-        let root = root.as_ref().to_path_buf();
+    pub fn new() -> Self {
+        let root = PathBuf::from("Project");
         Self {
             assets: root.join("Assets"),
             preferences: root.join("Preferences"),

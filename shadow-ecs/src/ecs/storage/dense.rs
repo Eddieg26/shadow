@@ -73,7 +73,10 @@ impl<K: Clone + Hash + Eq, V> DenseMap<K, V> {
         let index = self.map.remove(key)?;
         let value = self.values.remove(index);
         self.keys.remove(index);
-        self.map.insert(self.keys[index].clone(), index);
+
+        for i in index..self.values.len() {
+            self.map.insert(self.keys[i].clone(), i);
+        }
 
         Some(value)
     }
@@ -102,12 +105,12 @@ impl<K: Clone + Hash + Eq, V> DenseMap<K, V> {
         }
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (&K, &V)> {
-        self.keys.iter().zip(self.values.iter())
+    pub fn iter(&self) -> DenseMapIter<K, V> {
+        DenseMapIter::new(self)
     }
 
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = (&K, &mut V)> {
-        self.keys.iter().zip(self.values.iter_mut())
+    pub fn iter_mut(&mut self) -> DenseMapIterMut<K, V> {
+        DenseMapIterMut::new(self)
     }
 
     pub fn keys(&self) -> impl Iterator<Item = &K> {
@@ -161,6 +164,87 @@ impl<K: Clone + Hash + Eq, V> DenseMap<K, V> {
     }
 }
 
+pub struct DenseMapIter<'a, K: Clone + Hash + Eq, V> {
+    map: &'a DenseMap<K, V>,
+    index: usize,
+}
+
+impl<'a, K: Clone + Hash + Eq, V> DenseMapIter<'a, K, V> {
+    pub fn new(map: &'a DenseMap<K, V>) -> Self {
+        Self { map: map, index: 0 }
+    }
+}
+
+impl<'a, K: Clone + Hash + Eq, V> Iterator for DenseMapIter<'a, K, V> {
+    type Item = (&'a K, &'a V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index > self.map.values.len() {
+            let key = &self.map.keys[self.index];
+            let value = &self.map.values[self.index];
+            self.index += 1;
+            Some((key, value))
+        } else {
+            None
+        }
+    }
+}
+
+pub struct DenseMapIterMut<'a, K: Clone + Hash + Eq, V> {
+    map: &'a mut DenseMap<K, V>,
+    index: usize,
+}
+
+impl<'a, K: Clone + Hash + Eq, V> DenseMapIterMut<'a, K, V> {
+    pub fn new(map: &'a mut DenseMap<K, V>) -> Self {
+        Self { map, index: 0 }
+    }
+}
+
+impl<'a, K: Clone + Hash + Eq, V> Iterator for DenseMapIterMut<'a, K, V> {
+    type Item = (&'a K, &'a mut V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index > self.map.values.len() {
+            let map_ptr: *mut DenseMap<K, V> = self.map;
+
+            unsafe {
+                let map_mut: &mut DenseMap<K, V> = &mut *map_ptr;
+                let key = &map_mut.keys[self.index];
+                let value = &mut map_mut.values[self.index];
+                self.index += 1;
+                Some((key, value))
+            }
+        } else {
+            None
+        }
+    }
+}
+
+impl<'a, K: Clone + Hash + Eq, V> IntoIterator for &'a DenseMap<K, V> {
+    type Item = (&'a K, &'a V);
+    type IntoIter = DenseMapIter<'a, K, V>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        DenseMapIter {
+            map: self,
+            index: 0,
+        }
+    }
+}
+
+impl<'a, K: Clone + Hash + Eq, V> IntoIterator for &'a mut DenseMap<K, V> {
+    type Item = (&'a K, &'a mut V);
+    type IntoIter = DenseMapIterMut<'a, K, V>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        DenseMapIterMut {
+            map: self,
+            index: 0,
+        }
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct DenseSet<K: Clone + Hash + Eq> {
     keys: Vec<K>,
@@ -193,7 +277,10 @@ impl<K: Clone + Hash + Eq> DenseSet<K> {
     pub fn remove(&mut self, key: &K) -> Option<K> {
         let index = self.map.remove(key)?;
         let key = self.keys.remove(index);
-        self.map.insert(self.keys[index].clone(), index);
+
+        for i in index..self.keys.len() {
+            self.map.insert(self.keys[i].clone(), i);
+        }
 
         Some(key)
     }
@@ -228,12 +315,12 @@ impl<K: Clone + Hash + Eq> DenseSet<K> {
         &self.keys
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &K> {
-        self.keys.iter()
+    pub fn iter(&self) -> DenseSetIter<K> {
+        DenseSetIter::new(self)
     }
 
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut K> {
-        self.keys.iter_mut()
+    pub fn iter_mut(&mut self) -> DenseSetIterMut<K> {
+        DenseSetIterMut::new(self)
     }
 
     pub fn len(&self) -> usize {
@@ -289,5 +376,84 @@ impl<K: Clone + Hash + Eq> std::iter::Extend<K> for DenseSet<K> {
 impl<K: Clone + Hash + Eq> From<&[K]> for DenseSet<K> {
     fn from(slice: &[K]) -> Self {
         slice.iter().cloned().collect()
+    }
+}
+
+pub struct DenseSetIter<'a, K: Clone + Hash + Eq> {
+    set: &'a DenseSet<K>,
+    index: usize,
+}
+
+impl<'a, K: Clone + Hash + Eq> DenseSetIter<'a, K> {
+    pub fn new(set: &'a DenseSet<K>) -> Self {
+        Self { set, index: 0 }
+    }
+}
+
+impl<'a, K: Clone + Hash + Eq> Iterator for DenseSetIter<'a, K> {
+    type Item = &'a K;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index < self.set.keys.len() {
+            let key = &self.set.keys[self.index];
+            self.index += 1;
+            Some(key)
+        } else {
+            None
+        }
+    }
+}
+
+pub struct DenseSetIterMut<'a, K: Clone + Hash + Eq> {
+    set: &'a mut DenseSet<K>,
+    index: usize,
+}
+
+impl<'a, K: Clone + Hash + Eq> DenseSetIterMut<'a, K> {
+    pub fn new(set: &'a mut DenseSet<K>) -> Self {
+        Self { set, index: 0 }
+    }
+}
+
+impl<'a, K: Clone + Hash + Eq> Iterator for DenseSetIterMut<'a, K> {
+    type Item = &'a mut K;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index < self.set.keys.len() {
+            let set_ptr: *mut DenseSet<K> = self.set;
+
+            unsafe {
+                let set_mut: &mut DenseSet<K> = &mut *set_ptr;
+                let key = &mut set_mut.keys[self.index];
+                self.index += 1;
+                Some(key)
+            }
+        } else {
+            None
+        }
+    }
+}
+
+impl<'a, K: Clone + Hash + Eq> IntoIterator for &'a DenseSet<K> {
+    type Item = &'a K;
+    type IntoIter = DenseSetIter<'a, K>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        DenseSetIter {
+            set: self,
+            index: 0,
+        }
+    }
+}
+
+impl<'a, K: Clone + Hash + Eq> IntoIterator for &'a mut DenseSet<K> {
+    type Item = &'a mut K;
+    type IntoIter = DenseSetIterMut<'a, K>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        DenseSetIterMut {
+            set: self,
+            index: 0,
+        }
     }
 }

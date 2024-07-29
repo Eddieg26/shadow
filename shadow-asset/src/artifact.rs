@@ -76,11 +76,33 @@ impl ArtifactMeta {
 
 impl IntoBytes for ArtifactMeta {
     fn into_bytes(&self) -> Vec<u8> {
-        todo!()
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&self.id.into_bytes());
+        bytes.extend_from_slice(&self.ty.into_bytes());
+        bytes.extend_from_slice(&self.checksum.into_bytes());
+        bytes.extend_from_slice(&self.modified.into_bytes());
+
+        let deps = self.dependencies.into_bytes();
+        bytes.extend_from_slice(&deps.len().into_bytes());
+        bytes.extend_from_slice(&deps);
+
+        bytes
     }
 
     fn from_bytes(bytes: &[u8]) -> Option<Self> {
-        todo!()
+        let id = AssetId::from_bytes(&bytes[0..8])?;
+        let ty = AssetType::from_bytes(&bytes[8..16])?;
+        let checksum = u32::from_bytes(&bytes[16..20])?;
+        let modified = u64::from_bytes(&bytes[20..28])?;
+        let len = usize::from_bytes(&bytes[28..36])?;
+        let dependencies = HashSet::from_bytes(&bytes[36..36 + len])?;
+        Some(ArtifactMeta {
+            id,
+            ty,
+            checksum,
+            modified,
+            dependencies,
+        })
     }
 }
 
@@ -120,10 +142,18 @@ impl Artifact {
 
 impl IntoBytes for Artifact {
     fn into_bytes(&self) -> Vec<u8> {
-        todo!()
+        let mut bytes = Vec::new();
+        let meta = self.meta.into_bytes();
+        bytes.extend_from_slice(&meta.len().into_bytes());
+        bytes.extend_from_slice(&meta);
+        bytes.extend_from_slice(&self.asset);
+        bytes
     }
 
     fn from_bytes(bytes: &[u8]) -> Option<Self> {
-        todo!()
+        let len = usize::from_bytes(bytes)?;
+        let meta = ArtifactMeta::from_bytes(&bytes[8..8 + len])?;
+        let asset = bytes[8 + len..].to_vec();
+        Some(Artifact { meta, asset })
     }
 }

@@ -5,50 +5,22 @@ use std::{
     path::{Path, PathBuf},
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AssetStatus {
-    Unloaded,
-    Loading,
-    Loaded,
-}
-
 pub struct AssetState {
-    status: AssetStatus,
     ty: AssetType,
     dependencies: HashSet<AssetId>,
 }
 
 impl AssetState {
-    pub fn new(ty: AssetType, status: AssetStatus) -> Self {
-        Self {
-            status,
-            ty,
-            dependencies: HashSet::new(),
-        }
-    }
-
-    pub fn unknown() -> Self {
-        Self {
-            status: AssetStatus::Unloaded,
-            ty: AssetType::UNKNOWN,
-            dependencies: HashSet::new(),
-        }
+    pub fn new(ty: AssetType, dependencies: HashSet<AssetId>) -> Self {
+        Self { ty, dependencies }
     }
 
     pub fn ty(&self) -> AssetType {
         self.ty
     }
 
-    pub fn status(&self) -> AssetStatus {
-        self.status
-    }
-
     pub fn dependencies(&self) -> &HashSet<AssetId> {
         &self.dependencies
-    }
-
-    pub fn set_dependencies(&mut self, dependencies: HashSet<AssetId>) {
-        self.dependencies = dependencies;
     }
 
     pub fn removed_dependency(&mut self, id: &AssetId) -> bool {
@@ -56,53 +28,39 @@ impl AssetState {
     }
 }
 
-impl Default for AssetState {
-    fn default() -> Self {
-        Self::unknown()
-    }
-}
-
-pub struct AssetTracker {
+pub struct AssetStates {
     assets: HashMap<AssetId, AssetState>,
 }
 
-impl AssetTracker {
+impl AssetStates {
     pub fn new() -> Self {
         Self {
             assets: HashMap::new(),
         }
     }
 
-    pub fn state(&self, id: &AssetId) -> Option<&AssetState> {
+    pub fn loaded(&self, id: &AssetId) -> bool {
+        self.assets.contains_key(id)
+    }
+
+    pub fn get(&self, id: &AssetId) -> Option<&AssetState> {
         self.assets.get(id)
     }
 
-    pub fn state_mut(&mut self, id: &AssetId) -> Option<&mut AssetState> {
+    pub fn get_mut(&mut self, id: &AssetId) -> Option<&mut AssetState> {
         self.assets.get_mut(id)
     }
 
-    pub fn status(&self, id: &AssetId) -> AssetStatus {
-        self.state(id)
-            .map_or(AssetStatus::Unloaded, |state| state.status())
-    }
-
-    pub fn load(&mut self, id: AssetId, ty: AssetType) {
-        self.assets
-            .insert(id, AssetState::new(ty, AssetStatus::Loading));
-    }
-
-    pub fn loaded<'a>(&mut self, id: AssetId, dependencies: HashSet<AssetId>) {
-        match self.state_mut(&id) {
-            Some(state) => {
-                state.status = AssetStatus::Loaded;
-                state.set_dependencies(dependencies);
-            }
-            None => panic!("Asset not found: {:?}", id),
-        }
+    pub fn load<'a>(&mut self, id: AssetId, ty: AssetType, dependencies: HashSet<AssetId>) {
+        self.assets.insert(id, AssetState::new(ty, dependencies));
     }
 
     pub fn unload(&mut self, id: &AssetId) -> Option<AssetState> {
         self.assets.remove(id)
+    }
+
+    pub fn dependencies(&self, id: &AssetId) -> Option<&HashSet<AssetId>> {
+        self.assets.get(id).map(|state| state.dependencies())
     }
 
     pub fn dependents<'a>(&self, ids: impl Iterator<Item = &'a AssetId>) -> DenseSet<AssetId> {

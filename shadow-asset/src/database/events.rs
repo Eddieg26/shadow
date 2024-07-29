@@ -1,12 +1,11 @@
 use super::{
-    importer::{AssetStore, CustomError, DependentUpdates, ImportError, LoadedAsset, SavedAsset},
+    importer::{AssetStore, DependentUpdates, ImportError, LoadedAsset, SavedAsset},
     AssetDatabase,
 };
 use crate::{
     artifact::ArtifactMeta,
     asset::{Asset, AssetId, AssetMetadata, Settings},
-    importer::LoadError,
-    status::AssetStatus,
+    importer::{AssetError, LoadError},
     AssetConfig, AssetFileSystem, AssetIoError, AssetPath, Assets, IntoBytes, PathExt,
 };
 use shadow_ecs::{
@@ -16,15 +15,26 @@ use shadow_ecs::{
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     path::{Path, PathBuf},
+    vec,
 };
 
 pub trait AssetEvent: Send + Sync + 'static {
-    fn execute(&self, fs: &AssetFileSystem, db: &AssetDatabase, events: &Events);
+    fn execute(&self, db: &AssetDatabase, events: &Events);
 }
 
 impl<A: AssetEvent> From<A> for Box<dyn AssetEvent> {
     fn from(value: A) -> Self {
         Box::new(value)
+    }
+}
+
+pub trait AssetEventExt {
+    fn add_asset_event(&self, event: impl AssetEvent);
+}
+
+impl AssetEventExt for Events {
+    fn add_asset_event(&self, event: impl AssetEvent) {
+        self.add(StartAssetEvent::new(event));
     }
 }
 
@@ -65,13 +75,20 @@ impl AssetEvents {
 
 pub struct StartAssetEvent {
     event: Box<dyn AssetEvent>,
+    front: bool,
 }
 
 impl StartAssetEvent {
     pub fn new(event: impl Into<Box<dyn AssetEvent>>) -> Self {
         Self {
             event: event.into(),
+            front: false,
         }
+    }
+
+    pub fn push_front(mut self) -> Self {
+        self.front = true;
+        self
     }
 }
 
@@ -80,9 +97,42 @@ impl Event for StartAssetEvent {
 
     fn invoke(self, world: &mut shadow_ecs::world::World) -> Option<Self::Output> {
         let database = world.resource::<AssetDatabase>();
-        database.events().push_back(self.event);
+        match self.front {
+            true => database.events().push_front(self.event),
+            false => database.events().push_back(self.event),
+        }
 
         Some(())
+    }
+}
+
+impl AssetFileSystem {
+    pub fn dependents(&self) -> PathBuf {
+        self.config().temp().join("dependents")
+    }
+
+    pub fn asset_dependents(&self, id: AssetId) -> HashSet<AssetId> {
+        let path = self.dependents().join(id.to_string());
+
+        match self.read(&path) {
+            Ok(bytes) => HashSet::<AssetId>::from_bytes(&bytes).unwrap_or_default(),
+            Err(_) => HashSet::new(),
+        }
+    }
+
+    pub fn save_dependents(
+        &self,
+        id: AssetId,
+        dependents: HashSet<AssetId>,
+    ) -> Result<(), AssetIoError> {
+        let path = self.dependents().join(id.to_string());
+        let bytes = dependents.into_bytes();
+        self.write(&path, &bytes)
+    }
+
+    pub fn remove_dependents(&self, id: &AssetId) -> Result<(), AssetIoError> {
+        let path = self.dependents().join(id.to_string());
+        self.remove(&path).map(|_| ())
     }
 }
 
@@ -152,7 +202,7 @@ impl ImportFolder {
 
     pub fn scan_file(path: &Path, fs: &AssetFileSystem, db: &AssetDatabase) -> Option<EntryScan> {
         let importers = db.importers();
-        let importer = path.ext().and_then(|ext| importers.importer_by_ext(ext))?;
+        let importer = path.ext().and_then(|ext| importers.get_by_ext(ext))?;
 
         let metapath = AssetConfig::metadata(path);
         if !metapath.exists() {
@@ -200,7 +250,8 @@ impl ImportFolder {
         None
     }
 
-    fn import_folder(path: &Path, fs: &AssetFileSystem, db: &AssetDatabase) -> Vec<EntryScan> {
+    fn import_folder(path: &Path, db: &AssetDatabase) -> Vec<EntryScan> {
+        let fs = db.filesystem();
         let children = match fs.read_directory(path, false) {
             Ok(mut children) => children.drain(..).collect::<HashSet<_>>(),
             Err(e) => return vec![EntryScan::Error(ImportError::new(path, e))],
@@ -214,14 +265,14 @@ impl ImportFolder {
 
         for path in &children {
             if path.is_dir() {
-                scans.extend(Self::import_folder(path, fs, db));
+                scans.extend(Self::import_folder(path, db));
             } else if !matches!(path.ext(), Some("meta")) {
                 scans.extend(Self::scan_file(path, fs, db))
             }
         }
 
-        for removed in metadata.children().difference(&children) {
-            scans.push(EntryScan::Removed(removed.clone()))
+        for path in metadata.children().difference(&children) {
+            scans.push(EntryScan::Removed(path.clone()))
         }
 
         metadata.set_children(children);
@@ -235,8 +286,9 @@ impl ImportFolder {
 }
 
 impl AssetEvent for ImportFolder {
-    fn execute(&self, fs: &AssetFileSystem, db: &AssetDatabase, events: &Events) {
-        let mut scans = Self::import_folder(&self.path, fs, db);
+    fn execute(&self, db: &AssetDatabase, events: &Events) {
+        let path = db.filesystem().config().assets().join(&self.path);
+        let mut scans = Self::import_folder(&path, db);
         scans.sort_by(|a, b| a.priority().cmp(&b.priority()));
 
         let mut errors = vec![];
@@ -282,8 +334,21 @@ impl ImportAsset {
 impl Event for ImportAsset {
     type Output = PathBuf;
 
-    fn invoke(self, _: &mut shadow_ecs::world::World) -> Option<Self::Output> {
-        Some(self.path)
+    fn invoke(self, world: &mut shadow_ecs::world::World) -> Option<Self::Output> {
+        let db = world.resource::<AssetDatabase>();
+        let path = db.filesystem().config().assets().join(self.path);
+        Some(path)
+    }
+}
+
+pub struct ImportResult {
+    pub imported: DenseSet<AssetId>,
+    pub errors: Vec<ImportError>,
+}
+
+impl ImportResult {
+    pub fn new(imported: DenseSet<AssetId>, errors: Vec<ImportError>) -> Self {
+        Self { imported, errors }
     }
 }
 
@@ -298,11 +363,11 @@ impl ImportAssets {
 
     fn import<P: AsRef<Path>>(
         paths: impl IntoIterator<Item = P>,
-        fs: &AssetFileSystem,
         db: &AssetDatabase,
         assets: &mut AssetStore,
-    ) -> (impl IntoIterator<Item = AssetId>, Vec<ImportError>) {
-        let mut imported = HashSet::new();
+    ) -> ImportResult {
+        let fs = db.filesystem();
+        let mut imported = DenseSet::new();
         let mut dep_updates = HashMap::new();
         let mut errors = vec![];
 
@@ -338,11 +403,7 @@ impl ImportAssets {
 
         let mut dependents = HashSet::new();
         for id in &imported {
-            let path = fs.config().temp().join("dependents").join(id.to_string());
-            let deps = match fs.read(path) {
-                Ok(bytes) => HashSet::<AssetId>::from_bytes(&bytes).unwrap_or_default(),
-                Err(_) => continue,
-            };
+            let deps = fs.asset_dependents(*id);
 
             for dep in deps {
                 if let Some(path) = db.library().id_path(&dep) {
@@ -351,11 +412,11 @@ impl ImportAssets {
             }
         }
 
-        let res = Self::import(dependents, fs, db, assets);
-        imported.extend(res.0);
-        errors.extend(res.1);
+        let result = Self::import(dependents, db, assets);
+        imported.extend(result.imported);
+        errors.extend(result.errors);
 
-        (imported, errors)
+        ImportResult::new(imported, errors)
     }
 
     fn import_asset(
@@ -366,13 +427,12 @@ impl ImportAssets {
     ) -> Result<SavedAsset, ImportError> {
         let ext = path
             .ext()
-            .ok_or(ImportError::new(path, CustomError::from("No extension.")))?;
+            .ok_or(ImportError::new(path, AssetError::InvalidExtension))?;
 
         let importers = db.importers();
-        let importer = importers.importer_by_ext(ext).ok_or(ImportError::new(
-            path,
-            CustomError::from("No importer found for extension"),
-        ))?;
+        let importer = importers
+            .get_by_ext(ext)
+            .ok_or(ImportError::new(path, AssetError::NoImporter))?;
 
         let mut imported = importer.import(fs, path)?;
 
@@ -402,7 +462,7 @@ impl ImportAssets {
                 Err(_) => continue,
             };
 
-            let importer = match importers.importer(artifact.meta().ty()) {
+            let importer = match importers.get(artifact.meta().ty()) {
                 Some(importer) => importer,
                 None => continue,
             };
@@ -419,27 +479,22 @@ impl ImportAssets {
         fs: &AssetFileSystem,
         updates: &DependentUpdates,
     ) -> Result<(), AssetIoError> {
-        let path = fs.config().temp().join("dependents").join(id.to_string());
-        let bytes = fs.read(&path)?;
-
-        let mut dependents = HashSet::<AssetId>::from_bytes(&bytes).unwrap_or_default();
+        let mut dependents = fs.asset_dependents(id);
         dependents.extend(updates.added());
         dependents.retain(|id| !updates.removed().contains(id));
 
-        if !dependents.is_empty() {
-            let bytes = dependents.into_bytes();
-            fs.write(&path, &bytes)
-        } else {
-            fs.remove(&path).map(|_| ())
+        match dependents.is_empty() {
+            true => fs.remove_dependents(&id),
+            false => fs.save_dependents(id, dependents),
         }
     }
 }
 
 impl AssetEvent for ImportAssets {
-    fn execute(&self, fs: &AssetFileSystem, db: &AssetDatabase, events: &Events) {
+    fn execute(&self, db: &AssetDatabase, events: &Events) {
         let mut assets = AssetStore::new();
 
-        let (imported, errors) = Self::import(&self.paths, fs, db, &mut assets);
+        let ImportResult { imported, errors } = Self::import(&self.paths, db, &mut assets);
         let reloads = imported.into_iter().map(|id| LoadRequest::soft(id));
 
         events.extend(errors);
@@ -468,22 +523,15 @@ impl RemoveAssets {
 }
 
 impl AssetEvent for RemoveAssets {
-    fn execute(&self, fs: &AssetFileSystem, db: &AssetDatabase, _: &Events) {
+    fn execute(&self, db: &AssetDatabase, events: &Events) {
+        let fs = db.filesystem();
         let mut updates = HashMap::new();
-        let mut reloads = DenseSet::new();
+        let mut removed = vec![];
+
         for path in &self.paths {
             let id = match db.library().path_id(path) {
                 Some(id) => *id,
-                None => {
-                    let importers = db.importers();
-                    match path.ext().and_then(|ext| importers.importer_by_ext(ext)) {
-                        Some(importer) => match importer.load_metadata(path, fs) {
-                            Ok(metadata) => metadata.id,
-                            Err(_) => continue,
-                        },
-                        None => continue,
-                    }
-                }
+                None => continue,
             };
 
             if let Ok(artifact) = fs.load_artifact_meta(&id) {
@@ -495,28 +543,17 @@ impl AssetEvent for RemoveAssets {
                 }
             }
 
-            let dep_path = fs.config().temp().join("dependents").join(id.to_string());
-
-            match fs
-                .read(&dep_path)
-                .ok()
-                .and_then(|bytes| HashSet::<AssetId>::from_bytes(&bytes))
-            {
-                Some(set) => reloads.extend(set),
-                None => todo!(),
-            }
-
-            fs.remove(&dep_path).ok();
-            fs.remove(fs.config().artifact(&id)).ok();
             db.library_mut().remove(&id);
+            fs.remove_dependents(&id).ok();
+            fs.remove_artifact(&id).ok();
+            removed.push(AssetRemoved::new(id));
         }
 
         for (id, updates) in updates.drain() {
             let _ = ImportAssets::update_dependents(id, fs, &updates);
         }
 
-        let reloads = reloads.iter().map(|id| LoadRequest::soft(*id)).collect();
-        db.events().push_back(LoadAssets::new(reloads));
+        events.extend(removed);
     }
 }
 
@@ -527,6 +564,24 @@ impl Event for RemoveAssets {
         world.events().add(StartAssetEvent::new(self));
 
         None
+    }
+}
+
+pub struct AssetRemoved {
+    id: AssetId,
+}
+
+impl AssetRemoved {
+    pub fn new(id: AssetId) -> Self {
+        Self { id }
+    }
+}
+
+impl Event for AssetRemoved {
+    type Output = AssetId;
+
+    fn invoke(self, _: &mut shadow_ecs::world::World) -> Option<Self::Output> {
+        Some(self.id)
     }
 }
 
@@ -570,15 +625,16 @@ impl From<AssetId> for LoadRequest {
 }
 
 impl Event for LoadAsset {
-    type Output = LoadRequest;
+    type Output = AssetId;
 
     fn invoke(self, world: &mut shadow_ecs::world::World) -> Option<Self::Output> {
         match self.path {
-            AssetPath::Id(id) => Some(LoadRequest::hard(id)),
+            AssetPath::Id(id) => Some(id),
             AssetPath::Path(path) => {
                 let db = world.resource::<AssetDatabase>();
+                let path = db.filesystem().config().assets().join(path);
                 let id = db.library().path_id(&path).copied();
-                id.map(|id| LoadRequest::hard(id))
+                id
             }
         }
     }
@@ -594,85 +650,77 @@ impl LoadAssets {
         Self { requests }
     }
 
+    pub fn load_asset(request: &LoadRequest, db: &AssetDatabase) -> Result<LoadedAsset, LoadError> {
+        let id = request.id;
+        let fs = db.filesystem();
+
+        let artifact = fs.load_artifact(&id).map_err(|e| LoadError::new(id, e))?;
+        let importers = db.importers();
+        let importer = importers
+            .get(artifact.meta().ty())
+            .ok_or(LoadError::new(id, AssetError::NoImporter))?;
+
+        importer.load(artifact).map_err(|e| LoadError::new(id, e))
+    }
+
     pub fn load<'a>(
-        ids: impl IntoIterator<Item = &'a LoadRequest>,
-        fs: &AssetFileSystem,
+        requests: impl IntoIterator<Item = &'a LoadRequest>,
         db: &AssetDatabase,
         assets: &mut AssetStore,
     ) -> Vec<LoadError> {
         let mut dependencies = Vec::new();
         let mut errors = vec![];
-        for request in ids {
-            let id = request.id;
 
-            if assets.contains(&id) {
+        for request in requests {
+            if assets.contains(&request.id) {
                 continue;
             }
 
-            let artifact = match fs.load_artifact(&id) {
-                Ok(artifact) => artifact,
-                Err(e) => {
-                    errors.push(LoadError::new(id, e));
-                    continue;
-                }
-            };
-
-            let importers = db.importers();
-            let importer = match importers.importer(artifact.meta().ty()) {
-                Some(importer) => importer,
-                None => {
-                    let error =
-                        LoadError::new(id, CustomError::from("No importer found for asset type."));
-                    errors.push(error);
-                    continue;
-                }
-            };
-
-            let asset = match importer.load(artifact) {
+            let asset = match Self::load_asset(request, db) {
                 Ok(asset) => asset,
                 Err(e) => {
-                    errors.push(LoadError::new(id, e));
+                    errors.push(e);
                     continue;
                 }
             };
 
             if request.load_dependencies {
                 let deps = asset.meta().dependencies().iter().filter_map(|id| {
-                    if !assets.contains(id) && db.status(id) != AssetStatus::Loaded {
-                        Some(LoadRequest::new(*id, true))
-                    } else {
-                        None
-                    }
+                    (!assets.contains(id) && (!db.loaded(id))).then_some(LoadRequest::hard(*id))
                 });
                 dependencies.extend(deps);
             }
 
-            db.tracker_mut().load(id, asset.meta().ty());
-            assets.insert(id, asset);
+            assets.insert(request.id, asset);
         }
 
-        errors.extend(Self::load(dependencies.iter(), fs, db, assets));
+        errors.extend(Self::load(dependencies.iter(), db, assets));
 
         errors
     }
 }
 
 impl AssetEvent for LoadAssets {
-    fn execute(&self, fs: &AssetFileSystem, db: &AssetDatabase, events: &Events) {
+    fn execute(&self, db: &AssetDatabase, events: &Events) {
         let mut assets = AssetStore::new();
+        let errors = Self::load(&self.requests, db, &mut assets);
+
+        let mut loaded = vec![];
         let mut loaded_events = EventStorage::new();
-
-        let errors = Self::load(&self.requests, fs, db, &mut assets);
-
         for asset in assets.drain() {
             let importers = db.importers();
-            let importer = importers.importer(asset.meta().ty()).unwrap();
+            let importer = importers.get(asset.meta().ty()).unwrap();
 
+            loaded.push(asset.meta().id());
             importer.asset_loaded(asset, &mut loaded_events);
         }
 
+        let dependents = db.states().dependents(loaded.iter());
+        let reloads = dependents.iter().map(|id| LoadRequest::soft(*id));
+
         events.extend(errors);
-        events.append(loaded_events);
+        events.extend(loaded_events.into());
+        events.add_asset_event(LoadAssets::new(reloads.collect()));
     }
 }
 
@@ -696,7 +744,8 @@ impl<A: Asset> Event for AssetLoaded<A> {
         assets.insert(id, self.asset);
 
         let db = world.resource::<AssetDatabase>();
-        db.tracker_mut().loaded(id, self.meta.dependencies);
+        db.states_mut()
+            .load(id, self.meta.ty(), self.meta.dependencies);
 
         Some(id)
     }
@@ -724,7 +773,7 @@ impl<A: Asset> Event for UnloadAsset<A> {
         let asset = assets.remove(&self.id)?;
 
         let db = world.resource::<AssetDatabase>();
-        let state = db.tracker_mut().unload(&self.id)?;
+        let state = db.states_mut().unload(&self.id)?;
         let dependencies = state.dependencies().iter().copied().collect();
 
         Some(AssetUnload::new(self.id, asset, dependencies))

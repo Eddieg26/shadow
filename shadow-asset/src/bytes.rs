@@ -5,7 +5,7 @@ use std::{
     path::PathBuf,
 };
 
-use shadow_ecs::ecs::storage::dense::DenseMap;
+use shadow_ecs::{ecs::storage::dense::DenseMap, storage::dense::DenseSet};
 
 pub trait IntoBytes: Sized {
     fn into_bytes(&self) -> Vec<u8>;
@@ -333,6 +333,42 @@ impl<K: IntoBytes + Eq + Hash + Clone, V: IntoBytes> IntoBytes for DenseMap<K, V
         }
 
         Some(map)
+    }
+}
+
+impl<K: Clone + Hash + Eq + IntoBytes> IntoBytes for DenseSet<K> {
+    fn into_bytes(&self) -> Vec<u8> {
+        let mut bytes = vec![];
+
+        let len = self.len();
+        bytes.extend_from_slice(&len.into_bytes());
+
+        for key in self.iter() {
+            let key_bytes = key.into_bytes();
+            let key_len = key_bytes.len();
+            bytes.extend_from_slice(&key_len.into_bytes());
+            bytes.extend_from_slice(&key_bytes);
+        }
+
+        bytes
+    }
+
+    fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        let mut set = DenseSet::new();
+        let mut offset = 0;
+
+        let len = usize::from_bytes(&bytes[offset..offset + 8])?;
+        offset += 8;
+        for _ in 0..len {
+            let key_len = usize::from_bytes(&bytes[offset..offset + 8])?;
+            offset += 8;
+            let key = K::from_bytes(&bytes[offset..offset + key_len])?;
+            offset += key_len;
+
+            set.insert(key);
+        }
+
+        Some(set)
     }
 }
 

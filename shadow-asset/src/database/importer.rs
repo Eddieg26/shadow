@@ -15,6 +15,41 @@ use std::{
 };
 
 #[derive(Debug)]
+pub enum AssetError {
+    Io(std::io::Error),
+    Dyn(Box<dyn Error + Send + Sync>),
+    NoImporter,
+    InvalidExtension,
+    Other(String),
+}
+
+impl std::fmt::Display for AssetError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            AssetError::Io(e) => write!(f, "IO error: {}", e),
+            AssetError::Dyn(e) => write!(f, "Asset error: {}", e),
+            AssetError::NoImporter => write!(f, "No importer found"),
+            AssetError::InvalidExtension => write!(f, "Invalid extension"),
+            AssetError::Other(e) => write!(f, "Asset error: {}", e),
+        }
+    }
+}
+
+impl From<String> for AssetError {
+    fn from(value: String) -> Self {
+        AssetError::Other(value)
+    }
+}
+
+impl From<&str> for AssetError {
+    fn from(value: &str) -> Self {
+        AssetError::Other(value.to_string())
+    }
+}
+
+impl Error for AssetError {}
+
+#[derive(Debug)]
 pub struct ImportError {
     pub path: PathBuf,
     pub artifact: Option<ArtifactMeta>,
@@ -73,23 +108,6 @@ impl Event for LoadError {
         Some(self)
     }
 }
-
-#[derive(Debug)]
-pub struct CustomError(String);
-
-impl std::fmt::Display for CustomError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "Custom error: {}", self.0)
-    }
-}
-
-impl<I: AsRef<str>> From<I> for CustomError {
-    fn from(error: I) -> Self {
-        CustomError(error.as_ref().to_string())
-    }
-}
-
-impl Error for CustomError {}
 
 pub struct LoadContext<'a, S: Settings> {
     path: &'a Path,
@@ -503,12 +521,19 @@ impl AssetImporters {
         }
     }
 
-    pub fn importer(&self, ty: AssetType) -> Option<&ErasedAssetImporter> {
+    pub fn register_processer<P: AssetProcessor>(&mut self) {
+        let ty = AssetType::from::<<P::Importer as AssetImporter>::Asset>();
+        if let Some(importer) = self.importers.get_mut(&ty) {
+            importer.set_processer::<P>();
+        }
+    }
+
+    pub fn get(&self, ty: AssetType) -> Option<&ErasedAssetImporter> {
         self.importers.get(&ty)
     }
 
-    pub fn importer_by_ext(&self, ext: &str) -> Option<&ErasedAssetImporter> {
-        self.types.get(ext).and_then(|ty| self.importer(*ty))
+    pub fn get_by_ext(&self, ext: &str) -> Option<&ErasedAssetImporter> {
+        self.types.get(ext).and_then(|ty| self.get(*ty))
     }
 }
 

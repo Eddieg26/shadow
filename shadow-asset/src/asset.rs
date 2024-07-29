@@ -122,6 +122,16 @@ impl AssetType {
     }
 }
 
+impl IntoBytes for AssetType {
+    fn into_bytes(&self) -> Vec<u8> {
+        self.0.into_bytes()
+    }
+
+    fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        u64::from_bytes(bytes).map(AssetType)
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct SettingsType(u64);
 
@@ -244,8 +254,6 @@ impl<'de, S: Settings> serde::Deserialize<'de> for AssetMetadata<S> {
         )
     }
 }
-
-
 
 pub struct Assets<A: Asset> {
     assets: HashMap<AssetId, A>,

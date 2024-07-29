@@ -1,7 +1,11 @@
+use super::events::AssetLoaded;
 use crate::{
-    events::{AssetUnload, ImportAssets, LoadAssets, LoadRequest, RemoveAssets, StartAssetEvent},
+    events::{
+        AssetEventExt, AssetUnload, ImportAssets, LoadAssets, LoadRequest, RemoveAssets,
+        StartAssetEvent,
+    },
     importer::{ImportError, LoadError},
-    Asset, AssetDatabase, AssetFileSystem, AssetPath,
+    Asset, AssetDatabase, AssetId, AssetPath,
 };
 use shadow_ecs::{
     event::{Event, EventStorage, Events},
@@ -12,7 +16,6 @@ use std::path::PathBuf;
 pub fn on_start_asset_event(
     _: &[<StartAssetEvent as Event>::Output],
     db: &AssetDatabase,
-    fs: &AssetFileSystem,
     events: &Events,
     tasks: &TaskPool,
 ) {
@@ -20,11 +23,10 @@ pub fn on_start_asset_event(
     if !db_events.running() {
         db_events.set_running(true);
         let db = db.clone();
-        let fs = fs.clone();
         let events = events.clone();
         tasks.spawn(move || {
             while let Some(event) = db.events().pop() {
-                event.execute(&fs, &db, &events)
+                event.execute(&db, &events)
             }
 
             db.events().set_running(false);
@@ -32,53 +34,77 @@ pub fn on_start_asset_event(
     }
 }
 
-pub fn on_import_asset(paths: &[PathBuf], db: &AssetDatabase) {
+pub fn on_import_asset(paths: &[PathBuf], events: &Events) {
     let paths = paths.iter().map(|p| p.clone()).collect();
 
-    db.events().push_back(ImportAssets::new(paths))
+    events.add_asset_event(ImportAssets::new(paths));
 }
 
-pub fn on_load_error(errors: &[LoadError], db: &AssetDatabase) {
+pub fn on_load_error(errors: &[LoadError], db: &AssetDatabase, main_events: &Events) {
     let mut events = EventStorage::new();
     for error in errors {
         let id = match &error.path {
             AssetPath::Id(id) => *id,
-            AssetPath::Path(path) => {
-                if let Some(id) = db.path_id(path) {
-                    id
-                } else {
-                    continue;
-                }
-            }
+            AssetPath::Path(path) => match db.path_id(path) {
+                Some(id) => id,
+                None => continue,
+            },
         };
 
-        let tracker = db.tracker();
+        let states = db.states();
 
-        if let Some(state) = tracker.state(&id) {
+        if let Some(state) = states.get(&id) {
             let importers = db.importers();
-            let importer = importers.importer(state.ty()).unwrap();
-            importer.asset_unload(id, &mut events);
+            match importers.get(state.ty()) {
+                Some(importer) => importer.asset_unload(id, &mut events),
+                None => continue,
+            };
         }
     }
+
+    main_events.extend(events.into());
 }
 
-pub fn on_import_error(errors: &[ImportError], db: &AssetDatabase) {
+pub fn on_import_error(errors: &[ImportError], events: &Events) {
     let removed = errors.iter().map(|e| e.path.clone()).collect::<Vec<_>>();
 
-    db.events().push_back(RemoveAssets::new(removed))
+    events.add_asset_event(RemoveAssets::new(removed));
 }
 
-pub fn on_load_asset(requests: &[LoadRequest], db: &AssetDatabase) {
-    let requests = requests.to_vec();
+pub fn on_load_asset(ids: &[AssetId], events: &Events) {
+    let requests = ids.iter().map(|id| LoadRequest::soft(*id)).collect();
 
-    db.events().push_back(LoadAssets::new(requests));
+    events.add_asset_event(LoadAssets::new(requests));
 }
 
-pub fn on_unload_asset<A: Asset>(unloads: &[AssetUnload<A>], db: &AssetDatabase) {
-    let tracker = db.tracker();
+pub fn on_unload_asset<A: Asset>(unloads: &[AssetUnload<A>], db: &AssetDatabase, events: &Events) {
+    let states = db.states();
     let ids = unloads.iter().map(|u| u.id());
-    let dependents = tracker.dependents(ids).drain();
+    let dependents = states.dependents(ids).drain();
     let loads = dependents.iter().map(|id| LoadRequest::soft(*id)).collect();
 
-    db.events().push_back(LoadAssets::new(loads));
+    events.add_asset_event(LoadAssets::new(loads))
+}
+
+pub fn on_asset_loaded<A: Asset>(
+    ids: &[<AssetLoaded<A> as Event>::Output],
+    db: &AssetDatabase,
+    events: &Events,
+) {
+    let dependents = db.states().dependents(ids.iter()).drain();
+    let loads = dependents.iter().map(|id| LoadRequest::soft(*id)).collect();
+
+    events.add_asset_event(LoadAssets::new(loads));
+}
+
+pub fn on_asset_removed(ids: &[AssetId], db: AssetDatabase) {
+    let states = db.states();
+    let mut unloads = EventStorage::new();
+    for id in ids {
+        if let Some(state) = states.get(id) {
+            let importers = db.importers();
+            let importer = importers.get(state.ty()).unwrap();
+            importer.asset_unload(*id, &mut unloads);
+        }
+    }
 }

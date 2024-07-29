@@ -4,7 +4,6 @@ use super::{
     AssetId, AssetMetadata, Settings,
 };
 use crate::IntoBytes;
-use shadow_ecs::core::Resource;
 use std::{
     error::Error,
     hash::Hash,
@@ -102,6 +101,9 @@ pub trait FileSystem: Send + Sync + 'static {
     fn rename(&mut self, old: &Path, new: &Path) -> Result<(), AssetIoError>;
     fn read_directory(&self, path: &Path, recursive: bool) -> Result<Vec<PathBuf>, AssetIoError>;
     fn create_dir(&mut self, path: &Path) -> Result<(), AssetIoError>;
+    fn exists(&self, path: &Path) -> bool {
+        path.exists()
+    }
 }
 
 pub struct LocalFileSystem;
@@ -172,6 +174,10 @@ impl FileSystem for LocalFileSystem {
     fn create_dir(&mut self, path: &Path) -> Result<(), AssetIoError> {
         std::fs::create_dir_all(path).map_err(|e| e.into())
     }
+
+    fn exists(&self, path: &Path) -> bool {
+        path.exists()
+    }
 }
 
 #[derive(Clone)]
@@ -240,6 +246,22 @@ impl AssetFileSystem {
         system.read_directory(path.as_ref(), recursive)
     }
 
+    pub fn create_dir(&self, path: impl AsRef<Path>) -> Result<(), AssetIoError> {
+        let mut system = self.system.lock().map_err(|e| {
+            AssetIoError::Io(Arc::new(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string(),
+            )))
+        })?;
+
+        system.create_dir(path.as_ref())
+    }
+
+    pub fn exists(&self, path: impl AsRef<Path>) -> bool {
+        let system = self.system.lock().unwrap();
+        system.exists(path.as_ref())
+    }
+
     pub fn load_metadata<S: Settings>(
         &self,
         path: impl AsRef<Path>,
@@ -272,9 +294,9 @@ impl AssetFileSystem {
             std::io::ErrorKind::InvalidData,
             "Could not read length.",
         ))?;
-        let mut buffer = vec![0u8; len];
+        let mut buffer = vec![0u8; len + 8];
         reader.read_exact(&mut buffer)?;
-        let meta = ArtifactMeta::from_bytes(&buffer).ok_or(std::io::Error::new(
+        let meta = ArtifactMeta::from_bytes(&buffer[8..]).ok_or(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
             "Could not read artifact meta.",
         ))?;
@@ -288,6 +310,13 @@ impl AssetFileSystem {
         Artifact::from_bytes(&bytes).ok_or(
             std::io::Error::new(std::io::ErrorKind::InvalidData, "Could not read artifact.").into(),
         )
+    }
+
+    pub fn remove_artifact(&self, id: &AssetId) -> Result<(), AssetIoError> {
+        let mut system = self.system.lock().unwrap();
+        let path = self.config.artifact(id);
+        system.remove(&path)?;
+        Ok(())
     }
 
     pub fn modified_secs(path: impl AsRef<Path>) -> Result<u64, AssetIoError> {
@@ -306,8 +335,6 @@ impl AssetFileSystem {
         hasher.finalize()
     }
 }
-
-impl Resource for AssetFileSystem {}
 
 pub trait PathExt {
     fn append_extension(&self, ext: &str) -> PathBuf;
