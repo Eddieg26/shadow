@@ -339,7 +339,7 @@ impl ComponentEvents {
             }),
             remove: Box::new(|world, entity, column| {
                 let outputs = world.resource_mut::<EventOutputs<RemoveComponent<C>>>();
-                let component = column.swap_remove(0).remove::<C>(0).unwrap();
+                let component = column.swap_remove(0).remove::<C>(0);
                 outputs.add((*entity, component));
             }),
         }

@@ -1,5 +1,5 @@
 use super::{
-    core::{internal::blob::Blob, Resource},
+    core::{internal::blob::BlobCell, Resource},
     storage::dense::DenseSet,
     world::World,
 };
@@ -25,16 +25,14 @@ pub type EventType = TypeId;
 
 pub struct ErasedEvent {
     ty: EventType,
-    event: Blob,
+    event: BlobCell,
 }
 
 impl ErasedEvent {
     pub fn new<E: Event>(event: E) -> Self {
-        let mut data = Blob::new::<E>();
-        data.push(event);
         Self {
             ty: TypeId::of::<E>(),
-            event: data,
+            event: BlobCell::new(event),
         }
     }
 
@@ -42,24 +40,12 @@ impl ErasedEvent {
         &self.ty
     }
 
-    pub fn data(&self) -> &Blob {
-        &self.event
-    }
-
     pub fn cast<E: Event>(&self) -> Option<&E> {
-        if self.ty == TypeId::of::<E>() {
-            self.event.get::<E>(0)
-        } else {
-            None
-        }
+        (self.ty == TypeId::of::<E>()).then_some(self.event.value::<E>())
     }
 
     pub fn cast_mut<E: Event>(&mut self) -> Option<&mut E> {
-        if self.ty == TypeId::of::<E>() {
-            self.event.get_mut::<E>(0)
-        } else {
-            None
-        }
+        (self.ty == TypeId::of::<E>()).then_some(self.event.value_mut())
     }
 }
 

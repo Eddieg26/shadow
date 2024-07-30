@@ -1,17 +1,35 @@
+use shadow_ecs::ecs::{event::Events, world::events::Spawn};
+use shadow_game::{
+    game::{Game, GameInstance},
+    plugin::PhaseExt,
+    schedule::{DefaultPhaseRunner, Init, Phase},
+};
+
+pub struct AssetInit;
+
+impl Phase for AssetInit {
+    type Runner = DefaultPhaseRunner;
+
+    fn runner() -> Self::Runner {
+        DefaultPhaseRunner
+    }
+}
+
+fn game_runner(mut game: GameInstance) {
+    game.init();
+    loop {
+        game.update();
+    }
+}
+
 fn main() {
+    Game::new()
+        .add_sub_phase::<Init, AssetInit>()
+        .add_system(AssetInit, asset_init)
+        .set_runner(game_runner)
+        .run();
+}
 
-    // let bytes = std::fs::read("cache/7569663888696199759").unwrap();
-    // let pack = AssetPack::<PlainText, ()>::parse(&bytes).unwrap();
-    // println!("Pack: {:?}", &pack.asset().text);
-
-    // let meta = AssetMetadata::<()>::default();
-    // println!("Id: {:?}", meta.id());
-    // let bytes = meta.as_bytes();
-    // println!("Bytes: {:?}", &bytes);
-    // std::fs::write("assets/test.meta", &bytes).unwrap();
-
-    // let bytes = std::fs::read("assets/test.meta").unwrap();
-    // println!("Bytes: {:?}", &bytes);
-    // let meta = AssetMetadata::<()>::from_bytes(&bytes).unwrap();
-    // println!("Id: {:?}", meta.id());
+fn asset_init(events: &Events) {
+    events.add(Spawn::new())
 }

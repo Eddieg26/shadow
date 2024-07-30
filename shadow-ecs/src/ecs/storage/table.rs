@@ -8,15 +8,15 @@ pub struct Column {
 }
 
 impl Column {
-    pub fn new<C>() -> Self {
+    pub fn new<C: 'static>() -> Self {
         Column {
-            data: Blob::new::<C>(),
+            data: Blob::new::<C>(1),
         }
     }
 
     pub fn from_column(column: &Column) -> Self {
         Column {
-            data: column.data.copy(1),
+            data: Blob::with_layout(*column.data.layout(), 1, column.data.drop().copied()),
         }
     }
 
@@ -31,7 +31,7 @@ impl Column {
         }
     }
 
-    pub fn get<C>(&self, index: usize) -> Option<&C> {
+    pub fn get<C: 'static>(&self, index: usize) -> Option<&C> {
         self.data.get(index)
     }
 
@@ -39,15 +39,15 @@ impl Column {
         self.data.get_mut(index)
     }
 
-    pub fn insert<C>(&mut self, value: C) {
+    pub fn insert<C: 'static>(&mut self, value: C) {
         self.data.push(value);
     }
 
-    pub fn push(&mut self, mut value: Blob) {
-        self.data.append(&mut value);
+    pub fn push(&mut self, value: Blob) {
+        self.data.extend(value);
     }
 
-    pub fn remove<C>(&mut self, index: usize) -> Option<C> {
+    pub fn remove<C: 'static>(&mut self, index: usize) -> Option<C> {
         self.data.remove(index)
     }
 
@@ -78,7 +78,7 @@ pub struct TableCell<'a> {
 }
 
 impl<'a> TableCell<'a> {
-    pub fn cast<C>(&self) -> Option<&C> {
+    pub fn cast<C: 'static>(&self) -> Option<&C> {
         self.column.get(self.index)
     }
 
@@ -159,7 +159,7 @@ pub struct SelectedRow<'a> {
 }
 
 impl<'a> SelectedRow<'a> {
-    pub fn get<C>(&self, component: ComponentId) -> Option<&C> {
+    pub fn get<C: 'static>(&self, component: ComponentId) -> Option<&C> {
         self.cells.get(&component).and_then(|cell| cell.cast())
     }
 
