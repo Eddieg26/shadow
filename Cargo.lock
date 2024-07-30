@@ -6,7 +6,6 @@ version = 3
 name = "basic"
 version = "0.1.0"
 dependencies = [
- "shadow-asset",
  "shadow-ecs",
  "shadow-game",
  "toml",
@@ -173,17 +172,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "79e674e01f999af37c49f70a6ede167a8a60b2503e56c5599532a65baa5969a0"
 dependencies = [
  "serde",
-]
-
-[[package]]
-name = "shadow-asset"
-version = "0.1.0"
-dependencies = [
- "serde",
- "shadow-ecs",
- "shadow-game",
- "toml",
- "ulid",
 ]
 
 [[package]]

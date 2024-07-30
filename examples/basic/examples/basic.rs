@@ -1,34 +1,4 @@
-use basic::PlainText;
-use shadow_asset::{
-    asset::{AssetId, AssetMetadata, AssetSettings, Assets, DefaultSettings},
-    bytes::AsBytes,
-    pack::AssetPack,
-    plugin::{
-        events::{AssetLoaded, ImportAsset, LoadAsset},
-        AssetPlugin, AssetPluginExt,
-    },
-};
-use shadow_ecs::ecs::event::Events;
-use shadow_game::{game::Game, schedule::PreUpdate};
-use std::path::PathBuf;
-
 fn main() {
-    Game::new()
-        .add_plugin(AssetPlugin)
-        .register_loader::<PlainText>()
-        .add_system(PreUpdate, |events: &Events| {
-            events.add(LoadAsset::<PlainText>::new("test.txt"));
-        })
-        .observe::<ImportAsset<PlainText>, _>(|path: &[PathBuf]| {
-            println!("Observe Import PlainText {:?}", path);
-        })
-        .observe::<AssetLoaded<PlainText>, _>(|ids: &[AssetId], assets: &Assets<PlainText>| {
-            for id in ids {
-                let asset = assets.get_unchecked(id);
-                println!("Text {:?}", &asset.text);
-            }
-        })
-        .run();
 
     // let bytes = std::fs::read("cache/7569663888696199759").unwrap();
     // let pack = AssetPack::<PlainText, ()>::parse(&bytes).unwrap();
