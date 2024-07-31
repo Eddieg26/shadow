@@ -6,6 +6,7 @@ use crate::{
         dense::{DenseMap, DenseSet},
         table::{Column, ComponentSet},
     },
+    system::schedule::SystemTag,
 };
 pub struct Spawn {
     parent: Option<Entity>,
@@ -37,7 +38,7 @@ impl Event for Spawn {
     type Output = Entity;
     const PRIORITY: i32 = i32::MAX - 1000;
 
-    fn invoke(&mut self, world: &mut super::World) -> Option<Self::Output> {
+    fn invoke(mut self, world: &mut super::World) -> Option<Self::Output> {
         let entity = world.spawn(self.parent);
         if matches!(self.parent, Some(_)) {
             world.events().add(SetParent::new(entity, self.parent));
@@ -65,7 +66,7 @@ impl Event for Despawn {
     type Output = Vec<Entity>;
     const PRIORITY: i32 = i32::MIN + 1000;
 
-    fn invoke(&mut self, world: &mut super::World) -> Option<Self::Output> {
+    fn invoke(self, world: &mut super::World) -> Option<Self::Output> {
         let mut entities = vec![];
         for (entity, mut set) in world.despawn(&self.entity).drain() {
             entities.push(entity);
@@ -132,7 +133,7 @@ impl Event for SetParent {
     type Output = ParentUpdate;
     const PRIORITY: i32 = Spawn::PRIORITY - 1000;
 
-    fn invoke(&mut self, world: &mut super::World) -> Option<Self::Output> {
+    fn invoke(self, world: &mut super::World) -> Option<Self::Output> {
         let old_parent = world.set_parent(&self.entity, self.parent.as_ref());
         Some(ParentUpdate::new(self.entity, self.parent, old_parent))
     }
@@ -153,7 +154,7 @@ impl Event for AddChildren {
     type Output = Vec<ParentUpdate>;
     const PRIORITY: i32 = SetParent::PRIORITY - 1000;
 
-    fn invoke(&mut self, world: &mut super::World) -> Option<Self::Output> {
+    fn invoke(self, world: &mut super::World) -> Option<Self::Output> {
         let updates = self
             .children
             .iter()
@@ -190,7 +191,7 @@ impl Event for RemoveChildren {
     type Output = Vec<ParentUpdate>;
     const PRIORITY: i32 = AddChildren::PRIORITY - 1000;
 
-    fn invoke(&mut self, world: &mut super::World) -> Option<Self::Output> {
+    fn invoke(self, world: &mut super::World) -> Option<Self::Output> {
         let updates = self
             .children
             .iter()
@@ -222,7 +223,7 @@ impl<C: Component> Event for AddComponent<C> {
     type Output = Entity;
     const PRIORITY: i32 = Spawn::PRIORITY - 1000;
 
-    fn invoke(&mut self, world: &mut super::World) -> Option<Self::Output> {
+    fn invoke(mut self, world: &mut super::World) -> Option<Self::Output> {
         let component = self.component.take()?;
         let _ = world.add_component(&self.entity, component)?;
 
@@ -256,7 +257,7 @@ impl Event for AddComponents {
     type Output = Entity;
     const PRIORITY: i32 = AddComponent::<()>::PRIORITY;
 
-    fn invoke(&mut self, world: &mut super::World) -> Option<Self::Output> {
+    fn invoke(mut self, world: &mut super::World) -> Option<Self::Output> {
         let mut components = ComponentSet::new();
         for (id, column) in self.components.drain() {
             components.add_column(id, column);
@@ -287,7 +288,7 @@ impl<C: Component> Event for RemoveComponent<C> {
     type Output = (Entity, C);
     const PRIORITY: i32 = AddComponent::<C>::PRIORITY - 1000;
 
-    fn invoke(&mut self, world: &mut super::World) -> Option<Self::Output> {
+    fn invoke(self, world: &mut super::World) -> Option<Self::Output> {
         let id = ComponentId::new::<C>();
         let mut _move = world.remove_component(&self.entity, &id)?;
         let component = _move.removed_mut().remove_component::<C>(&id)?;
@@ -318,7 +319,7 @@ impl Event for RemoveComponents {
     type Output = Entity;
     const PRIORITY: i32 = RemoveComponent::<()>::PRIORITY;
 
-    fn invoke(&mut self, world: &mut super::World) -> Option<Self::Output> {
+    fn invoke(mut self, world: &mut super::World) -> Option<Self::Output> {
         let components = std::mem::take(&mut self.components);
         let _move = world.remove_components(&self.entity, components)?;
         Some(self.entity)
@@ -351,5 +352,24 @@ impl ComponentEvents {
 
     pub fn remove(&self, world: &World, entity: &Entity, column: &mut Column) {
         (self.remove)(world, entity, column);
+    }
+}
+
+pub struct ActivateSystemGroup {
+    tag: SystemTag,
+}
+
+impl ActivateSystemGroup {
+    pub fn new(tag: impl Into<SystemTag>) -> Self {
+        Self { tag: tag.into() }
+    }
+}
+
+impl Event for ActivateSystemGroup {
+    type Output = ();
+
+    fn invoke(self, world: &mut super::World) -> Option<Self::Output> {
+        world.activate_system_group(self.tag);
+        None
     }
 }

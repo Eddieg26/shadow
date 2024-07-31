@@ -18,7 +18,7 @@ pub trait Event: Send + Sync + 'static {
         Self::PRIORITY
     }
 
-    fn invoke(&mut self, world: &mut World) -> Option<Self::Output>;
+    fn invoke(self, world: &mut World) -> Option<Self::Output>;
 }
 
 pub type EventType = TypeId;
@@ -47,11 +47,15 @@ impl ErasedEvent {
     pub fn cast_mut<E: Event>(&mut self) -> Option<&mut E> {
         (self.ty == TypeId::of::<E>()).then_some(self.event.value_mut())
     }
+
+    pub fn take<E: Event>(self) -> E {
+        self.event.take::<E>()
+    }
 }
 
 pub struct EventMeta {
     priority: i32,
-    invoke: Box<dyn Fn(&mut ErasedEvent, &mut World) + Send + Sync>,
+    invoke: Box<dyn Fn(ErasedEvent, &mut World) + Send + Sync>,
     clear: Box<dyn Fn(&World) + Send + Sync>,
 }
 
@@ -60,12 +64,11 @@ impl EventMeta {
         Self {
             priority: E::PRIORITY,
             invoke: Box::new(|event, world| {
-                let mut outputs = Vec::<E::Output>::new();
-                let event = event.cast_mut::<E>().expect("Invalid event type");
+                let event = event.take::<E>();
                 if let Some(output) = event.invoke(world) {
-                    outputs.push(output);
+                    world.events().invoked::<E>();
+                    world.resource_mut::<EventOutputs<E>>().add(output);
                 }
-                world.resource_mut::<EventOutputs<E>>().extend(outputs);
             }),
             clear: Box::new(|world| {
                 world.resource_mut::<EventOutputs<E>>().clear();
@@ -77,7 +80,7 @@ impl EventMeta {
         self.priority
     }
 
-    pub fn invoke(&self, event: &mut ErasedEvent, world: &mut World) {
+    pub fn invoke(&self, event: ErasedEvent, world: &mut World) {
         (self.invoke)(event, world)
     }
 
@@ -105,7 +108,7 @@ impl Events {
     pub fn register<E: Event>(&mut self) -> EventOutputs<E> {
         let meta = Arc::new(EventMeta::new::<E>());
         self.metas.insert(TypeId::of::<E>(), meta);
-        EventOutputs::<E>::new(self.invocations.clone())
+        EventOutputs::<E>::new()
     }
 
     pub fn meta<E: Event>(&self) -> Arc<EventMeta> {
@@ -144,6 +147,11 @@ impl Events {
         events.drain(..).collect::<Vec<_>>()
     }
 
+    pub(crate) fn invoked<E: Event>(&self) {
+        let mut invocations = self.invocations.write().unwrap();
+        invocations.insert(EventInvocation::new::<E>());
+    }
+
     pub(crate) fn invocations(&self) -> Vec<EventInvocation> {
         let mut invocations = self.invocations.write().unwrap();
         invocations.sort();
@@ -173,36 +181,21 @@ impl Events {
 
 pub struct EventOutputs<E: Event> {
     outputs: Vec<E::Output>,
-    invocations: Arc<RwLock<DenseSet<EventInvocation>>>,
 }
 
 impl<E: Event> EventOutputs<E> {
-    pub fn new(invocations: Arc<RwLock<DenseSet<EventInvocation>>>) -> Self {
+    pub fn new() -> Self {
         Self {
             outputs: Vec::new(),
-            invocations,
         }
     }
 
     pub fn add(&mut self, output: E::Output) {
         self.outputs.push(output);
-        if self.outputs.len() == 1 {
-            self.invocations
-                .write()
-                .unwrap()
-                .insert(EventInvocation::new::<E>());
-        }
     }
 
     pub fn extend(&mut self, outputs: Vec<E::Output>) {
-        let is_empty = self.outputs.is_empty();
         self.outputs.extend(outputs);
-        if is_empty {
-            self.invocations
-                .write()
-                .unwrap()
-                .insert(EventInvocation::new::<E>());
-        }
     }
 
     pub fn drain(&mut self) -> Vec<E::Output> {

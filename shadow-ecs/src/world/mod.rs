@@ -263,9 +263,9 @@ impl World {
         let mut events = self.events.drain();
 
         while !events.is_empty() {
-            for mut event in events {
+            for event in events {
                 let meta = self.events.meta_dynamic(event.ty());
-                meta.invoke(&mut event, self);
+                meta.invoke(event, self);
             }
 
             self.observers.run(self);
@@ -278,8 +278,8 @@ impl World {
         let ty = TypeId::of::<E>();
         let meta = self.events.meta_dynamic(&ty);
         while !events.is_empty() {
-            for mut event in events {
-                meta.invoke(&mut event, self);
+            for event in events {
+                meta.invoke(event, self);
             }
 
             self.observers.run_type::<E>(self);
