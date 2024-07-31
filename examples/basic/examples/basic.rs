@@ -1,9 +1,9 @@
 use shadow_ecs::{
     archetype::Archetypes,
     core::{Components, Entities, LocalResources, Resources},
-    ecs::system::schedule::Phase,
     event::Events,
     system::observer::EventObservers,
+    system::schedule::Phase,
     world::{
         events::{
             AddChildren, AddComponents, Despawn, RemoveChildren, RemoveComponents, SetParent, Spawn,

@@ -1,4 +1,4 @@
-use shadow_ecs::ecs::system::schedule::{Phase, Schedule};
+use shadow_ecs::system::schedule::{Phase, Schedule};
 
 pub struct Init;
 impl Phase for Init {}

@@ -4,7 +4,7 @@ use super::{
     event::Events,
     world::World,
 };
-use crate::ecs::{
+use crate::{
     core::ResourceType,
     system::access::{Access, WorldAccessType},
 };

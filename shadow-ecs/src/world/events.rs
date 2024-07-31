@@ -1,5 +1,5 @@
 use super::World;
-use crate::ecs::{
+use crate::{
     core::{Component, ComponentId, Entity},
     event::{Event, EventOutputs},
     storage::{

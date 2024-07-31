@@ -3,7 +3,7 @@ use crate::{
     phases::{Execute, Init, Shutdown},
     plugin::Plugin,
 };
-use shadow_ecs::ecs::{
+use shadow_ecs::{
     core::{Component, LocalResource, Resource},
     event::Event,
     system::{

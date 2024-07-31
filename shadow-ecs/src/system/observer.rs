@@ -2,7 +2,7 @@ use super::{
     access::{WorldAccess, WorldAccessType},
     ArgItem, SystemArg,
 };
-use crate::ecs::{
+use crate::{
     core::internal::blob::Blob,
     event::{Event, EventOutputs, EventType},
     storage::dense::DenseMap,

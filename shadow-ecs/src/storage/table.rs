@@ -1,4 +1,4 @@
-use crate::ecs::{
+use crate::{
     core::{internal::blob::Blob, Component, ComponentId, Entity},
     storage::dense::{DenseMap, DenseSet, ImmutableDenseMap},
 };

@@ -2,7 +2,7 @@ use super::{
     graph::{Graph, GraphNode},
     IntoSystem, System,
 };
-use crate::ecs::{
+use crate::{
     task::{max_thread_count, ScopedTaskPool},
     world::World,
 };

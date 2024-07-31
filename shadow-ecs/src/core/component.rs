@@ -1,4 +1,4 @@
-use crate::ecs::storage::dense::DenseMap;
+use crate::storage::dense::DenseMap;
 use std::{
     alloc::Layout,
     any::{Any, TypeId},

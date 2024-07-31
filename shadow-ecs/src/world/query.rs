@@ -1,6 +1,5 @@
 use std::collections::HashSet;
-
-use crate::ecs::{
+use crate::{
     archetype::{Archetype, ArchetypeId},
     core::{Component, ComponentId, Entity},
     system::{

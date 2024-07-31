@@ -1,5 +1,5 @@
 use super::{IntoSystem, ParallelRunner, RunMode, SequentialRunner, SystemGraph, SystemRunner};
-use crate::ecs::{
+use crate::{
     storage::dense::{DenseMap, DenseSet},
     world::World,
 };
