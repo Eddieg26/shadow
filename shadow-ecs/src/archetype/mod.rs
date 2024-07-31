@@ -10,6 +10,8 @@ use std::{
     hash::{Hash, Hasher},
 };
 
+pub mod v2;
+
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum EdgeType {
     Add,
