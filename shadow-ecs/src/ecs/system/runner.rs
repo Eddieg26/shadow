@@ -1,14 +1,9 @@
-use std::{
-    num::NonZeroUsize,
-    sync::{Arc, Mutex},
-};
-
 use super::{
     graph::{Graph, GraphNode},
     IntoSystem, System,
 };
 use crate::ecs::{
-    task::{JobBarrier, ScopedTaskPool},
+    task::{max_thread_count, ScopedTaskPool},
     world::World,
 };
 
@@ -25,21 +20,14 @@ impl GraphNode for System {
     }
 }
 
-pub struct Systems {
+pub struct SystemGraph {
     graph: Graph<System>,
-    runner: SystemRunner,
-    mode: RunMode,
 }
 
-impl Systems {
-    pub fn new(mode: RunMode) -> Self {
+impl SystemGraph {
+    pub fn new() -> Self {
         Self {
-            runner: match mode {
-                RunMode::Sequential => SystemRunner::new(SequentialRunner),
-                RunMode::Parallel => SystemRunner::new(ParallelRunner),
-            },
             graph: Graph::new(),
-            mode,
         }
     }
 
@@ -49,23 +37,19 @@ impl Systems {
         let (before, mut after) = system.systems();
 
         let after_ids = after
-            .drain(0..)
+            .drain(..)
             .map(|s| self.add_system(s))
             .collect::<Vec<_>>();
 
         let id = self.graph.insert(system);
 
-        if matches!(self.mode, RunMode::Parallel) {
-            after_ids
-                .iter()
-                .for_each(|a| self.graph.add_depenency(id, *a));
-        }
+        after_ids
+            .iter()
+            .for_each(|a| self.graph.add_dependency(id, *a));
 
         for before in before {
             let before_id = self.graph.insert(before);
-            if matches!(self.mode, RunMode::Parallel) {
-                self.graph.add_depenency(before_id, id);
-            }
+            self.graph.add_dependency(before_id, id);
         }
 
         id
@@ -74,17 +58,17 @@ impl Systems {
     pub fn build(&mut self) {
         self.graph.build();
     }
+}
 
-    pub fn run(&self, world: &World) {
-        if !self.graph.is_built() {
-            println!("System graph not built.")
-        } else {
-            self.runner.run(self, world);
-        }
+impl std::ops::Deref for SystemGraph {
+    type Target = Graph<System>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.graph
     }
 }
 
-impl std::fmt::Display for Systems {
+impl std::fmt::Display for SystemGraph {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.graph.fmt(f)
     }
@@ -96,7 +80,7 @@ pub enum RunMode {
     Parallel,
 }
 
-pub trait Runner: 'static {
+pub trait Runner: Send + Sync + 'static {
     fn run(&self, graph: &Graph<System>, world: &World);
 }
 
@@ -104,10 +88,8 @@ pub struct SequentialRunner;
 
 impl Runner for SequentialRunner {
     fn run(&self, graph: &Graph<System>, world: &World) {
-        for systems in graph.iter() {
-            for system in systems {
-                system.run(world);
-            }
+        for system in graph.nodes() {
+            system.run(world);
         }
     }
 }
@@ -116,30 +98,16 @@ pub struct ParallelRunner;
 
 impl Runner for ParallelRunner {
     fn run(&self, graph: &Graph<System>, world: &World) {
-        let available_threads = std::thread::available_parallelism()
-            .unwrap_or(NonZeroUsize::new(1).unwrap())
-            .into();
+        let available_threads = max_thread_count();
         for row in graph.iter() {
             let num_threads = row.len().min(available_threads);
 
-            ScopedTaskPool::new(num_threads, |sender| {
-                let (barrier, lock) = JobBarrier::new(row.len());
-                let barrier = Arc::new(Mutex::new(barrier));
+            let mut pool = ScopedTaskPool::new(num_threads);
+            for system in row {
+                pool.spawn(move || system.run(world));
+            }
 
-                for system in &row {
-                    let barrier = barrier.clone();
-
-                    sender.send(move || {
-                        system.run(world);
-
-                        barrier.lock().unwrap().notify();
-                    });
-                }
-
-                sender.join();
-
-                lock.wait(barrier.lock().unwrap());
-            });
+            pool.run();
         }
     }
 }
@@ -151,7 +119,7 @@ impl SystemRunner {
         Self(Box::new(runner))
     }
 
-    pub fn run(&self, systems: &Systems, world: &World) {
+    pub fn run(&self, systems: &SystemGraph, world: &World) {
         self.0.run(&systems.graph, world)
     }
 }

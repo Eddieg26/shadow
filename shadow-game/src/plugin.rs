@@ -1,115 +1,6 @@
-use super::{scene::Scene, schedule::Phase};
-use crate::game::{Game, GameRunner};
-use shadow_ecs::ecs::{
-    core::{Component, LocalResource, Resource},
-    event::Event,
-    storage::dense::DenseMap,
-    system::{observer::IntoObserver, IntoSystem},
-};
+use crate::game::Game;
+use shadow_ecs::ecs::storage::dense::DenseMap;
 use std::any::TypeId;
-
-pub struct PluginContext<'a> {
-    game: &'a mut Game,
-}
-
-impl<'a> PluginContext<'a> {
-    pub fn new(game: &'a mut Game) -> Self {
-        Self { game }
-    }
-
-    pub fn register<C: Component>(&mut self) -> &mut Self {
-        self.game.register::<C>();
-        self
-    }
-
-    pub fn register_event<E: Event>(&mut self) -> &mut Self {
-        self.game.register_event::<E>();
-        self
-    }
-
-    pub fn add_resource<R: Resource>(&mut self, resource: R) -> &mut Self {
-        self.game.add_resource(resource);
-        self
-    }
-
-    pub fn add_local_resource<R: LocalResource>(&mut self, resource: R) -> &mut Self {
-        self.game.add_local_resource(resource);
-        self
-    }
-
-    pub fn observe<E: Event, M>(&mut self, observer: impl IntoObserver<E, M>) -> &mut Self {
-        self.game.observe(observer);
-        self
-    }
-
-    pub fn add_system<M>(&mut self, phase: impl Phase, system: impl IntoSystem<M>) -> &mut Self {
-        self.game.add_system(phase, system);
-        self
-    }
-
-    pub fn add_scene<S: Scene>(&mut self, scene: S) -> &mut Self {
-        self.game.add_scene(scene);
-        self
-    }
-
-    pub fn set_runner<R: GameRunner + 'static>(&mut self, runner: R) -> &mut Self {
-        self.game.set_runner(runner);
-        self
-    }
-
-    pub fn resource<R: Resource>(&self) -> &R {
-        self.game.resource::<R>()
-    }
-
-    pub fn resource_mut<R: Resource>(&mut self) -> &mut R {
-        self.game.resource_mut::<R>()
-    }
-
-    pub fn local_resource<R: LocalResource>(&self) -> &R {
-        self.game.local_resource::<R>()
-    }
-
-    pub fn local_resource_mut<R: LocalResource>(&mut self) -> &mut R {
-        self.game.local_resource_mut::<R>()
-    }
-
-    pub fn try_resource<R: Resource>(&self) -> Option<&R> {
-        self.game.try_resource::<R>()
-    }
-
-    pub fn try_resource_mut<R: Resource>(&mut self) -> Option<&mut R> {
-        self.game.try_resource_mut::<R>()
-    }
-}
-
-pub trait PhaseExt {
-    fn add_phase<P: Phase>(&mut self) -> &mut Self;
-    fn add_sub_phase<P: Phase, Q: Phase>(&mut self) -> &mut Self;
-    fn insert_phase_before<P: Phase, Q: Phase>(&mut self) -> &mut Self;
-    fn insert_phase_after<P: Phase, Q: Phase>(&mut self) -> &mut Self;
-}
-
-impl<'a> PhaseExt for PluginContext<'a> {
-    fn add_phase<P: Phase>(&mut self) -> &mut Self {
-        self.game.add_phase::<P>();
-        self
-    }
-
-    fn add_sub_phase<P: Phase, Q: Phase>(&mut self) -> &mut Self {
-        self.game.add_sub_phase::<P, Q>();
-        self
-    }
-
-    fn insert_phase_before<P: Phase, Q: Phase>(&mut self) -> &mut Self {
-        self.game.insert_phase_before::<P, Q>();
-        self
-    }
-
-    fn insert_phase_after<P: Phase, Q: Phase>(&mut self) -> &mut Self {
-        self.game.insert_phase_after::<P, Q>();
-        self
-    }
-}
 
 pub struct Plugins {
     plugins: DenseMap<TypeId, Box<dyn Plugin>>,
@@ -146,21 +37,21 @@ impl Plugins {
         plugins
     }
 
-    pub(crate) fn start(&mut self, ctx: &mut PluginContext) {
+    pub(crate) fn start(&mut self, game: &mut Game) {
         for plugin in self.plugins.values_mut() {
-            plugin.start(ctx);
+            plugin.start(game);
         }
     }
 
-    pub(crate) fn run(&mut self, ctx: &mut PluginContext) {
+    pub(crate) fn run(&mut self, game: &mut Game) {
         for plugin in self.plugins.values_mut() {
-            plugin.run(ctx);
+            plugin.run(game);
         }
     }
 
-    pub(crate) fn finish(&mut self, ctx: &mut PluginContext) {
+    pub(crate) fn finish(&mut self, game: &mut Game) {
         for plugin in self.plugins.values_mut() {
-            plugin.finish(ctx);
+            plugin.finish(game);
         }
     }
 }
@@ -169,7 +60,7 @@ pub trait Plugin: 'static {
     fn dependencies(&self) -> Plugins {
         Plugins::new()
     }
-    fn start(&mut self, _ctx: &mut PluginContext) {}
-    fn run(&mut self, _ctx: &mut PluginContext) {}
-    fn finish(&mut self, _ctx: &mut PluginContext) {}
+    fn start(&mut self, _: &mut Game) {}
+    fn run(&mut self, game: &mut Game);
+    fn finish(&mut self, _: &mut Game) {}
 }

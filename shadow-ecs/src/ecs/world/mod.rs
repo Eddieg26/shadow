@@ -13,8 +13,12 @@ use super::{
         dense::{DenseMap, DenseSet},
         table::ComponentSet,
     },
-    system::observer::{EventObservers, IntoObserver},
-    task::TaskManager,
+    system::{
+        observer::{EventObservers, IntoObserver},
+        schedule::{Phase, PhaseRunner, SystemGroup, SystemTag, Systems, SystemsInfo},
+        IntoSystem, RunMode,
+    },
+    task::{max_thread_count, TaskPool},
 };
 use std::{any::TypeId, collections::HashSet};
 
@@ -22,6 +26,8 @@ pub mod events;
 pub mod query;
 
 pub struct World {
+    systems: Option<Systems>,
+    infos: SystemsInfo,
     resources: Resources,
     local_resources: LocalResources,
     components: Components,
@@ -29,7 +35,7 @@ pub struct World {
     archetypes: Archetypes,
     events: Events,
     observers: EventObservers,
-    tasks: TaskManager,
+    tasks: TaskPool,
 }
 
 impl World {
@@ -47,12 +53,14 @@ impl World {
         Self {
             resources,
             events,
+            systems: Some(Systems::new(RunMode::Parallel)),
+            infos: SystemsInfo::new(),
             local_resources: LocalResources::new(),
             components: Components::new(),
             entities: Entities::new(),
             archetypes: Archetypes::new(),
             observers: EventObservers::new(),
-            tasks: TaskManager::new(),
+            tasks: TaskPool::new(max_thread_count().min(3)),
         }
     }
 
@@ -88,7 +96,7 @@ impl World {
         &self.events
     }
 
-    pub fn tasks(&self) -> &TaskManager {
+    pub fn tasks(&self) -> &TaskPool {
         &self.tasks
     }
 }
@@ -108,6 +116,47 @@ impl World {
         self
     }
 
+    pub fn add_system<M>(&mut self, phase: impl Phase, system: impl IntoSystem<M>) -> &mut Self {
+        self.systems.as_mut().unwrap().add_system(phase, system);
+        self
+    }
+
+    pub fn add_phase<P: Phase>(&mut self) -> &mut Self {
+        self.systems.as_mut().unwrap().add_phase::<P>();
+        self
+    }
+
+    pub fn add_sub_phase<Main: Phase, Sub: Phase>(&mut self) -> &mut Self {
+        self.systems.as_mut().unwrap().add_sub_phase::<Main, Sub>();
+        self
+    }
+
+    pub fn insert_phase_before<Main: Phase, Before: Phase>(&mut self) -> &mut Self {
+        self.systems
+            .as_mut()
+            .unwrap()
+            .insert_phase_before::<Main, Before>();
+        self
+    }
+
+    pub fn insert_phase_after<Main: Phase, After: Phase>(&mut self) -> &mut Self {
+        self.systems
+            .as_mut()
+            .unwrap()
+            .insert_phase_after::<Main, After>();
+        self
+    }
+
+    pub fn add_phase_runner<P: Phase>(&mut self, runner: impl PhaseRunner) -> &mut Self {
+        self.systems.as_mut().unwrap().add_phase_runner::<P>(runner);
+        self
+    }
+
+    pub fn add_system_group<G: SystemGroup>(&mut self) -> &mut Self {
+        self.infos.add_system_group::<G>();
+        self
+    }
+
     pub fn add_resource<R: Resource>(&mut self, resource: R) -> &mut Self {
         self.resources.add(resource);
         self
@@ -120,6 +169,11 @@ impl World {
 
     pub fn observe<E: Event, M>(&mut self, observer: impl IntoObserver<E, M>) -> &mut Self {
         self.observers.add_observer(observer);
+        self
+    }
+
+    pub fn build(&mut self) -> &mut Self {
+        self.systems.as_mut().unwrap().build();
         self
     }
 }
@@ -197,6 +251,14 @@ impl World {
         self.entities.set_parent(entity, parent)
     }
 
+    pub fn activate_system_group(&mut self, tag: impl Into<SystemTag>) {
+        self.infos.activate(tag.into());
+    }
+
+    pub fn deactivate_system_group(&mut self, tag: impl Into<SystemTag>) {
+        self.infos.deactivate(tag.into());
+    }
+
     pub fn flush(&mut self) {
         let mut events = self.events.drain();
 
@@ -224,6 +286,17 @@ impl World {
             events = self.events.remove::<E>();
         }
     }
+
+    pub fn run(&mut self, phase: impl Phase) -> &mut Self {
+        let systems = self.systems.take().unwrap();
+        let id = phase.id();
+
+        systems.run(id, self);
+
+        self.systems = Some(systems);
+
+        self
+    }
 }
 
 impl World {
@@ -241,5 +314,11 @@ impl World {
 
     pub fn try_local_resource_mut<R: LocalResource>(&self) -> Option<&mut R> {
         self.local_resources.try_get_mut::<R>()
+    }
+}
+
+impl Default for World {
+    fn default() -> Self {
+        Self::new()
     }
 }

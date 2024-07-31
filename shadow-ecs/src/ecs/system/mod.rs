@@ -12,9 +12,10 @@ use crate::ecs::{
 pub mod access;
 pub mod graph;
 pub mod observer;
-pub mod systems;
+pub mod runner;
+pub mod schedule;
 
-pub use systems::*;
+pub use runner::*;
 
 pub struct System {
     function: Box<dyn for<'a> Fn(&'a World) + Send + Sync>,

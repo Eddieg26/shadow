@@ -34,6 +34,10 @@ impl<Node: GraphNode> Graph<Node> {
         self.nodes.get(id)
     }
 
+    pub fn nodes(&self) -> &[Node] {
+        &self.nodes
+    }
+
     pub fn insert(&mut self, node: Node) -> NodeId {
         let id = self.nodes.len();
         self.built = false;
@@ -41,7 +45,7 @@ impl<Node: GraphNode> Graph<Node> {
         id
     }
 
-    pub fn add_depenency(&mut self, id: NodeId, dependency: NodeId) {
+    pub fn add_dependency(&mut self, id: NodeId, dependency: NodeId) {
         self.built = false;
         self.dependencies.entry(id).or_default().insert(dependency);
     }

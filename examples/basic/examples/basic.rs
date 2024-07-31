@@ -1,21 +1,26 @@
-use shadow_ecs::ecs::{event::Events, world::events::Spawn};
+use shadow_ecs::{
+    archetype::Archetypes,
+    core::{Components, Entities, LocalResources, Resources},
+    ecs::system::schedule::Phase,
+    event::Events,
+    system::observer::EventObservers,
+    world::{
+        events::{
+            AddChildren, AddComponents, Despawn, RemoveChildren, RemoveComponents, SetParent, Spawn,
+        },
+        World,
+    },
+};
 use shadow_game::{
-    game::{Game, GameInstance},
-    plugin::PhaseExt,
-    schedule::{DefaultPhaseRunner, Init, Phase},
+    game::Game,
+    phases::{Execute, Init, Update},
 };
 
 pub struct AssetInit;
 
-impl Phase for AssetInit {
-    type Runner = DefaultPhaseRunner;
+impl Phase for AssetInit {}
 
-    fn runner() -> Self::Runner {
-        DefaultPhaseRunner
-    }
-}
-
-fn game_runner(mut game: GameInstance) {
+fn game_runner(game: &mut Game) {
     game.init();
     loop {
         game.update();
@@ -24,12 +29,16 @@ fn game_runner(mut game: GameInstance) {
 
 fn main() {
     Game::new()
-        .add_sub_phase::<Init, AssetInit>()
-        .add_system(AssetInit, asset_init)
+        .add_system(Init, asset_init)
+        .add_system(Update, update)
         .set_runner(game_runner)
         .run();
 }
 
-fn asset_init(events: &Events) {
-    events.add(Spawn::new())
+fn asset_init() {
+    println!("Asset init");
+}
+
+fn update() {
+    println!("Update");
 }

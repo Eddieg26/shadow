@@ -1,33 +1,36 @@
-use crate::plugin::{PhaseExt, Plugin, PluginContext};
-
-use super::{
-    plugin::Plugins,
-    scene::{Scene, SceneTracker, Scenes},
-    schedule::{Execute, Init, MainSchedule, Phase, Shutdown},
+use super::plugin::Plugins;
+use crate::{
+    phases::{Execute, Init, Shutdown},
+    plugin::Plugin,
 };
 use shadow_ecs::ecs::{
     core::{Component, LocalResource, Resource},
     event::Event,
-    system::{observer::IntoObserver, IntoSystem},
+    system::{
+        observer::IntoObserver,
+        schedule::{Phase, PhaseRunner, SystemGroup},
+        IntoSystem,
+    },
     world::World,
 };
 
 pub struct Game {
     world: World,
     plugins: Plugins,
-    schedule: MainSchedule,
-    scenes: Scenes,
-    runner: Box<dyn GameRunner>,
+    runner: Option<Box<dyn GameRunner>>,
 }
 
 impl Game {
     pub fn new() -> Self {
+        let mut world = World::new();
+        world.add_phase::<Init>();
+        world.add_phase::<Execute>();
+        world.add_phase::<Shutdown>();
+
         Self {
-            world: World::new(),
+            world,
             plugins: Plugins::new(),
-            schedule: MainSchedule::new(),
-            scenes: Scenes::new(),
-            runner: Box::new(default_runner),
+            runner: Some(Box::new(default_runner)),
         }
     }
 
@@ -89,12 +92,37 @@ impl Game {
     }
 
     pub fn add_system<M>(&mut self, phase: impl Phase, system: impl IntoSystem<M>) -> &mut Self {
-        self.schedule.add_system(phase, system);
+        self.world.add_system(phase, system);
         self
     }
 
-    pub fn add_scene<S: Scene>(&mut self, scene: S) -> &mut Self {
-        self.scenes.add(scene);
+    pub fn add_phase<P: Phase>(&mut self) -> &mut Self {
+        self.world.add_phase::<P>();
+        self
+    }
+
+    pub fn add_sub_phase<P: Phase, Q: Phase>(&mut self) -> &mut Self {
+        self.world.add_sub_phase::<P, Q>();
+        self
+    }
+
+    pub fn insert_phase_before<P: Phase, Q: Phase>(&mut self) -> &mut Self {
+        self.world.insert_phase_before::<P, Q>();
+        self
+    }
+
+    pub fn insert_phase_after<P: Phase, Q: Phase>(&mut self) -> &mut Self {
+        self.world.insert_phase_after::<P, Q>();
+        self
+    }
+
+    pub fn add_phase_runner<P: Phase>(&mut self, runner: impl PhaseRunner) -> &mut Self {
+        self.world.add_phase_runner::<P>(runner);
+        self
+    }
+
+    pub fn add_system_group<G: SystemGroup>(&mut self) -> &mut Self {
+        self.world.add_system_group::<G>();
         self
     }
 
@@ -104,56 +132,32 @@ impl Game {
     }
 
     pub fn set_runner<R: GameRunner + 'static>(&mut self, runner: R) -> &mut Self {
-        self.runner = Box::new(runner);
+        self.runner = Some(Box::new(runner));
         self
     }
 
     pub fn run(&mut self) {
         let mut plugins = self.plugins.dependencies();
-        let mut ctx = PluginContext::new(self);
-        plugins.start(&mut ctx);
-        plugins.run(&mut ctx);
-        plugins.finish(&mut ctx);
+        plugins.start(self);
+        plugins.run(self);
+        plugins.finish(self);
 
-        let runner = std::mem::replace(&mut self.runner, Box::new(default_runner));
-        let mut game = std::mem::take(self);
-        game.add_resource(SceneTracker::new());
-        game.schedule.build();
-        runner.run(GameInstance::new(game));
+        self.world.build();
+
+        let runner = self.runner.take().unwrap_or(Box::new(default_runner));
+        runner.run(self);
     }
 
-    fn init(&mut self) {
-        self.update_scene();
-        self.schedule.run::<Init>(&mut self.world);
+    pub fn init(&mut self) {
+        self.world.run(Init);
     }
 
-    fn update(&mut self) {
-        self.schedule.run::<Execute>(&mut self.world);
-        self.update_scene();
+    pub fn update(&mut self) {
+        self.world.run(Execute);
     }
 
-    fn shutdown(&mut self) {
-        self.schedule.run::<Shutdown>(&mut self.world);
-    }
-
-    fn update_scene(&mut self) {
-        let tracker = self.world.resource_mut::<SceneTracker>();
-        match (tracker.next(), tracker.current()) {
-            (Some(next), None) => {
-                if let Some(scene) = self.scenes.get(next) {
-                    self.schedule.add_systems(next, scene.systems());
-                }
-                tracker.swap();
-            }
-            (Some(next), Some(current)) => {
-                if let Some(scene) = self.scenes.get(next) {
-                    self.schedule.add_systems(next, scene.systems());
-                }
-                self.schedule.remove_systems(current);
-                tracker.swap();
-            }
-            _ => (),
-        }
+    pub fn shutdown(&mut self) {
+        self.world.run(Shutdown);
     }
 }
 
@@ -163,77 +167,17 @@ impl Default for Game {
     }
 }
 
-pub struct GameInstance {
-    game: Game,
-}
-
-impl GameInstance {
-    pub(crate) fn new(game: Game) -> Self {
-        Self { game }
-    }
-
-    pub fn init(&mut self) {
-        self.game.init();
-    }
-
-    pub fn update(&mut self) {
-        self.game.update();
-    }
-
-    pub fn shutdown(&mut self) {
-        self.game.shutdown();
-    }
-
-    pub fn world(&self) -> &World {
-        &self.game.world
-    }
-
-    pub fn world_mut(&mut self) -> &mut World {
-        &mut self.game.world
-    }
-
-    pub fn flush(&mut self) {
-        self.game.world.flush();
-    }
-
-    pub fn flush_events<E: Event>(&mut self) {
-        self.game.world.flush_events::<E>();
-    }
-}
-
-impl PhaseExt for Game {
-    fn add_phase<P: Phase>(&mut self) -> &mut Self {
-        self.schedule.add_phase::<P>();
-        self
-    }
-
-    fn add_sub_phase<P: Phase, Q: Phase>(&mut self) -> &mut Self {
-        self.schedule.add_sub_phase::<P, Q>();
-        self
-    }
-
-    fn insert_phase_before<P: Phase, Q: Phase>(&mut self) -> &mut Self {
-        self.schedule.insert_before::<P, Q>();
-        self
-    }
-
-    fn insert_phase_after<P: Phase, Q: Phase>(&mut self) -> &mut Self {
-        self.schedule.insert_after::<P, Q>();
-        self
-    }
-}
-
 pub trait GameRunner {
-    fn run(&self, game: GameInstance);
+    fn run(&self, game: &mut Game);
 }
 
-impl<F: Fn(GameInstance)> GameRunner for F {
-    fn run(&self, game: GameInstance) {
+impl<F: Fn(&mut Game)> GameRunner for F {
+    fn run(&self, game: &mut Game) {
         self(game)
     }
 }
 
-pub fn default_runner(mut game: GameInstance) {
+pub fn default_runner(game: &mut Game) {
     game.init();
     game.update();
     game.shutdown();

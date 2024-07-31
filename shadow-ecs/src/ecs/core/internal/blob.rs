@@ -431,8 +431,10 @@ impl BlobCell {
         let layout = Layout::new::<T>();
         let data = unsafe {
             let ptr = std::ptr::addr_of!(value) as *mut u8;
+            let mut data = Vec::with_capacity(layout.size());
+            std::ptr::copy(ptr, data.as_mut_ptr(), layout.size());
             std::mem::forget(value);
-            Vec::from_raw_parts(ptr, layout.size(), layout.size())
+            data
         };
 
         let drop = match std::mem::needs_drop::<T>() {
@@ -478,9 +480,7 @@ impl Drop for BlobCell {
             drop(self.data.as_mut_ptr());
         }
 
-        let mut data = std::mem::take(&mut self.data);
-        data.clear();
-        std::mem::forget(data);
+        self.data.clear();
     }
 }
 
