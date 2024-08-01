@@ -363,22 +363,7 @@ impl<V: Hash + PartialEq> DenseSet<V> {
         value
     }
 
-    pub fn swap_remove(&mut self, value: &V) -> bool {
-        let hashed = hash(value);
-
-        if let Some(index) = self.map.remove(&hashed) {
-            self.values.swap_remove(index);
-            if index < self.len() {
-                let hashed = hash(&self.values[index]);
-                self.map.insert(hashed, index);
-            }
-            true
-        } else {
-            false
-        }
-    }
-
-    pub fn remove(&mut self, value: &V) -> Option<V> {
+    pub fn swap_remove(&mut self, value: &V) -> Option<V> {
         let hashed = hash(value);
 
         if let Some(index) = self.map.remove(&hashed) {
@@ -386,6 +371,23 @@ impl<V: Hash + PartialEq> DenseSet<V> {
             if index < self.len() {
                 let hashed = hash(&self.values[index]);
                 self.map.insert(hashed, index);
+            }
+            Some(value)
+        } else {
+            None
+        }
+    }
+
+    pub fn remove(&mut self, value: &V) -> Option<V> {
+        let hashed = hash(value);
+
+        if let Some(index) = self.map.remove(&hashed) {
+            let value = self.values.remove(index);
+            if !self.values.is_empty() {
+                for (i, value) in self.values[index..].iter().enumerate() {
+                    let hashed = hash(value);
+                    self.map.insert(hashed, index + i);
+                }
             }
 
             Some(value)

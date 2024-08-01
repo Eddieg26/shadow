@@ -1,10 +1,13 @@
 use crate::core::internal::blob::{Blob, BlobCell};
-use crate::storage::dense::{DenseMap, DenseSet};
+use std::collections::hash_map::DefaultHasher;
 use std::{
     any::TypeId,
     collections::HashMap,
-    hash::{DefaultHasher, Hash, Hasher},
+    hash::{Hash, Hasher},
 };
+
+use super::dense::map::DenseMap;
+use super::dense::set::DenseSet;
 
 pub struct ColumnCell {
     data: BlobCell,
@@ -342,7 +345,7 @@ impl<R: RowIndex> Table<R> {
     }
 
     pub fn rows(&self) -> &[R] {
-        self.rows.values()
+        self.rows.keys()
     }
 
     pub fn columns(&self) -> std::collections::hash_map::Keys<ColumnKey, Column> {
@@ -352,32 +355,32 @@ impl<R: RowIndex> Table<R> {
     pub fn field<C: 'static>(&self, index: impl Into<R>) -> Option<&C> {
         let key = ColumnKey::from::<C>();
         let index = index.into();
-        let index = self.rows.index(&index)?;
+        let index = self.rows.index_of(&index)?;
         self.columns.get(&key)?.get::<C>(index)
     }
 
     pub fn field_mut<C: 'static>(&self, index: impl Into<R>) -> Option<&mut C> {
         let key = ColumnKey::from::<C>();
         let index = index.into();
-        let index = self.rows.index(&index)?;
+        let index = self.rows.index_of(&index)?;
         self.columns.get(&key)?.get_mut::<C>(index)
     }
 
     pub fn cell(&self, key: &ColumnKey, index: impl Into<R>) -> Option<SelectedCell> {
         let index = index.into();
-        let index = self.rows.index(&index)?;
+        let index = self.rows.index_of(&index)?;
         self.columns.get(key)?.select(index)
     }
 
     pub fn cell_mut(&self, key: &ColumnKey, index: impl Into<R>) -> Option<SelectedCell> {
         let index = index.into();
-        let index = self.rows.index(&index)?;
+        let index = self.rows.index_of(&index)?;
         self.columns.get(key)?.select(index)
     }
 
     pub fn select(&self, index: impl Into<R>) -> Option<SelectedRow> {
         let index = index.into();
-        let index = self.rows.index(&index)?;
+        let index = self.rows.index_of(&index)?;
         let mut columns = HashMap::new();
         for (field, column) in &self.columns {
             columns.insert(field.clone(), column);
@@ -396,8 +399,8 @@ impl<R: RowIndex> Table<R> {
 
     pub fn remove(&mut self, index: impl Into<R>) -> Option<Row> {
         let index = index.into();
-        let idx = self.rows.index(&index)?;
-        self.rows.remove(&index)?;
+        let idx = self.rows.index_of(&index)?;
+        Some(self.rows.swap_remove_at(idx));
         let mut row = Row::new();
         for (field, column) in &mut self.columns {
             let cell = column.swap_remove_data(idx);

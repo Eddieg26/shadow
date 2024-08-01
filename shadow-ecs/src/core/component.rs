@@ -34,6 +34,14 @@ impl ComponentId {
     }
 }
 
+impl std::ops::Deref for ComponentId {
+    type Target = u64;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 #[derive(Clone)]
 pub struct ComponentMeta {
     name: &'static str,
