@@ -1,6 +1,6 @@
 use crate::{
     core::{Component, ComponentId, Entity},
-    storage::{Column, ColumnCell, DenseMap, DenseSet, Row},
+    storage::{Column, ColumnCell, ColumnKey, DenseMap, DenseSet, Row},
 };
 
 pub struct EntityRow {
@@ -12,6 +12,10 @@ impl EntityRow {
         EntityRow {
             components: DenseMap::new(),
         }
+    }
+
+    pub fn components(&self) -> &[ComponentId] {
+        self.components.keys()
     }
 
     pub fn get<C: Component>(&self) -> Option<&C> {
@@ -26,9 +30,9 @@ impl EntityRow {
             .and_then(|cell| Some(cell.value_mut::<C>()))
     }
 
-    pub fn add_component<C: Component>(&mut self, component: C) {
+    pub fn add_component<C: Component>(&mut self, component: C) -> Option<ColumnCell> {
         self.components
-            .insert(ComponentId::new::<C>(), ColumnCell::from(component));
+            .insert(ComponentId::new::<C>(), ColumnCell::from(component))
     }
 
     pub fn remove_component<C: Component>(&mut self) -> Option<C> {
@@ -37,8 +41,8 @@ impl EntityRow {
             .and_then(|cell| Some(cell.take()))
     }
 
-    pub fn add_cell(&mut self, id: ComponentId, cell: ColumnCell) {
-        self.components.insert(id, cell);
+    pub fn add_cell(&mut self, id: ComponentId, cell: ColumnCell) -> Option<ColumnCell> {
+        self.components.insert(id, cell)
     }
 
     pub fn remove_cell(&mut self, id: &ComponentId) -> Option<ColumnCell> {
@@ -65,6 +69,10 @@ impl EntityRow {
         self.components.drain()
     }
 
+    pub fn sort(&mut self) {
+        self.components.sort(|a, b| a.cmp(b));
+    }
+
     pub fn len(&self) -> usize {
         self.components.len()
     }
@@ -76,13 +84,34 @@ impl EntityRow {
     pub fn clear(&mut self) {
         self.components.clear();
     }
+
+    pub fn into_table(mut self, entity: Entity) -> EntityTable {
+        let mut builder = TableBuilder::new();
+        for (id, cell) in self.components.drain() {
+            builder.add_column(id, Column::from(cell));
+        }
+
+        let mut table = builder.build();
+        table.rows.insert(entity);
+
+        table
+    }
+
+    pub fn table_builder(&self) -> TableBuilder {
+        let mut builder = TableBuilder::new();
+        for (id, cell) in self.components.iter() {
+            builder.add_column(*id, Column::copy_cell(cell));
+        }
+
+        builder
+    }
 }
 
 impl From<Row> for EntityRow {
     fn from(mut row: Row) -> Self {
         let mut components = DenseMap::new();
         row.drain().for_each(|(id, cell)| {
-            components.insert(ComponentId::from(id), cell);
+            components.insert(ComponentId::raw(*id), cell);
         });
 
         EntityRow { components }
@@ -93,7 +122,8 @@ impl Into<Row> for EntityRow {
     fn into(mut self) -> Row {
         let mut row = Row::new();
         self.components.drain().for_each(|(id, cell)| {
-            row.add_cell(id.clone(), cell);
+            let key = ColumnKey::raw(*id);
+            row.add_cell(key, cell);
         });
 
         row
@@ -184,6 +214,10 @@ impl EntityTable {
 
     pub fn entities(&self) -> &[Entity] {
         self.rows.keys()
+    }
+
+    pub fn components(&self) -> &[ComponentId] {
+        self.components.keys()
     }
 
     pub fn contains(&self, entity: &Entity) -> bool {

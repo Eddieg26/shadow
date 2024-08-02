@@ -69,6 +69,12 @@ impl Column {
         }
     }
 
+    pub fn copy_cell(cell: &ColumnCell) -> Self {
+        Column {
+            data: Blob::with_layout(cell.data.layout().clone(), 0, cell.data.drop().copied()),
+        }
+    }
+
     pub fn get<T: 'static>(&self, index: usize) -> Option<&T> {
         self.data.get::<T>(index)
     }

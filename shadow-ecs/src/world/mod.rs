@@ -1,5 +1,3 @@
-use crate::storage::Row;
-
 use self::events::{
     AddChildren, AddComponent, AddComponents, ComponentEvents, Despawn, RemoveChildren,
     RemoveComponent, RemoveComponents, SetParent, Spawn,
@@ -19,6 +17,7 @@ use super::{
     },
     task::{max_thread_count, TaskPool},
 };
+use crate::archetype::table::EntityRow;
 use std::{any::TypeId, collections::HashSet};
 
 pub mod events;
@@ -184,7 +183,7 @@ impl World {
         entity
     }
 
-    pub fn despawn(&mut self, entity: &Entity) -> DenseMap<Entity, Row> {
+    pub fn despawn(&mut self, entity: &Entity) -> DenseMap<Entity, EntityRow> {
         let mut despawned = DenseMap::new();
         for entity in self.entities.despawn(entity) {
             if let Some((_, set)) = self.archetypes.remove_entity(&entity) {
@@ -222,7 +221,11 @@ impl World {
         self.archetypes.add_component(entity, &id, component)
     }
 
-    pub fn add_components(&mut self, entity: &Entity, components: Row) -> Option<ArchetypeMove> {
+    pub fn add_components(
+        &mut self,
+        entity: &Entity,
+        components: EntityRow,
+    ) -> Option<ArchetypeMove> {
         self.archetypes.add_components(entity, components)
     }
 

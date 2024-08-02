@@ -1,20 +1,21 @@
 use super::World;
 use crate::{
+    archetype::table::EntityRow,
     core::{Component, ComponentId, Entity},
     event::{Event, EventOutputs},
-    storage::{dense::DenseSet, table::Row, ColumnCell},
+    storage::{dense::DenseSet, ColumnCell},
     system::schedule::SystemTag,
 };
 pub struct Spawn {
     parent: Option<Entity>,
-    components: Row,
+    components: EntityRow,
 }
 
 impl Spawn {
     pub fn new() -> Self {
         Self {
             parent: None,
-            components: Row::new(),
+            components: EntityRow::new(),
         }
     }
 
@@ -24,7 +25,7 @@ impl Spawn {
     }
 
     pub fn with<C: Component>(mut self, component: C) -> Self {
-        self.components.add_field(component);
+        self.components.add_component(component);
         self
     }
 }
@@ -62,7 +63,6 @@ impl Event for Despawn {
         for (entity, mut components) in world.despawn(&self.entity).drain() {
             entities.push(entity);
             for (id, cell) in components.drain() {
-                let id = ComponentId::from(id);
                 let meta = world.components().extension::<ComponentEvents>(&id);
                 meta.remove(world, &entity, cell);
             }
@@ -225,19 +225,19 @@ impl<C: Component> Event for AddComponent<C> {
 
 pub struct AddComponents {
     entity: Entity,
-    components: Row,
+    components: EntityRow,
 }
 
 impl AddComponents {
     pub fn new(entity: Entity) -> Self {
         Self {
             entity,
-            components: Row::new(),
+            components: EntityRow::new(),
         }
     }
 
     pub fn with<C: Component>(mut self, component: C) -> Self {
-        self.components.add_field(component);
+        self.components.add_component(component);
 
         self
     }
@@ -291,7 +291,7 @@ impl<C: Component> Event for RemoveComponent<C> {
     fn invoke(self, world: &mut super::World) -> Option<Self::Output> {
         let id = ComponentId::new::<C>();
         let mut result = world.remove_component(&self.entity, &id)?;
-        let component = result.removed_mut().remove_field::<C>()?;
+        let component = result.removed_mut().remove_component::<C>()?;
         Some(RemovedComponent::new(self.entity, component))
     }
 }
@@ -323,7 +323,6 @@ impl Event for RemoveComponents {
         let components = std::mem::take(&mut self.components);
         let mut result = world.remove_components(&self.entity, components)?;
         for (id, component) in result.removed.drain() {
-            let id = ComponentId::from(id);
             let meta = world.components().extension::<ComponentEvents>(&id);
             meta.remove(world, &self.entity, component);
         }
