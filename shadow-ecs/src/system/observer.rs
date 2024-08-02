@@ -3,7 +3,7 @@ use super::{
     ArgItem, SystemArg,
 };
 use crate::{
-    core::internal::blob::Blob,
+    core::internal::blob::{Blob, BlobCell},
     event::{Event, EventOutputs, EventType},
     storage::dense::DenseMap,
     world::World,
@@ -54,22 +54,26 @@ impl<E: Event> Observers<E> {
     pub fn add<M>(&mut self, observer: impl IntoObserver<E, M>) {
         self.observers.push(observer.into_observer());
     }
+
+    pub fn iter(&self) -> impl Iterator<Item = &Observer<E>> {
+        self.observers.iter()
+    }
 }
 
 pub struct ErasedObservers {
     ty: EventType,
-    observers: Blob,
-    observe: Box<dyn Fn(&Blob, &World) + Send + Sync + 'static>,
+    observers: BlobCell,
+    observe: Box<dyn Fn(&BlobCell, &World) + Send + Sync + 'static>,
 }
 
 impl ErasedObservers {
     pub fn new<E: Event>() -> Self {
         Self {
             ty: TypeId::of::<E>(),
-            observers: Blob::new::<Observer<E>>(1),
+            observers: BlobCell::new(Observers::<E>::new()),
             observe: Box::new(|blob, world| {
                 let outputs = world.resource_mut::<EventOutputs<E>>().drain();
-                for observer in blob.iter::<Observer<E>>() {
+                for observer in blob.value::<Observers<E>>().iter() {
                     observer.run(&outputs, world);
                 }
             }),
@@ -81,7 +85,7 @@ impl ErasedObservers {
         if self.ty != ty {
             panic!("Event type mismatch!");
         }
-        self.observers.push(observer);
+        self.observers.value_mut::<Observers<E>>().add(observer);
     }
 
     pub fn add_observers<E: Event>(&mut self, observers: Observers<E>) {
@@ -91,7 +95,7 @@ impl ErasedObservers {
         }
         let mut observers = observers;
         for observer in observers.observers.drain(..) {
-            self.observers.push(observer);
+            self.observers.value_mut::<Observers<E>>().add(observer);
         }
     }
 

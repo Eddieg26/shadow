@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use crate::{
     archetype::{Archetype, ArchetypeId},
     core::{Component, ComponentId, Entity},
@@ -7,6 +6,7 @@ use crate::{
         SystemArg,
     },
 };
+use std::collections::HashSet;
 
 use super::World;
 
@@ -130,7 +130,6 @@ impl FilterQuery for () {
 pub struct Query<'a, Q: BaseQuery, F: FilterQuery = ()> {
     world: &'a World,
     archetypes: Vec<ArchetypeId>,
-    state: QueryState,
     row_index: usize,
     archetype_index: usize,
     archetype: Option<&'a Archetype>,
@@ -151,7 +150,6 @@ impl<'a, Q: BaseQuery, F: FilterQuery> Query<'a, Q, F> {
         Self {
             world,
             archetypes,
-            state,
             archetype_index: 0,
             row_index: 0,
             archetype,
@@ -277,27 +275,85 @@ impl_base_query_for_tuples!((A, B, C, D, E));
 impl_base_query_for_tuples!((A, B, C, D, E, F));
 impl_base_query_for_tuples!((A, B, C, D, E, F, G));
 impl_base_query_for_tuples!((A, B, C, D, E, F, G, H));
-// impl_base_query_for_tuples!((A, B, C, D, E, F, G, H, I));
-// impl_base_query_for_tuples!((A, B, C, D, E, F, G, H, I, J));
-// impl_base_query_for_tuples!((A, B, C, D, E, F, G, H, I, J, K));
-// impl_base_query_for_tuples!((A, B, C, D, E, F, G, H, I, J, K, L));
-// impl_base_query_for_tuples!((A, B, C, D, E, F, G, H, I, J, K, L, M));
-// impl_base_query_for_tuples!((A, B, C, D, E, F, G, H, I, J, K, L, M, N));
-// impl_base_query_for_tuples!((A, B, C, D, E, F, G, H, I, J, K, L, M, N, O));
-// impl_base_query_for_tuples!((A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P));
-// impl_base_query_for_tuples!((A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q));
-// impl_base_query_for_tuples!((A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R));
-// impl_base_query_for_tuples!((A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S));
-// impl_base_query_for_tuples!((A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T));
-// impl_base_query_for_tuples!((A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U));
-// impl_base_query_for_tuples!((A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V));
-// impl_base_query_for_tuples!((A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W));
-// impl_base_query_for_tuples!((
-//     A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X
-// ));
-// impl_base_query_for_tuples!((
-//     A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y
-// ));
-// impl_base_query_for_tuples!((
-//     A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z
-// ));
+impl_base_query_for_tuples!((A, B, C, D, E, F, G, H, I));
+impl_base_query_for_tuples!((A, B, C, D, E, F, G, H, I, J));
+impl_base_query_for_tuples!((A, B, C, D, E, F, G, H, I, J, K));
+impl_base_query_for_tuples!((A, B, C, D, E, F, G, H, I, J, K, L));
+impl_base_query_for_tuples!((A, B, C, D, E, F, G, H, I, J, K, L, M));
+impl_base_query_for_tuples!((A, B, C, D, E, F, G, H, I, J, K, L, M, N));
+impl_base_query_for_tuples!((A, B, C, D, E, F, G, H, I, J, K, L, M, N, O));
+impl_base_query_for_tuples!((A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P));
+impl_base_query_for_tuples!((A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q));
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::archetype::table::EntityRow;
+    use crate::core::Component;
+    use crate::world::World;
+
+    struct A;
+    struct B;
+    struct C;
+
+    impl Component for A {}
+    impl Component for B {}
+    impl Component for C {}
+
+    #[test]
+    fn query() {
+        let mut world = World::new();
+        let entity = world.spawn(None);
+        let mut components = EntityRow::new();
+        components.add_component(A);
+        components.add_component(B);
+        components.add_component(C);
+        world.add_components(&entity, components);
+
+        let mut query = Query::<(&A, &B, &C)>::new(&world);
+        match query.next() {
+            Some((a, b, c)) => (a, b, c),
+            None => panic!("Query returned None"),
+        };
+    }
+
+    #[test]
+    fn query_filter_with() {
+        let mut world = World::new();
+        let entity = world.spawn(None);
+        let mut components = EntityRow::new();
+        components.add_component(A);
+        components.add_component(B);
+        components.add_component(C);
+        world.add_components(&entity, components);
+
+        let mut query = Query::<(&A, &B), With<C>>::new(&world);
+        match query.next() {
+            Some((a, b)) => (a, b),
+            None => panic!("Query returned None"),
+        };
+    }
+
+    #[test]
+    fn query_filter_not() {
+        let mut world = World::new();
+        let entity = world.spawn(None);
+        let mut components = EntityRow::new();
+        components.add_component(A);
+        components.add_component(B);
+        world.add_components(&entity, components);
+
+        let mut query = Query::<(&A, &B), Not<C>>::new(&world);
+        match query.next() {
+            Some((a, b)) => (a, b),
+            None => panic!("Query returned None"),
+        };
+
+        let mut query = Query::<(&A, &B, &C)>::new(&world);
+        match query.next() {
+            Some((..)) => panic!("Query returned Some"),
+            None => (),
+        };
+    }
+}

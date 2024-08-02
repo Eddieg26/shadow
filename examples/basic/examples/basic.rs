@@ -1,12 +1,12 @@
 use shadow_ecs::{
     archetype::Archetypes,
-    core::{Components, Entities, LocalResources, Resources},
-    event::Events,
-    system::observer::EventObservers,
-    system::schedule::Phase,
+    core::{Component, Components, Entities, LocalResources, Resources},
+    event::{Event, Events},
+    system::{observer::EventObservers, schedule::Phase},
     world::{
         events::{
-            AddChildren, AddComponents, Despawn, RemoveChildren, RemoveComponents, SetParent, Spawn,
+            AddChildren, AddComponent, AddComponents, Despawn, RemoveChildren, RemoveComponent,
+            RemoveComponents, SetParent, Spawn,
         },
         World,
     },
@@ -29,16 +29,44 @@ fn game_runner(game: &mut Game) {
 
 fn main() {
     Game::new()
-        .add_system(Init, asset_init)
-        .add_system(Update, update)
+        .register::<Player>()
+        .add_system(Init, spawn_player)
+        .observe::<Spawn, _>(on_spawn_player)
+        .observe::<AddComponent<Player>, _>(on_add_player_components)
+        .observe::<Despawn, _>(on_despawn_player)
+        .observe::<RemoveComponent<Player>, _>(on_remove_player_components)
         .set_runner(game_runner)
         .run();
 }
 
-fn asset_init() {
-    println!("Asset init");
+struct Player;
+impl Component for Player {}
+
+fn spawn_player(events: &Events) {
+    events.add(Spawn::new().with(Player));
 }
 
-fn update() {
-    println!("Update");
+fn on_spawn_player(entities: &[<Spawn as Event>::Output]) {
+    for entity in entities {
+        println!("Player spawned: {:?}", entity);
+    }
+}
+
+fn on_add_player_components(entities: &[<AddComponent<Player> as Event>::Output], events: &Events) {
+    for entity in entities {
+        println!("Player added: {:?}", entity);
+        events.add(Despawn::new(*entity));
+    }
+}
+
+fn on_despawn_player(entities: &[<Despawn as Event>::Output]) {
+    for entity in entities {
+        println!("Player despawned: {:?}", entity);
+    }
+}
+
+fn on_remove_player_components(entities: &[<RemoveComponent<Player> as Event>::Output]) {
+    for removed in entities {
+        println!("Player removed: {:?}", removed.entity);
+    }
 }

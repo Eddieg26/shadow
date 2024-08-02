@@ -249,7 +249,7 @@ impl Archetypes {
     pub fn remove_entity(&mut self, entity: &Entity) -> Option<(ArchetypeId, EntityRow)> {
         let id = self.entities.remove(entity)?;
         let archetype = self.archetypes.get_mut(&id)?;
-        let components = archetype.remove(entity).unwrap();
+        let components = archetype.remove(entity)?;
         Some((archetype.id(), components))
     }
 
@@ -287,6 +287,10 @@ impl Archetypes {
     }
 
     pub fn add_components(&mut self, entity: &Entity, mut row: EntityRow) -> Option<ArchetypeMove> {
+        if row.is_empty() {
+            return None;
+        }
+
         let (archetype, mut components) = self.remove_entity(entity)?;
         let mut added = DenseSet::<ComponentId>::new();
         let mut removed = EntityRow::new();
@@ -325,6 +329,10 @@ impl Archetypes {
         entity: &Entity,
         ids: DenseSet<ComponentId>,
     ) -> Option<ArchetypeMove> {
+        if ids.is_empty() {
+            return None;
+        }
+        
         let (archetype, mut components) = self.remove_entity(entity)?;
         let mut removed = EntityRow::new();
         for id in ids {

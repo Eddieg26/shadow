@@ -153,7 +153,7 @@ impl From<ColumnCell> for Column {
 impl From<&ColumnCell> for Column {
     fn from(cell: &ColumnCell) -> Self {
         Column {
-            data: Blob::with_layout(cell.data.layout().clone(), 1, cell.data.drop().copied()),
+            data: Blob::with_layout(cell.data.layout().clone(), 0, cell.data.drop().copied()),
         }
     }
 }

@@ -90,7 +90,6 @@ impl EntityRow {
         for (id, cell) in self.components.drain() {
             builder.add_column(id, Column::from(cell));
         }
-
         let mut table = builder.build();
         table.rows.insert(entity);
 

@@ -390,7 +390,10 @@ impl Systems {
     }
 
     pub fn run(&self, id: ScheduleId, world: &mut World) {
-        self.schedule.run_child(id, world, self)
+        match self.schedule.id() == id {
+            true => self.schedule.run(world, self),
+            false => self.schedule.run_child(id, world, self),
+        }
     }
 }
 

@@ -385,14 +385,12 @@ impl From<BlobCell> for Blob {
         let data = std::mem::take(&mut cell.data);
         let layout = cell.layout;
         let drop = cell.drop;
-
         let aligned_layout = layout.pad_to_align();
-        let capacity = data.len() / aligned_layout.size();
 
         Self {
             data,
-            length: capacity,
-            capacity,
+            length: 1,
+            capacity: 1,
             layout,
             aligned_layout,
             drop,

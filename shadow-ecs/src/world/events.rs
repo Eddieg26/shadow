@@ -39,7 +39,14 @@ impl Event for Spawn {
         if matches!(self.parent, Some(_)) {
             world.events().add(SetParent::new(entity, self.parent));
         }
-        world.add_components(&entity, self.components);
+
+        if let Some(result) = world.add_components(&entity, self.components) {
+            for added in result.added().iter() {
+                let meta = world.components().extension::<ComponentEvents>(&added);
+                meta.add(world, &entity);
+            }
+        }
+
         Some(entity)
     }
 }
@@ -67,11 +74,8 @@ impl Event for Despawn {
                 meta.remove(world, &entity, cell);
             }
         }
-        if entities.is_empty() {
-            None
-        } else {
-            Some(entities)
-        }
+
+        (!entities.is_empty()).then_some(entities)
     }
 }
 
@@ -217,7 +221,11 @@ impl<C: Component> Event for AddComponent<C> {
 
     fn invoke(mut self, world: &mut super::World) -> Option<Self::Output> {
         let component = self.component.take()?;
-        let _ = world.add_component(&self.entity, component)?;
+        world.add_component(&self.entity, component)?;
+
+        let id = ComponentId::new::<C>();
+        let meta = world.components().extension::<ComponentEvents>(&id);
+        meta.add(world, &self.entity);
 
         Some(self.entity)
     }
@@ -396,5 +404,284 @@ impl Event for DeactivateSystemGroup {
     fn invoke(self, world: &mut super::World) -> Option<Self::Output> {
         world.deactivate_system_group(self.tag);
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        core::{Component, Entity, Resource},
+        event::Events,
+        system::schedule::Root,
+        world::{
+            events::{
+                AddComponent, Despawn, ParentUpdate, RemoveChildren, RemoveComponent,
+                RemoveComponents, RemovedComponent, SetParent,
+            },
+            World,
+        },
+    };
+
+    use super::Spawn;
+
+    #[test]
+    fn spawn() {
+        let mut world = World::new();
+        let entity = world.spawn(None);
+        assert_eq!(entity.id(), 0);
+    }
+
+    #[test]
+    fn on_spawn() {
+        let mut world = World::new();
+        struct Spawned(bool);
+        impl Resource for Spawned {}
+
+        world.add_resource(Spawned(false));
+
+        world.observe::<Spawn, _>(|entities: &[Entity], spawned: &mut Spawned| {
+            spawned.0 = entities.len() == 1;
+        });
+
+        world.events().add(Spawn::new());
+
+        world.run(Root);
+
+        assert!(world.resource::<Spawned>().0);
+    }
+
+    #[test]
+    fn on_add_component() {
+        struct Player;
+        impl Component for Player {}
+        struct Added(bool);
+        impl Resource for Added {}
+
+        let mut world = World::new();
+        world.register::<Player>();
+        world.add_resource(Added(false));
+
+        world.observe::<AddComponent<Player>, _>(|entities: &[Entity], added: &mut Added| {
+            added.0 = entities.len() == 1;
+        });
+
+        world.events().add(Spawn::new().with(Player));
+
+        world.run(Root);
+
+        assert!(world.resource::<Added>().0);
+    }
+
+    #[test]
+    fn on_add_components() {
+        struct Player;
+        impl Component for Player {}
+        struct Health;
+        impl Component for Health {}
+        struct Added {
+            player: bool,
+            health: bool,
+        }
+        impl Resource for Added {}
+
+        let mut world = World::new();
+        world.register::<Player>();
+        world.register::<Health>();
+        world.add_resource(Added {
+            player: false,
+            health: false,
+        });
+
+        world.observe::<AddComponent<Player>, _>(|entities: &[Entity], added: &mut Added| {
+            added.player = entities.len() == 1;
+        });
+
+        world.observe::<AddComponent<Health>, _>(|entities: &[Entity], added: &mut Added| {
+            added.health = entities.len() == 1;
+        });
+
+        world.events().add(Spawn::new().with(Player).with(Health));
+
+        world.run(Root);
+
+        assert!(world.resource::<Added>().player);
+        assert!(world.resource::<Added>().health);
+    }
+
+    #[test]
+    fn on_remove_components() {
+        struct Player;
+        impl Component for Player {}
+        struct Health;
+        impl Component for Health {}
+        struct Removed {
+            player: bool,
+            health: bool,
+        }
+        impl Resource for Removed {}
+
+        let mut world = World::new();
+        world.register::<Player>();
+        world.register::<Health>();
+        world.add_resource(Removed {
+            player: false,
+            health: false,
+        });
+
+        world.observe::<RemoveComponent<Player>, _>(
+            |components: &[RemovedComponent<Player>], removed: &mut Removed| {
+                removed.player = components.len() == 1;
+            },
+        );
+
+        world.observe::<RemoveComponent<Health>, _>(
+            |components: &[RemovedComponent<Health>], removed: &mut Removed| {
+                removed.health = components.len() == 1;
+            },
+        );
+
+        world.events().add(Spawn::new().with(Player).with(Health));
+        world.run(Root);
+
+        world.events().add(
+            RemoveComponents::new(Entity::new(0, 0))
+                .with::<Player>()
+                .with::<Health>(),
+        );
+        world.run(Root);
+
+        assert!(world.resource::<Removed>().player);
+        assert!(world.resource::<Removed>().health);
+    }
+
+    #[test]
+    fn on_remove_component() {
+        struct Player;
+        impl Component for Player {}
+        struct Removed(bool);
+        impl Resource for Removed {}
+
+        let mut world = World::new();
+        world.register::<Player>();
+        world.add_resource(Removed(false));
+
+        world.observe::<AddComponent<Player>, _>(|entities: &[Entity], events: &Events| {
+            events.add(RemoveComponent::<Player>::new(*entities.first().unwrap()));
+        });
+
+        world.observe::<RemoveComponent<Player>, _>(
+            |components: &[RemovedComponent<Player>], removed: &mut Removed| {
+                removed.0 = components.len() == 1;
+            },
+        );
+
+        world.events().add(Spawn::new().with(Player));
+
+        world.run(Root);
+
+        assert!(world.resource::<Removed>().0);
+    }
+
+    #[test]
+    fn on_despawn() {
+        struct Despawned(bool);
+        impl Resource for Despawned {}
+
+        let mut world = World::new();
+        world.add_resource(Despawned(false));
+
+        world.observe::<Spawn, _>(|entities: &[Entity], events: &Events| {
+            events.add(Despawn::new(*entities.first().unwrap()));
+        });
+
+        world.observe::<Despawn, _>(|entities: &[Vec<Entity>], despawned: &mut Despawned| {
+            despawned.0 = entities.len() == 1;
+        });
+
+        world.events().add(Spawn::new());
+
+        world.run(Root);
+
+        assert!(world.resource::<Despawned>().0);
+    }
+
+    #[test]
+    fn set_parent() {
+        let mut world = World::new();
+        let parent = world.spawn(None);
+        let child = world.spawn(Some(parent));
+
+        let children = world.entities().children(&parent);
+        let has_child = children
+            .map(|children| children.contains(&child))
+            .unwrap_or_default();
+        assert!(has_child);
+
+        let child_parent = world.entities().parent(&child);
+        assert_eq!(child_parent, Some(&parent));
+
+        world.set_parent(&child, None);
+
+        let children = world.entities().children(&parent);
+        let has_child = children
+            .map(|children| children.contains(&child))
+            .unwrap_or_default();
+        assert!(!has_child);
+
+        let child_parent = world.entities().parent(&child);
+        assert_eq!(child_parent, None);
+    }
+
+    #[test]
+    fn on_set_parent() {
+        struct Parented(bool);
+        impl Resource for Parented {}
+
+        let mut world = World::new();
+        world.add_resource(Parented(false));
+
+        world.observe::<SetParent, _>(|updates: &[ParentUpdate], parented: &mut Parented| {
+            parented.0 = updates.len() == 1;
+        });
+
+        let parent = world.spawn(None);
+        let child = world.spawn(None);
+
+        world.events().add(SetParent::new(child, Some(parent)));
+
+        world.run(Root);
+
+        assert!(world.resource::<Parented>().0);
+    }
+
+    #[test]
+    fn on_remove_children() {
+        struct RemovedChildren(usize);
+        impl Resource for RemovedChildren {}
+
+        let mut world = World::new();
+        world.add_resource(RemovedChildren(0));
+
+        let parent = world.spawn(None);
+        let children = (0..10)
+            .map(|_| world.spawn(Some(parent)))
+            .collect::<Vec<_>>();
+
+        let child_count = children.len();
+
+        world.observe::<RemoveChildren, _>(
+            move |updates: &[Vec<ParentUpdate>], removed: &mut RemovedChildren| {
+                removed.0 = updates
+                    .first()
+                    .map(|updates| updates.len())
+                    .unwrap_or_default();
+            },
+        );
+
+        world.events().add(RemoveChildren::new(parent, children));
+
+        world.run(Root);
+
+        assert_eq!(world.resource::<RemovedChildren>().0, child_count);
     }
 }
