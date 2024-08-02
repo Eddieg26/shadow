@@ -1,4 +1,3 @@
-use crate::storage::dense::DenseMap;
 use std::{
     alloc::Layout,
     any::{Any, TypeId},
@@ -6,6 +5,8 @@ use std::{
     hash::{Hash, Hasher},
     sync::Arc,
 };
+
+use super::internal::DenseMap;
 
 pub trait Component: Send + Sync + 'static {}
 

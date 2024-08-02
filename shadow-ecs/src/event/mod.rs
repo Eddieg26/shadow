@@ -1,6 +1,6 @@
 use super::{
+    core::DenseSet,
     core::{internal::blob::BlobCell, Resource},
-    storage::dense::DenseSet,
     world::World,
 };
 use std::{

@@ -5,11 +5,10 @@ use self::events::{
 use super::{
     archetype::{ArchetypeId, ArchetypeMove, Archetypes},
     core::{
-        Component, ComponentId, Components, Entities, Entity, LocalResource, LocalResources,
-        Resource, Resources,
+        Component, ComponentId, Components, DenseMap, DenseSet, Entities, Entity, LocalResource,
+        LocalResources, Resource, Resources,
     },
     event::{Event, Events},
-    storage::dense::{DenseMap, DenseSet},
     system::{
         observer::{EventObservers, IntoObserver},
         schedule::{Phase, PhaseRunner, SystemGroup, SystemTag, Systems, SystemsInfo},

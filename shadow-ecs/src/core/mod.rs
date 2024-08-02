@@ -6,4 +6,5 @@ pub mod resource;
 
 pub use component::*;
 pub use entity::*;
+pub use internal::storage::*;
 pub use resource::*;

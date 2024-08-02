@@ -1,5 +1,4 @@
-use super::internal::blob::BlobCell;
-use crate::storage::dense::DenseMap;
+use super::internal::{blob::BlobCell, DenseMap};
 use std::hash::{Hash, Hasher};
 
 pub trait Resource: 'static {}

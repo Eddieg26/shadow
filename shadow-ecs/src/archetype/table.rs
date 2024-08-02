@@ -1,6 +1,5 @@
-use crate::{
-    core::{Component, ComponentId, Entity},
-    storage::{Column, ColumnCell, ColumnKey, DenseMap, DenseSet, Row},
+use crate::core::{
+    Column, ColumnCell, ColumnKey, Component, ComponentId, DenseMap, DenseSet, Entity, Row,
 };
 
 pub struct EntityRow {

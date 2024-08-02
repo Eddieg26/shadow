@@ -1,5 +1,5 @@
 use crate::core::{Component, ComponentId, Entity};
-use crate::storage::{DenseMap, DenseSet};
+use crate::core::{DenseMap, DenseSet};
 use std::{
     collections::{HashMap, HashSet},
     hash::{DefaultHasher, Hash, Hasher},

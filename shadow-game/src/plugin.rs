@@ -1,5 +1,5 @@
 use crate::game::Game;
-use shadow_ecs::storage::dense::DenseMap;
+use shadow_ecs::core::DenseMap;
 use std::any::TypeId;
 
 pub struct Plugins {

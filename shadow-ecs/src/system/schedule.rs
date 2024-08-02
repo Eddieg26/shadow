@@ -1,6 +1,6 @@
 use super::{IntoSystem, ParallelRunner, RunMode, SequentialRunner, SystemGraph, SystemRunner};
 use crate::{
-    storage::dense::{DenseMap, DenseSet},
+    core::{DenseMap, DenseSet},
     world::World,
 };
 use std::{

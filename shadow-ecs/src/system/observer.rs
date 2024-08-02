@@ -3,9 +3,8 @@ use super::{
     ArgItem, SystemArg,
 };
 use crate::{
-    core::internal::blob::BlobCell,
+    core::{internal::blob::BlobCell, DenseMap},
     event::{Event, EventOutputs, EventType},
-    storage::dense::DenseMap,
     world::World,
 };
 use std::any::TypeId;

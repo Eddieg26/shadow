@@ -1,9 +1,8 @@
 use super::World;
 use crate::{
     archetype::table::EntityRow,
-    core::{Component, ComponentId, Entity},
+    core::{ColumnCell, Component, ComponentId, DenseSet, Entity},
     event::{Event, EventOutputs},
-    storage::{dense::DenseSet, ColumnCell},
     system::schedule::SystemTag,
 };
 pub struct Spawn {
