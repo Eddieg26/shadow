@@ -25,6 +25,14 @@ impl WorldAccess {
         Self { ty, access }
     }
 
+    pub fn read(ty: WorldAccessType) -> Self {
+        Self::new(ty, Access::Read)
+    }
+
+    pub fn write(ty: WorldAccessType) -> Self {
+        Self::new(ty, Access::Write)
+    }
+
     pub fn from_type(ty: WorldAccessType, access: Access) -> Self {
         Self { ty, access }
     }

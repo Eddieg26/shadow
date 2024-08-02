@@ -4,8 +4,7 @@ use super::{
 };
 use crate::{
     core::{internal::blob::BlobCell, DenseMap},
-    event::{Event, EventOutputs, EventType},
-    world::World,
+    world::{event::{Event, EventOutputs, EventType}, World},
 };
 use std::any::TypeId;
 

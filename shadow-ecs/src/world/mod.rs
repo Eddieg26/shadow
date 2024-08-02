@@ -1,4 +1,6 @@
-use self::events::{
+use event::{Event, Events};
+
+use self::event::{
     AddChildren, AddComponent, AddComponents, ComponentEvents, Despawn, RemoveChildren,
     RemoveComponent, RemoveComponents, SetParent, Spawn,
 };
@@ -8,7 +10,6 @@ use super::{
         Component, ComponentId, Components, DenseMap, DenseSet, Entities, Entity, LocalResource,
         LocalResources, Resource, Resources,
     },
-    event::{Event, Events},
     system::{
         observer::{EventObservers, IntoObserver},
         schedule::{Phase, PhaseRunner, SystemGroup, SystemTag, Systems, SystemsInfo},
@@ -19,7 +20,7 @@ use super::{
 use crate::archetype::table::EntityRow;
 use std::{any::TypeId, collections::HashSet};
 
-pub mod events;
+pub mod event;
 pub mod query;
 
 pub struct World {

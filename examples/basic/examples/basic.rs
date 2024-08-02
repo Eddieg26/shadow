@@ -1,8 +1,7 @@
 use shadow_ecs::{
     core::Component,
-    event::{Event, Events},
     system::schedule::Phase,
-    world::events::{AddComponent, Despawn, RemoveComponent, Spawn},
+    world::event::{AddComponent, Despawn, Event, Events, RemoveComponent, Spawn},
 };
 use shadow_game::{game::Game, phases::Init};
 

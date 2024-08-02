@@ -1,12 +1,12 @@
 use self::access::WorldAccess;
 use super::{
     core::{Entities, LocalResource, Resource},
-    event::Events,
     world::World,
 };
 use crate::{
     core::ResourceType,
     system::access::{Access, WorldAccessType},
+    world::event::Events,
 };
 
 pub mod access;

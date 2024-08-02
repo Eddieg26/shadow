@@ -5,13 +5,12 @@ use crate::{
 };
 use shadow_ecs::{
     core::{Component, LocalResource, Resource},
-    event::Event,
     system::{
         observer::IntoObserver,
         schedule::{Phase, PhaseRunner, SystemGroup},
         IntoSystem,
     },
-    world::World,
+    world::{event::Event, World},
 };
 
 pub struct Game {

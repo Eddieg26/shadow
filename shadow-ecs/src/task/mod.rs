@@ -1,4 +1,8 @@
 use super::system::SystemArg;
+use crate::{
+    core::ResourceType,
+    system::access::{WorldAccess, WorldAccessType},
+};
 use std::{
     collections::{HashMap, VecDeque},
     num::NonZeroUsize,
@@ -92,7 +96,9 @@ impl SystemArg for &TaskPool {
     }
 
     fn access() -> Vec<super::system::access::WorldAccess> {
-        vec![]
+        vec![WorldAccess::read(WorldAccessType::Resource(
+            ResourceType::new::<TaskPool>(),
+        ))]
     }
 }
 
