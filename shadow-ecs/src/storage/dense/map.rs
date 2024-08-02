@@ -50,40 +50,40 @@ impl<K: Hash + Eq, V> DenseMap<K, V> {
         }
     }
 
-    pub fn insert_before(&mut self, index: usize, key: K, value: V) {
+    pub fn insert_before(&mut self, before: usize, key: K, value: V) {
         let hash = hash_value(&key);
         if let Some(old_index) = self.map.remove(&hash) {
-            self.keys.insert(index, key);
-            self.values.insert(index, value);
-            let start = old_index.min(index);
+            self.keys.insert(before, key);
+            self.values.insert(before, value);
+            let start = old_index.min(before);
             for index in start..self.keys.len() {
                 let key = hash_value(&self.keys[index]);
                 self.map.insert(key, index);
             }
         } else {
-            self.keys.insert(index, key);
-            self.values.insert(index, value);
-            for index in index..self.keys.len() {
+            self.keys.insert(before, key);
+            self.values.insert(before, value);
+            for index in before..self.keys.len() {
                 let key = hash_value(&self.keys[index]);
                 self.map.insert(key, index);
             }
         }
     }
 
-    pub fn insert_after(&mut self, index: usize, key: K, value: V) {
+    pub fn insert_after(&mut self, after: usize, key: K, value: V) {
         let hash = hash_value(&key);
         if let Some(old_index) = self.map.remove(&hash) {
-            self.keys.insert(index + 1, key);
-            self.values.insert(index + 1, value);
-            let start = old_index.min(index + 1);
+            self.keys.insert(after + 1, key);
+            self.values.insert(after + 1, value);
+            let start = old_index.min(after + 1);
             for index in start..self.keys.len() {
                 let key = hash_value(&self.keys[index]);
                 self.map.insert(key, index);
             }
         } else {
-            self.keys.insert(index + 1, key);
-            self.values.insert(index + 1, value);
-            for index in index + 1..self.keys.len() {
+            self.keys.insert(after + 1, key);
+            self.values.insert(after + 1, value);
+            for index in after + 1..self.keys.len() {
                 let key = hash_value(&self.keys[index]);
                 self.map.insert(key, index);
             }
@@ -192,12 +192,17 @@ impl<K: Hash + Eq, V> DenseMap<K, V> {
         self.values = values;
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (&K, &V)> {
+    pub fn iter(&self) -> std::iter::Zip<std::slice::Iter<K>, std::slice::Iter<V>> {
         self.keys.iter().zip(self.values.iter())
     }
 
     pub fn iter_mut(&mut self) -> impl Iterator<Item = (&K, &mut V)> {
         self.keys.iter().zip(self.values.iter_mut())
+    }
+
+    pub fn index_of(&self, key: &K) -> Option<usize> {
+        let key = hash_value(key);
+        self.map.get(&key).copied()
     }
 
     pub fn keys(&self) -> &[K] {

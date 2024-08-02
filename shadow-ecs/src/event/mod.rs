@@ -160,7 +160,8 @@ impl Events {
 
     pub(crate) fn invocation_type<E: Event>(&self) -> Option<EventInvocation> {
         let mut invocations = self.invocations.write().unwrap();
-        invocations.remove(&EventInvocation::new::<E>())
+        let invocation = EventInvocation::new::<E>();
+        invocations.remove(&invocation).map(|_| invocation)
     }
 
     pub fn clear(&self) {

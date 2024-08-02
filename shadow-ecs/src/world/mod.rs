@@ -1,3 +1,5 @@
+use crate::storage::Row;
+
 use self::events::{
     AddChildren, AddComponent, AddComponents, ComponentEvents, Despawn, RemoveChildren,
     RemoveComponent, RemoveComponents, SetParent, Spawn,
@@ -9,10 +11,7 @@ use super::{
         Resource, Resources,
     },
     event::{Event, Events},
-    storage::{
-        dense::{DenseMap, DenseSet},
-        table::ComponentSet,
-    },
+    storage::dense::{DenseMap, DenseSet},
     system::{
         observer::{EventObservers, IntoObserver},
         schedule::{Phase, PhaseRunner, SystemGroup, SystemTag, Systems, SystemsInfo},
@@ -185,7 +184,7 @@ impl World {
         entity
     }
 
-    pub fn despawn(&mut self, entity: &Entity) -> DenseMap<Entity, ComponentSet> {
+    pub fn despawn(&mut self, entity: &Entity) -> DenseMap<Entity, Row> {
         let mut despawned = DenseMap::new();
         for entity in self.entities.despawn(entity) {
             if let Some((_, set)) = self.archetypes.remove_entity(&entity) {
@@ -210,7 +209,7 @@ impl World {
     }
 
     pub fn has_components(&self, entity: &Entity, components: &[ComponentId]) -> bool {
-        let ids = components.into();
+        let ids = components.iter().copied().collect::<DenseSet<_>>();
         self.archetypes.has_components(entity, ids)
     }
 
@@ -223,11 +222,7 @@ impl World {
         self.archetypes.add_component(entity, &id, component)
     }
 
-    pub fn add_components(
-        &mut self,
-        entity: &Entity,
-        components: ComponentSet,
-    ) -> Option<ArchetypeMove> {
+    pub fn add_components(&mut self, entity: &Entity, components: Row) -> Option<ArchetypeMove> {
         self.archetypes.add_components(entity, components)
     }
 

@@ -153,7 +153,11 @@ impl Schedule {
         let before = ScheduleId::new::<Before>();
         if self.has(&before) {
             let main = ScheduleId::new::<Main>();
-            self.children.insert_before(main, Main::schedule(), before);
+            let index = match self.children.index_of(&before) {
+                Some(index) => index,
+                None => return false,
+            };
+            self.children.insert_before(index, main, Main::schedule());
             true
         } else {
             let mut children = self.children.values_mut().iter_mut();
@@ -165,7 +169,11 @@ impl Schedule {
         let after = ScheduleId::new::<After>();
         if self.has(&after) {
             let main = ScheduleId::new::<Main>();
-            self.children.insert_after(main, Main::schedule(), after);
+            let index = match self.children.index_of(&after) {
+                Some(index) => index,
+                None => return false,
+            };
+            self.children.insert_after(index, main, Main::schedule());
             true
         } else {
             let mut children = self.children.values_mut().iter_mut();

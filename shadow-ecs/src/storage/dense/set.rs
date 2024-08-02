@@ -49,7 +49,7 @@ impl<K: Hash + Eq> DenseSet<K> {
         }
     }
 
-    pub fn remove(&mut self, value: &K) -> bool {
+    pub fn remove(&mut self, value: &K) -> Option<usize> {
         let key = hash_value(value);
         if let Some(index) = self.map.remove(&key) {
             for index in index..(self.keys.len().max(index)) {
@@ -57,9 +57,9 @@ impl<K: Hash + Eq> DenseSet<K> {
                 self.map.insert(key, index);
             }
 
-            true
+            Some(index)
         } else {
-            false
+            None
         }
     }
 
@@ -152,6 +152,18 @@ impl<K: Hash + Eq> DenseSet<K> {
     pub fn clear(&mut self) {
         self.map.clear();
         self.keys.clear();
+    }
+}
+
+impl<K: Hash + Eq + Ord> DenseSet<K> {
+    pub fn sort(&mut self) {
+        self.keys.sort();
+        self.map.clear();
+
+        for (index, value) in self.keys.iter().enumerate() {
+            let key = hash_value(value);
+            self.map.insert(key, index);
+        }
     }
 }
 

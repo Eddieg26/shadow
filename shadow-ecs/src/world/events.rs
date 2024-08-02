@@ -2,22 +2,19 @@ use super::World;
 use crate::{
     core::{Component, ComponentId, Entity},
     event::{Event, EventOutputs},
-    storage::{
-        dense::{DenseMap, DenseSet},
-        table::{Column, ComponentSet},
-    },
+    storage::{dense::DenseSet, table::Row, ColumnCell},
     system::schedule::SystemTag,
 };
 pub struct Spawn {
     parent: Option<Entity>,
-    components: DenseMap<ComponentId, Column>,
+    components: Row,
 }
 
 impl Spawn {
     pub fn new() -> Self {
         Self {
             parent: None,
-            components: DenseMap::new(),
+            components: Row::new(),
         }
     }
 
@@ -27,9 +24,7 @@ impl Spawn {
     }
 
     pub fn with<C: Component>(mut self, component: C) -> Self {
-        let mut column = Column::new::<C>();
-        column.insert(component);
-        self.components.insert(ComponentId::new::<C>(), column);
+        self.components.add_field(component);
         self
     }
 }
@@ -38,16 +33,12 @@ impl Event for Spawn {
     type Output = Entity;
     const PRIORITY: i32 = i32::MAX - 1000;
 
-    fn invoke(mut self, world: &mut super::World) -> Option<Self::Output> {
+    fn invoke(self, world: &mut super::World) -> Option<Self::Output> {
         let entity = world.spawn(self.parent);
         if matches!(self.parent, Some(_)) {
             world.events().add(SetParent::new(entity, self.parent));
         }
-        let mut components = ComponentSet::new();
-        for (id, column) in self.components.drain() {
-            components.add_column(id, column);
-        }
-        world.add_components(&entity, components);
+        world.add_components(&entity, self.components);
         Some(entity)
     }
 }
@@ -68,11 +59,12 @@ impl Event for Despawn {
 
     fn invoke(self, world: &mut super::World) -> Option<Self::Output> {
         let mut entities = vec![];
-        for (entity, mut set) in world.despawn(&self.entity).drain() {
+        for (entity, mut components) in world.despawn(&self.entity).drain() {
             entities.push(entity);
-            while let Some((id, mut column)) = set.remove_at(0) {
+            for (id, cell) in components.drain() {
+                let id = ComponentId::from(id);
                 let meta = world.components().extension::<ComponentEvents>(&id);
-                meta.remove(world, &entity, &mut column);
+                meta.remove(world, &entity, cell);
             }
         }
         if entities.is_empty() {
@@ -233,21 +225,19 @@ impl<C: Component> Event for AddComponent<C> {
 
 pub struct AddComponents {
     entity: Entity,
-    components: DenseMap<ComponentId, Column>,
+    components: Row,
 }
 
 impl AddComponents {
     pub fn new(entity: Entity) -> Self {
         Self {
             entity,
-            components: DenseMap::new(),
+            components: Row::new(),
         }
     }
 
     pub fn with<C: Component>(mut self, component: C) -> Self {
-        let mut column = Column::new::<C>();
-        column.insert(component);
-        self.components.insert(ComponentId::new::<C>(), column);
+        self.components.add_field(component);
 
         self
     }
@@ -257,16 +247,26 @@ impl Event for AddComponents {
     type Output = Entity;
     const PRIORITY: i32 = AddComponent::<()>::PRIORITY;
 
-    fn invoke(mut self, world: &mut super::World) -> Option<Self::Output> {
-        let mut components = ComponentSet::new();
-        for (id, column) in self.components.drain() {
-            components.add_column(id, column);
+    fn invoke(self, world: &mut super::World) -> Option<Self::Output> {
+        let result = world.add_components(&self.entity, self.components)?;
 
-            let metas = world.components().extension::<ComponentEvents>(&id);
-            metas.add(world, &self.entity);
+        for added in result.added().iter() {
+            let meta = world.components().extension::<ComponentEvents>(&added);
+            meta.add(world, &self.entity);
         }
-        let _ = world.add_components(&self.entity, components)?;
+
         Some(self.entity)
+    }
+}
+
+pub struct RemovedComponent<C: Component> {
+    pub entity: Entity,
+    pub component: C,
+}
+
+impl<C: Component> RemovedComponent<C> {
+    pub fn new(entity: Entity, component: C) -> Self {
+        Self { entity, component }
     }
 }
 
@@ -285,14 +285,14 @@ impl<C: Component> RemoveComponent<C> {
 }
 
 impl<C: Component> Event for RemoveComponent<C> {
-    type Output = (Entity, C);
+    type Output = RemovedComponent<C>;
     const PRIORITY: i32 = AddComponent::<C>::PRIORITY - 1000;
 
     fn invoke(self, world: &mut super::World) -> Option<Self::Output> {
         let id = ComponentId::new::<C>();
-        let mut _move = world.remove_component(&self.entity, &id)?;
-        let component = _move.removed_mut().remove_component::<C>(&id)?;
-        Some((self.entity, component))
+        let mut result = world.remove_component(&self.entity, &id)?;
+        let component = result.removed_mut().remove_field::<C>()?;
+        Some(RemovedComponent::new(self.entity, component))
     }
 }
 
@@ -321,14 +321,19 @@ impl Event for RemoveComponents {
 
     fn invoke(mut self, world: &mut super::World) -> Option<Self::Output> {
         let components = std::mem::take(&mut self.components);
-        let _move = world.remove_components(&self.entity, components)?;
+        let mut result = world.remove_components(&self.entity, components)?;
+        for (id, component) in result.removed.drain() {
+            let id = ComponentId::from(id);
+            let meta = world.components().extension::<ComponentEvents>(&id);
+            meta.remove(world, &self.entity, component);
+        }
         Some(self.entity)
     }
 }
 
 pub struct ComponentEvents {
     add: Box<dyn Fn(&World, &Entity) + Send + Sync + 'static>,
-    remove: Box<dyn Fn(&World, &Entity, &mut Column) + Send + Sync + 'static>,
+    remove: Box<dyn Fn(&World, &Entity, ColumnCell) + Send + Sync + 'static>,
 }
 
 impl ComponentEvents {
@@ -336,12 +341,14 @@ impl ComponentEvents {
         Self {
             add: Box::new(|world, entity| {
                 let outputs = world.resource_mut::<EventOutputs<AddComponent<C>>>();
+                world.events().invoked::<AddComponent<C>>();
                 outputs.add(*entity);
             }),
-            remove: Box::new(|world, entity, column| {
+            remove: Box::new(|world, entity, cell| {
                 let outputs = world.resource_mut::<EventOutputs<RemoveComponent<C>>>();
-                let component = column.swap_remove(0).remove::<C>(0);
-                outputs.add((*entity, component));
+                let component = cell.take::<C>();
+                world.events().invoked::<RemoveComponent<C>>();
+                outputs.add(RemovedComponent::new(*entity, component));
             }),
         }
     }
@@ -350,8 +357,8 @@ impl ComponentEvents {
         (self.add)(world, entity);
     }
 
-    pub fn remove(&self, world: &World, entity: &Entity, column: &mut Column) {
-        (self.remove)(world, entity, column);
+    pub fn remove(&self, world: &World, entity: &Entity, cell: ColumnCell) {
+        (self.remove)(world, entity, cell);
     }
 }
 
@@ -370,6 +377,25 @@ impl Event for ActivateSystemGroup {
 
     fn invoke(self, world: &mut super::World) -> Option<Self::Output> {
         world.activate_system_group(self.tag);
+        None
+    }
+}
+
+pub struct DeactivateSystemGroup {
+    tag: SystemTag,
+}
+
+impl DeactivateSystemGroup {
+    pub fn new(tag: impl Into<SystemTag>) -> Self {
+        Self { tag: tag.into() }
+    }
+}
+
+impl Event for DeactivateSystemGroup {
+    type Output = ();
+
+    fn invoke(self, world: &mut super::World) -> Option<Self::Output> {
+        world.deactivate_system_group(self.tag);
         None
     }
 }
