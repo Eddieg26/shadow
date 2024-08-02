@@ -3,7 +3,7 @@ use super::{
     ArgItem, SystemArg,
 };
 use crate::{
-    core::internal::blob::{Blob, BlobCell},
+    core::internal::blob::BlobCell,
     event::{Event, EventOutputs, EventType},
     storage::dense::DenseMap,
     world::World,

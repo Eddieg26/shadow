@@ -1,20 +1,10 @@
 use shadow_ecs::{
-    archetype::Archetypes,
-    core::{Component, Components, Entities, LocalResources, Resources},
+    core::Component,
     event::{Event, Events},
-    system::{observer::EventObservers, schedule::Phase},
-    world::{
-        events::{
-            AddChildren, AddComponent, AddComponents, Despawn, RemoveChildren, RemoveComponent,
-            RemoveComponents, SetParent, Spawn,
-        },
-        World,
-    },
+    system::schedule::Phase,
+    world::events::{AddComponent, Despawn, RemoveComponent, Spawn},
 };
-use shadow_game::{
-    game::Game,
-    phases::{Execute, Init, Update},
-};
+use shadow_game::{game::Game, phases::Init};
 
 pub struct AssetInit;
 
