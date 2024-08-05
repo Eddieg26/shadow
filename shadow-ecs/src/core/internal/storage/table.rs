@@ -1,13 +1,6 @@
+use super::{DenseMap, DenseSet};
 use crate::core::internal::blob::{Blob, BlobCell};
-use std::collections::hash_map::DefaultHasher;
-use std::{
-    any::TypeId,
-    collections::HashMap,
-    hash::{Hash, Hasher},
-};
-
-use super::dense::map::DenseMap;
-use super::dense::set::DenseSet;
+use std::{any::TypeId, collections::HashMap, hash::Hash};
 
 pub struct ColumnCell {
     data: BlobCell,
@@ -159,23 +152,22 @@ impl From<&ColumnCell> for Column {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ColumnKey(u64);
+pub struct ColumnKey(u32);
 
 impl ColumnKey {
     pub fn from<K: 'static>() -> Self {
-        let mut hasher = DefaultHasher::new();
+        let mut hasher = crc32fast::Hasher::new();
         TypeId::of::<K>().hash(&mut hasher);
-
-        ColumnKey(hasher.finish())
+        ColumnKey(hasher.finalize())
     }
 
-    pub fn raw(id: u64) -> Self {
+    pub fn raw(id: u32) -> Self {
         ColumnKey(id)
     }
 }
 
 impl std::ops::Deref for ColumnKey {
-    type Target = u64;
+    type Target = u32;
 
     fn deref(&self) -> &Self::Target {
         &self.0

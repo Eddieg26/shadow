@@ -459,6 +459,22 @@ impl BlobCell {
         unsafe { &mut *(self.data.as_ptr() as *mut T) }
     }
 
+    pub fn value_checked<T: 'static>(&self) -> Option<&T> {
+        if self.layout.size() == std::mem::size_of::<T>() {
+            Some(unsafe { &*(self.data.as_ptr() as *const T) })
+        } else {
+            None
+        }
+    }
+
+    pub fn value_mut_checked<T: 'static>(&self) -> Option<&mut T> {
+        if self.layout.size() == std::mem::size_of::<T>() {
+            Some(unsafe { &mut *(self.data.as_ptr() as *mut T) })
+        } else {
+            None
+        }
+    }
+
     pub fn ptr<T: 'static>(&self) -> Ptr<T> {
         Ptr::new(self.data.as_ptr() as *mut T)
     }

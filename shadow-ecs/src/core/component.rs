@@ -1,19 +1,17 @@
+use super::internal::DenseMap;
 use std::{
     alloc::Layout,
     any::{Any, TypeId},
     collections::HashMap,
-    hash::{Hash, Hasher},
+    hash::Hash,
     sync::Arc,
 };
 
-use super::internal::DenseMap;
-
 pub trait Component: Send + Sync + 'static {}
-
 impl Component for () {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ComponentId(u64);
+pub struct ComponentId(u32);
 
 impl ComponentId {
     pub fn new<C: Component>() -> Self {
@@ -21,12 +19,12 @@ impl ComponentId {
     }
 
     pub fn dynamic(type_id: std::any::TypeId) -> Self {
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        let mut hasher = crc32fast::Hasher::new();
         type_id.hash(&mut hasher);
-        Self(hasher.finish())
+        Self(hasher.finalize())
     }
 
-    pub fn raw(type_id: u64) -> Self {
+    pub fn raw(type_id: u32) -> Self {
         Self(type_id)
     }
 
@@ -36,7 +34,7 @@ impl ComponentId {
 }
 
 impl std::ops::Deref for ComponentId {
-    type Target = u64;
+    type Target = u32;
 
     fn deref(&self) -> &Self::Target {
         &self.0

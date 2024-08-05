@@ -3,10 +3,7 @@ use crate::{
     core::{DenseMap, DenseSet},
     world::World,
 };
-use std::{
-    any::TypeId,
-    hash::{Hash, Hasher},
-};
+use std::{any::TypeId, hash::Hash};
 
 pub trait Phase: Sized + 'static {
     fn id(&self) -> ScheduleId {
@@ -61,14 +58,14 @@ pub struct Root;
 impl Phase for Root {}
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-pub struct ScheduleId(u64);
+pub struct ScheduleId(u32);
 
 impl ScheduleId {
     pub fn new<P: Phase>() -> Self {
         let type_id = TypeId::of::<P>();
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        let mut hasher = crc32fast::Hasher::new();
         type_id.hash(&mut hasher);
-        Self(hasher.finish())
+        Self(hasher.finalize())
     }
 }
 

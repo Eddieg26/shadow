@@ -2,7 +2,7 @@ use crate::core::{Component, ComponentId, Entity};
 use crate::core::{DenseMap, DenseSet};
 use std::{
     collections::{HashMap, HashSet},
-    hash::{DefaultHasher, Hash, Hasher},
+    hash::{Hash, Hasher},
 };
 use table::{EntityRow, EntityTable};
 
@@ -28,7 +28,7 @@ pub struct ArchetypeId(u64);
 
 impl ArchetypeId {
     pub fn new(ids: &[ComponentId]) -> Self {
-        let mut hasher = DefaultHasher::new();
+        let mut hasher = crc32fast::Hasher::new();
         ids.hash(&mut hasher);
         ArchetypeId(hasher.finish())
     }
@@ -332,7 +332,7 @@ impl Archetypes {
         if ids.is_empty() {
             return None;
         }
-        
+
         let (archetype, mut components) = self.remove_entity(entity)?;
         let mut removed = EntityRow::new();
         for id in ids {

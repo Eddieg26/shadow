@@ -8,4 +8,5 @@ edition = "2021"
 [dependencies]
 shadow-game = { path = "../../shadow-game", version = "0.1.0" }
 shadow-ecs = { path = "../../shadow-ecs", version = "0.1.0" }
+shadow-asset = { path = "../../shadow-asset", version = "0.1.0" }
 toml = { workspace = true }

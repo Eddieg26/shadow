@@ -1,20 +1,11 @@
 use super::internal::{blob::BlobCell, DenseMap};
-use std::hash::{Hash, Hasher};
+use std::hash::Hash;
 
 pub trait Resource: 'static {}
 pub trait LocalResource: 'static {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ResourceId(u32);
-
-impl ResourceId {
-    pub fn new(id: u32) -> Self {
-        Self(id)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ResourceType(u64);
+pub struct ResourceType(u32);
 
 impl ResourceType {
     pub fn new<R: 'static>() -> Self {
@@ -22,12 +13,12 @@ impl ResourceType {
     }
 
     pub fn dynamic(type_id: std::any::TypeId) -> Self {
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        let mut hasher = crc32fast::Hasher::new();
         type_id.hash(&mut hasher);
-        Self(hasher.finish())
+        Self(hasher.finalize())
     }
 
-    pub fn raw(type_id: u64) -> Self {
+    pub fn raw(type_id: u32) -> Self {
         Self(type_id)
     }
 

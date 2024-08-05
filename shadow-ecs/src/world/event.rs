@@ -52,6 +52,12 @@ impl ErasedEvent {
     }
 }
 
+impl<E: Event> From<E> for ErasedEvent {
+    fn from(event: E) -> Self {
+        Self::new(event)
+    }
+}
+
 pub struct EventMeta {
     priority: i32,
     invoke: Box<dyn Fn(ErasedEvent, &mut World) + Send + Sync>,
@@ -121,9 +127,14 @@ impl Events {
         meta.clone()
     }
 
-    pub fn add<E: Event>(&self, event: E) {
+    pub fn add(&self, event: impl Into<ErasedEvent>) {
         let mut events = self.events.lock().unwrap();
-        events.push(ErasedEvent::new(event));
+        events.push(event.into());
+    }
+
+    pub fn extend(&self, events: Vec<impl Into<ErasedEvent>>) {
+        let mut _events = self.events.lock().unwrap();
+        _events.extend(events.into_iter().map(|e| e.into()));
     }
 
     pub fn remove<E: Event>(&self) -> Vec<ErasedEvent> {
