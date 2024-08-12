@@ -1,13 +1,13 @@
+use super::AssetConfig;
 use crate::{
     artifact::{Artifact, ArtifactMeta},
     asset::{Asset, AssetId, AssetSettings, AssetType, Settings},
-    io::{AssetIo, AssetIoError, AssetWriter},
+    io::AssetIoError,
     loader::{
         AssetCacher, AssetError, AssetLoader, AssetProcessor, LoadContext, LoadedAsset,
         LoadedAssets, LoadedMetadata,
     },
 };
-use either::Either;
 use shadow_ecs::core::{internal::blob::BlobCell, DenseMap};
 use std::{collections::HashSet, path::Path};
 
@@ -16,7 +16,7 @@ pub struct ErasedLoader {
         &Self,
         AssetId,
         &AssetLoaders,
-        &AssetIo,
+        &AssetConfig,
         &mut LoadedAssets,
         bool,
     ) -> Result<LoadedAsset, AssetError>,
@@ -24,21 +24,19 @@ pub struct ErasedLoader {
         &Self,
         &Path,
         &AssetLoaders,
-        &AssetIo,
+        &AssetConfig,
         &mut LoadedAssets,
     ) -> Result<ImportedAsset, AssetError>,
-    process: Option<
-        fn(Either<&mut ImportedAsset, &mut LoadedAsset>, &LoadedAssets) -> Result<(), AssetError>,
-    >,
-    cache: fn(&ImportedAsset, &mut dyn AssetWriter) -> Result<Vec<u8>, AssetIoError>,
-    load_metadata: fn(&Path, &AssetIo) -> Result<LoadedMetadata, AssetIoError>,
+    process: Option<fn(&mut ImportedAsset, &LoadedAssets) -> Result<(), AssetError>>,
+    cache: fn(&ImportedAsset, &AssetConfig) -> Result<Vec<u8>, AssetIoError>,
+    load_metadata: fn(&Path, &AssetConfig) -> Result<LoadedMetadata, AssetIoError>,
 }
 
 impl ErasedLoader {
     pub fn new<L: AssetLoader>() -> Self {
         Self {
-            load: |_self, id, loaders: &AssetLoaders, io, assets, load_deps| {
-                let artifact = io
+            load: |_self, id, loaders: &AssetLoaders, config, assets, load_deps| {
+                let artifact = config
                     .load_artifact(id)
                     .map_err(|e: AssetIoError| AssetError::load(id, e))?;
 
@@ -46,68 +44,65 @@ impl ErasedLoader {
                     L::Cacher::load(artifact.asset()).map_err(|e| AssetError::load(id, e))?;
 
                 if load_deps {
-                    loaders.load_dependencies(artifact.dependencies(), io, assets, true);
+                    loaders.load_dependencies(artifact.dependencies(), config, assets, true);
                 }
 
                 Ok(LoadedAsset::new(asset, artifact.meta))
             },
-            import: |_self, path, loaders, io, assets| {
-                let mut reader = io.reader(path);
-                let settings = match io.load_metadata::<L::Settings>(path) {
+            import: |_self, path, loaders, config, assets| {
+                let path = config.asset(path);
+                let mut reader = config.reader(&path);
+                let settings = match config.load_metadata::<L::Settings>(&path) {
                     Ok(meta) => meta,
                     Err(_) => AssetSettings::default(),
                 };
 
-                let settings_data = io
-                    .save_metadata(path, &settings)
-                    .map_err(|e| AssetError::import(path, e))?;
+                let settings_data = config
+                    .save_metadata(&path, &settings)
+                    .map_err(|e| AssetError::import(&path, e))?;
 
-                let prev_meta = io.load_artifact_meta(settings.id()).ok();
+                let prev_meta = config.load_artifact_meta(settings.id()).ok();
 
                 let (asset, dependencies) = {
                     let mut ctx = LoadContext::new(&settings);
                     let asset = match L::load(&mut ctx, reader.as_mut()) {
                         Ok(asset) => asset,
-                        Err(err) => return Err(AssetError::import(path, err)),
+                        Err(err) => return Err(AssetError::import(&path, err)),
                     };
                     (asset, ctx.finish())
                 };
 
-                let checksum = io.checksum(reader.bytes(), settings_data.as_bytes());
+                let checksum = config.checksum(reader.bytes(), settings_data.as_bytes());
 
                 let (id, settings) = settings.take();
                 let meta = ArtifactMeta::new::<L::Asset>(id, checksum, dependencies);
-                let loaded_bytes = reader.flush().map_err(|e| AssetError::import(path, e))?;
-                let mut asset = ImportedAsset::new(asset, settings, meta, loaded_bytes)
-                    .with_prev_meta(prev_meta);
+                let mut asset = ImportedAsset::new(asset, settings, meta).with_prev_meta(prev_meta);
 
                 if let Some(processor) = &_self.process {
-                    loaders.load_dependencies(asset.dependencies(), io, assets, false);
-                    processor(Either::Left(&mut asset), assets)?;
+                    loaders.load_dependencies(asset.dependencies(), config, assets, false);
+                    processor(&mut asset, assets)?;
                 }
 
-                let mut writer = io.writer(io.artifact(asset.meta.id()));
                 _self
-                    .cache(&asset, writer.as_mut())
+                    .cache(&asset, config)
                     .map_err(|e| AssetError::import(path, e))?;
 
                 Ok(asset)
             },
             process: None,
-            cache: |imported, writer| match L::Cacher::cache(imported.asset(), imported.settings())
-            {
+            cache: |imported, config| match L::Cacher::cache(imported.asset()) {
                 Ok(bytes) => {
-                    let settings = toml::to_string(imported.settings::<L::Settings>())
-                        .map_err(|e| AssetIoError::from(e))?;
-                    let artifact = Artifact::bytes(&bytes, settings.as_bytes(), imported.meta());
+                    let id = imported.meta().id();
+                    let mut writer = config.writer(config.artifact(id));
+                    let artifact = Artifact::bytes(&bytes, imported.meta());
 
                     writer.write(&artifact)?;
                     writer.flush()
                 }
                 Err(e) => Err(AssetIoError::other(e)),
             },
-            load_metadata: |path, io| {
-                let metadata = io
+            load_metadata: |path, config| {
+                let metadata = config
                     .load_metadata::<L::Settings>(path)
                     .map_err(|e| AssetIoError::from(e))?;
 
@@ -126,26 +121,26 @@ impl ErasedLoader {
         &self,
         id: AssetId,
         loaders: &AssetLoaders,
-        io: &AssetIo,
+        config: &AssetConfig,
         assets: &mut LoadedAssets,
         load_dependencies: bool,
     ) -> Result<LoadedAsset, AssetError> {
-        (self.load)(self, id, loaders, io, assets, load_dependencies)
+        (self.load)(self, id, loaders, config, assets, load_dependencies)
     }
 
     pub fn import(
         &self,
         path: impl AsRef<Path>,
         loaders: &AssetLoaders,
-        io: &AssetIo,
+        config: &AssetConfig,
         assets: &mut LoadedAssets,
     ) -> Result<ImportedAsset, AssetError> {
-        (self.import)(self, path.as_ref(), loaders, io, assets)
+        (self.import)(self, path.as_ref(), loaders, config, assets)
     }
 
     pub fn process(
         &self,
-        asset: Either<&mut ImportedAsset, &mut LoadedAsset>,
+        asset: &mut ImportedAsset,
         assets: &LoadedAssets,
     ) -> Option<Result<(), AssetError>> {
         self.process.map(|process| process(asset, assets))
@@ -154,13 +149,17 @@ impl ErasedLoader {
     pub fn cache(
         &self,
         asset: &ImportedAsset,
-        writer: &mut dyn AssetWriter,
+        config: &AssetConfig,
     ) -> Result<Vec<u8>, AssetIoError> {
-        (self.cache)(asset, writer)
+        (self.cache)(asset, config)
     }
 
-    pub fn load_metadata(&self, path: &Path, io: &AssetIo) -> Result<LoadedMetadata, AssetIoError> {
-        (self.load_metadata)(path, io)
+    pub fn load_metadata(
+        &self,
+        path: &Path,
+        config: &AssetConfig,
+    ) -> Result<LoadedMetadata, AssetIoError> {
+        (self.load_metadata)(path, config)
     }
 }
 
@@ -195,13 +194,15 @@ impl AssetLoaders {
     }
 
     pub fn add_loader<L: AssetLoader>(&mut self) {
-        let loader = ErasedLoader::new::<L>();
         let asset_type = AssetType::of::<L::Asset>();
-        let extensions = L::extensions();
+        if !self.loaders.contains(&asset_type) {
+            let loader = ErasedLoader::new::<L>();
+            let extensions = L::extensions();
 
-        self.loaders.insert(asset_type, loader);
-        for &ext in extensions {
-            self.ext_map.insert(ext, asset_type);
+            self.loaders.insert(asset_type, loader);
+            for &ext in extensions {
+                self.ext_map.insert(ext, asset_type);
+            }
         }
     }
 
@@ -210,16 +211,16 @@ impl AssetLoaders {
         if let Some(loader) = self.loaders.get_mut(&ty) {
             loader.set_processor::<P>();
         } else {
-            let mut loader = ErasedLoader::new::<P::Loader>();
+            self.add_loader::<P::Loader>();
+            let loader = self.loaders.get_mut(&ty).unwrap();
             loader.set_processor::<P>();
-            self.loaders.insert(ty, loader);
         }
     }
 
     pub fn load_dependencies<'a>(
         &self,
         dependencies: impl IntoIterator<Item = &'a AssetId>,
-        io: &AssetIo,
+        io: &AssetConfig,
         assets: &mut LoadedAssets,
         recursive: bool,
     ) {
@@ -249,22 +250,15 @@ pub struct ImportedAsset {
     settings: BlobCell,
     meta: ArtifactMeta,
     prev_meta: Option<ArtifactMeta>,
-    loaded_bytes: Vec<u8>,
 }
 
 impl ImportedAsset {
-    pub fn new<A: Asset, S: Settings>(
-        asset: A,
-        settings: S,
-        meta: ArtifactMeta,
-        loaded_bytes: Vec<u8>,
-    ) -> Self {
+    pub fn new<A: Asset, S: Settings>(asset: A, settings: S, meta: ArtifactMeta) -> Self {
         Self {
             asset: BlobCell::new(asset),
             settings: BlobCell::new(settings),
             meta,
             prev_meta: None,
-            loaded_bytes,
         }
     }
 
@@ -299,10 +293,6 @@ impl ImportedAsset {
 
     pub fn prev_meta(&self) -> Option<&ArtifactMeta> {
         self.prev_meta.as_ref()
-    }
-
-    pub fn loaded_bytes(&self) -> &[u8] {
-        &self.loaded_bytes
     }
 
     pub fn dependencies(&self) -> &HashSet<AssetId> {

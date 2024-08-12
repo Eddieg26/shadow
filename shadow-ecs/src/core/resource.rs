@@ -116,6 +116,11 @@ impl Resources {
             .get(&ResourceType::new::<R>())
             .map(|data| data.get_mut::<R>())
     }
+
+    pub fn remove<R: Resource>(&mut self) -> Option<R> {
+        let ty = ResourceType::new::<R>();
+        self.0.resources.remove(&ty).map(|data| data.data.take())
+    }
 }
 
 pub struct LocalResources(BaseResouces);
@@ -149,5 +154,10 @@ impl LocalResources {
             .resources
             .get(&ResourceType::new::<R>())
             .map(|data| data.get_mut::<R>())
+    }
+
+    pub fn remove<R: LocalResource>(&mut self) -> Option<R> {
+        let ty = ResourceType::new::<R>();
+        self.0.resources.remove(&ty).map(|data| data.data.take())
     }
 }

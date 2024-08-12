@@ -1,4 +1,4 @@
-use super::{AssetFileSystem, AssetIoError, AssetReader, AssetWriter};
+use super::{AssetFileSystem, AssetIoError, AssetReader, AssetWriter, PathExt};
 use std::{
     ffi::{OsStr, OsString},
     path::{Path, PathBuf},
@@ -226,10 +226,10 @@ pub struct VirtualFileStorage {
 }
 
 impl VirtualFileStorage {
-    pub fn new() -> Self {
+    pub fn new(root: OsString) -> Self {
         Self {
             root: INode::Dir {
-                name: OsString::new(),
+                name: root,
                 children: Vec::new(),
             },
         }
@@ -376,12 +376,15 @@ impl std::fmt::Display for VirtualFileStorage {
 
 pub struct VirtualFileSystem {
     storage: Arc<Mutex<VirtualFileStorage>>,
+    root: PathBuf,
 }
 
 impl VirtualFileSystem {
-    pub fn new() -> Self {
+    pub fn new(root: impl Into<OsString>) -> Self {
+        let root = PathBuf::from(root.into());
         Self {
-            storage: Arc::new(Mutex::new(VirtualFileStorage::new())),
+            root: root.clone(),
+            storage: Arc::new(Mutex::new(VirtualFileStorage::new(root.into_os_string()))),
         }
     }
 
@@ -390,13 +393,24 @@ impl VirtualFileSystem {
     }
 }
 
+impl Default for VirtualFileSystem {
+    fn default() -> Self {
+        Self::new("/")
+    }
+}
+
 impl AssetFileSystem for VirtualFileSystem {
+    fn root(&self) -> &Path {
+        &self.root
+    }
+
     fn is_dir(&self, path: &Path) -> bool {
         let storage = self.storage.lock().unwrap();
         storage.get_node(path).map_or(false, |node| node.is_dir())
     }
 
     fn exists(&self, path: &Path) -> bool {
+        let path = path.with_prefix(self.root());
         self.storage.lock().unwrap().get_node(path).is_some()
     }
 

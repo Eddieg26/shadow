@@ -1,11 +1,14 @@
 use crate::{
     asset::{AssetId, AssetKind},
     bytes::IntoBytes,
-    io::{AssetIoError, AssetReader, AssetWriter},
+    io::{AssetIoError, AssetWriter},
 };
 use shadow_ecs::core::{DenseMap, DenseSet};
 use std::path::PathBuf;
 
+use super::AssetConfig;
+
+#[derive(Default, Debug)]
 pub struct AssetLibrary {
     ids: DenseMap<AssetId, PathBuf>,
     paths: DenseMap<PathBuf, AssetId>,
@@ -32,7 +35,7 @@ impl AssetLibrary {
             self.paths.remove(&old_path);
             old_path
         });
-        if matches!(kind, AssetKind::Main) {
+        if kind == AssetKind::Main {
             self.paths.insert(path, id);
         }
         old
@@ -40,7 +43,7 @@ impl AssetLibrary {
 
     pub fn remove_asset(&mut self, id: &AssetId, kind: AssetKind) -> Option<PathBuf> {
         let path = self.ids.remove(id)?;
-        if matches!(kind, AssetKind::Main) {
+        if kind == AssetKind::Main {
             self.paths.remove(&path);
         }
         Some(path)
@@ -115,6 +118,7 @@ impl DependentUpdates {
     }
 }
 
+#[derive(Default)]
 pub struct DependentLibrary {
     dependents: DenseMap<AssetId, DenseSet<AssetId>>,
     updates: DenseMap<AssetId, DependentUpdates>,
@@ -169,7 +173,8 @@ impl DependentLibrary {
         dependents
     }
 
-    pub fn save(&mut self, mut writer: impl AssetWriter) -> Result<Vec<u8>, AssetIoError> {
+    pub fn save(&mut self, config: &AssetConfig) -> Result<Vec<u8>, AssetIoError> {
+        let mut writer = config.writer(Self::path(config));
         for (id, mut update) in self.updates.drain() {
             let dependents = match self.dependents.get_mut(&id) {
                 Some(dependents) => dependents,
@@ -187,7 +192,14 @@ impl DependentLibrary {
         writer.flush()
     }
 
-    pub fn load(reader: impl AssetReader) -> Result<Self, AssetIoError> {
+    pub fn load(config: &AssetConfig) -> Result<Self, AssetIoError> {
+        let path = Self::path(config);
+
+        if !path.exists() {
+            return Ok(Self::new());
+        }
+
+        let reader = config.reader(Self::path(config));
         let bytes = reader.bytes();
         let dependents = DenseMap::from_bytes(&bytes)
             .ok_or(AssetIoError::from(std::io::ErrorKind::InvalidData))?;
@@ -196,5 +208,9 @@ impl DependentLibrary {
             dependents,
             updates: DenseMap::new(),
         })
+    }
+
+    pub fn path(config: &AssetConfig) -> PathBuf {
+        config.temp().join("dependents.lib")
     }
 }

@@ -1,4 +1,4 @@
-use super::{AssetFileSystem, AssetIoError, AssetReader, AssetWriter};
+use super::{AssetFileSystem, AssetIoError, AssetReader, AssetWriter, PathExt};
 use std::{
     fs::File,
     io::{Read, Seek, Write},
@@ -125,14 +125,29 @@ impl AssetWriter for LocalAsset {
 }
 
 #[derive(Default, Debug)]
-pub struct LocalFileSystem;
+pub struct LocalFileSystem {
+    root: PathBuf,
+}
+
+impl LocalFileSystem {
+    pub fn new(root: impl AsRef<Path>) -> Self {
+        Self {
+            root: root.as_ref().to_path_buf(),
+        }
+    }
+}
 
 impl AssetFileSystem for LocalFileSystem {
+    fn root(&self) -> &Path {
+        &self.root
+    }
+
     fn is_dir(&self, path: &Path) -> bool {
         path.is_dir()
     }
 
     fn exists(&self, path: &Path) -> bool {
+        let path = path.with_prefix(&self.root);
         path.exists()
     }
 

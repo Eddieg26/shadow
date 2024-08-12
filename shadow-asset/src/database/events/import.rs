@@ -1,11 +1,20 @@
-use super::{AssetEvent, ImportAssets, ImportFolder, LoadAsset, RemoveAssets, UnloadAsset};
+use super::{
+    load::{LoadAssets, UnloadAsset},
+    AssetEvent, StartAssetEvent,
+};
 use crate::{
-    asset::{Asset, AssetKind, AssetSettings, Settings},
+    asset::{Asset, AssetId, AssetKind, AssetSettings, Settings},
     database::{library::DependentLibrary, AssetDatabase},
     io::PathExt,
     loader::{AssetError, AssetErrorKind, LoadErrorKind, LoadedAssets},
 };
-use shadow_ecs::{core::DenseSet, world::event::Events};
+use shadow_ecs::{
+    core::DenseSet,
+    world::{
+        event::{Event, Events},
+        World,
+    },
+};
 use std::{
     collections::HashSet,
     error::Error,
@@ -73,25 +82,45 @@ impl ImportScan {
             },
         }
     }
+}
 
-    pub fn priority(&self) -> u32 {
-        match self {
-            ImportScan::Error(_) => 0,
-            ImportScan::Removed(_) => 1,
-            ImportScan::Modified(_) => 2,
-            ImportScan::Added(_) => 3,
+pub struct ImportFolder {
+    path: PathBuf,
+}
+
+impl ImportFolder {
+    pub fn new(path: impl AsRef<Path>) -> Self {
+        Self {
+            path: path.as_ref().to_path_buf(),
         }
+    }
+}
+
+impl Event for ImportFolder {
+    type Output = PathBuf;
+
+    fn invoke(self, world: &mut World) -> Option<Self::Output> {
+        world.events().add(StartAssetEvent::new(self));
+
+        None
     }
 }
 
 impl ImportFolder {
     fn scan_file(path: &Path, database: &AssetDatabase) -> Option<ImportScan> {
-        let io = database.io();
+        let ext = match path.ext() {
+            Some("meta") | None => return None,
+            Some(ext) => ext,
+        };
+        let config = database.config();
         let loaders = database.loaders();
         let library = database.library();
-        let loader = path.ext().and_then(|ext| loaders.get_by_ext(ext))?;
+        let loader = match loaders.get_by_ext(ext) {
+            Some(loader) => loader,
+            None => return Some(ImportScan::error(path, LoadErrorKind::NoLoader)),
+        };
 
-        let metadata = match loader.load_metadata(path, io) {
+        let metadata = match loader.load_metadata(path, config) {
             Ok(metadata) => metadata,
             Err(_) => return Some(ImportScan::added(path)),
         };
@@ -104,40 +133,40 @@ impl ImportFolder {
             return Some(ImportScan::added(path));
         }
 
-        let artifact_meta = match io.load_artifact_meta(metadata.id) {
+        let artifact_meta = match config.load_artifact_meta(metadata.id) {
             Ok(artifact_meta) => artifact_meta,
             Err(_) => return Some(ImportScan::added(path)),
         };
 
         let asset = {
-            let mut reader = io.reader(path);
+            let mut reader = config.reader(path);
             match reader.read_to_end().and_then(|_| reader.flush()) {
                 Ok(bytes) => bytes,
                 Err(e) => return Some(ImportScan::error(path, e)),
             }
         };
 
-        match io.checksum(&asset, metadata.data()) != artifact_meta.checksum() {
+        match config.checksum(&asset, metadata.data()) != artifact_meta.checksum() {
             true => Some(ImportScan::modified(path)),
             false => None,
         }
     }
 
     fn scan_folder(path: &Path, database: &AssetDatabase) -> Vec<ImportScan> {
-        let io = database.io();
-        let children = match io.reader(path).read_dir() {
-            Ok(chidren) => chidren,
+        let config = database.config();
+        let children = match config.reader(path).read_dir() {
+            Ok(children) => children,
             Err(e) => return vec![ImportScan::error(path, e)],
         };
 
-        let mut metadata = match io.load_metadata::<FolderMeta>(path) {
+        let mut metadata = match config.load_metadata::<FolderMeta>(path) {
             Ok(metadata) => metadata,
             Err(_) => AssetSettings::<FolderMeta>::default(),
         };
 
         let mut scans = Vec::new();
         for child in &children {
-            match io.filesystem().is_dir(&child) {
+            match config.filesystem().is_dir(&child) {
                 true => scans.extend(Self::scan_folder(child, database)),
                 false => scans.extend(Self::scan_file(child, database)),
             }
@@ -151,7 +180,7 @@ impl ImportFolder {
 
         metadata.set_children(children);
 
-        if let Err(e) = io.save_metadata(path, &metadata) {
+        if let Err(e) = config.save_metadata(path, &metadata) {
             scans.push(ImportScan::error(path, e));
         }
 
@@ -160,8 +189,10 @@ impl ImportFolder {
 }
 
 impl AssetEvent for ImportFolder {
-    fn execute(&self, database: &AssetDatabase, events: &Events) {
-        let scans = Self::scan_folder(&self.path, database);
+    fn execute(&mut self, database: &AssetDatabase, events: &Events) {
+        let config = database.config();
+        let path = self.path.with_prefix(config.root().join(config.assets()));
+        let scans = Self::scan_folder(&path, database);
 
         let mut errors = vec![];
         let mut imports = vec![];
@@ -175,122 +206,457 @@ impl AssetEvent for ImportFolder {
             }
         }
 
-        database.events().push_front(ImportAssets::new(imports));
-        database.events().push_front(RemoveAssets::new(removed));
+        if !imports.is_empty() {
+            database.events().push_front(ImportAssets::new(imports));
+        }
+        if !removed.is_empty() {
+            database.events().push_front(RemoveAssets::new(removed));
+        }
         events.extend(errors);
+    }
+}
+
+pub struct ImportAsset {
+    path: PathBuf,
+}
+
+impl ImportAsset {
+    pub fn new(path: impl AsRef<Path>) -> Self {
+        Self {
+            path: path.as_ref().to_path_buf(),
+        }
+    }
+
+    pub fn observer(paths: &[PathBuf], events: &Events) {
+        events.add(ImportAssets::new(paths.to_vec()));
+    }
+}
+
+impl Event for ImportAsset {
+    type Output = PathBuf;
+
+    fn invoke(self, _: &mut World) -> Option<Self::Output> {
+        Some(self.path)
+    }
+}
+
+pub struct ImportAssets {
+    paths: Vec<PathBuf>,
+}
+
+impl ImportAssets {
+    pub fn new(paths: impl IntoIterator<Item = PathBuf>) -> Self {
+        Self {
+            paths: paths.into_iter().collect(),
+        }
+    }
+}
+
+impl Event for ImportAssets {
+    type Output = ();
+
+    fn invoke(self, world: &mut World) -> Option<Self::Output> {
+        world.events().add(StartAssetEvent::new(self));
+        None
     }
 }
 
 impl AssetEvent for ImportAssets {
-    fn execute(&self, database: &AssetDatabase, events: &Events) {
-        let mut assets = LoadedAssets::new();
-        let mut errors = vec![];
-        let mut imports = HashSet::new();
-        let mut dependents = {
-            let reader = database
-                .io()
-                .reader(database.io().temp().join("dependents.lib"));
-            DependentLibrary::load(reader).unwrap_or(DependentLibrary::new())
-        };
-        let io = database.io();
+    fn execute(&mut self, database: &AssetDatabase, events: &Events) {
+        let config = database.config();
         let loaders = database.loaders();
-        let mut library = database.library_mut();
+        let batch_size = database.config().import_batch_size();
 
-        for path in &self.paths {
-            let loader = match path.ext().and_then(|ext| loaders.get_by_ext(ext)) {
-                Some(loader) => loader,
-                None => {
-                    errors.push(AssetError::import(path, LoadErrorKind::NoLoader));
-                    continue;
+        let mut paths = std::mem::take(&mut self.paths);
+        let mut errors = vec![];
+        let mut imports = vec![];
+        let mut dependents = DependentLibrary::load(config).unwrap_or_default();
+
+        while !paths.is_empty() {
+            let paths = paths.drain(..batch_size.min(paths.len()));
+            let mut assets = LoadedAssets::new();
+
+            for path in paths {
+                let path = path
+                    .without_prefix(config.root().join(config.assets()))
+                    .to_path_buf();
+
+                let loader = match path.ext().and_then(|ext| loaders.get_by_ext(ext)) {
+                    Some(loader) => loader,
+                    None => {
+                        errors.push(AssetError::import(path, LoadErrorKind::NoLoader));
+                        continue;
+                    }
+                };
+
+                let imported = match loader.import(&path, &loaders, config, &mut assets) {
+                    Ok(imported) => imported,
+                    Err(error) => {
+                        errors.push(error);
+                        continue;
+                    }
+                };
+
+                for id in imported.dependencies() {
+                    dependents.add_dependent(*id, imported.id());
                 }
-            };
 
-            let imported = match loader.import(path, &loaders, io, &mut assets) {
-                Ok(imported) => imported,
-                Err(error) => {
-                    errors.push(error);
-                    continue;
+                if let Some(prev_meta) = imported.prev_meta() {
+                    for id in prev_meta.dependencies().difference(imported.dependencies()) {
+                        dependents.remove_dependent(id, &imported.id());
+                    }
                 }
-            };
 
-            for id in imported.dependencies() {
-                dependents.add_dependent(*id, imported.id());
+                database
+                    .library_mut()
+                    .add_asset(imported.id(), path.clone(), AssetKind::Main);
+                imports.push(AssetImported::new(imported.id(), path));
+                assets.add_erased(imported.id(), imported.into());
             }
-
-            if let Some(prev_meta) = imported.prev_meta() {
-                for id in prev_meta.dependencies().difference(imported.dependencies()) {
-                    dependents.remove_dependent(id, &imported.id());
-                }
-            }
-
-            library.add_asset(imported.id(), path.to_path_buf(), AssetKind::Main);
-            imports.insert(imported.id());
-            assets.add_erased(imported.id(), imported.into());
         }
 
-        let writer = io.writer(io.temp().join("dependents.lib"));
-        dependents.save(writer).unwrap();
+        if let Err(e) = dependents.save(config) {
+            errors.push(AssetError::import(DependentLibrary::path(config), e));
+        }
 
+        let library = database.library();
         let mut reimports = DenseSet::new();
-        for id in &imports {
-            if let Some(dependents) = dependents.get(id) {
-                reimports.extend(dependents.iter().filter_map(|id| library.path(id)));
+        let mut reloads = DenseSet::new();
+        for import in &imports {
+            if let Some(dependents) = dependents.get(&import.id()) {
+                let dependents = dependents.iter().filter_map(|id| library.path(id).cloned());
+                reimports.extend(dependents);
+            }
+
+            if database.states().is_loaded(&import.id()) {
+                reloads.insert(import.id());
             }
         }
 
-        let import = ImportAssets::new(reimports.drain().cloned().collect());
-        database.events().push_front(import);
+        if !reloads.is_empty() {
+            database.events().push_front(LoadAssets::soft(reloads));
+        }
+        if !reimports.is_empty() {
+            database.events().push_front(ImportAssets::new(reimports));
+        }
+
         events.extend(errors);
-        events.extend(imports.drain().map(LoadAsset::soft).collect());
+        events.extend(imports);
+    }
+}
+
+pub struct RemoveAsset {
+    path: PathBuf,
+}
+
+impl RemoveAsset {
+    pub fn new(path: impl AsRef<Path>) -> Self {
+        Self {
+            path: path.as_ref().to_path_buf(),
+        }
+    }
+
+    pub fn observer(paths: &[PathBuf], events: &Events) {
+        events.add(RemoveAssets::new(paths.to_vec()));
+    }
+}
+
+impl Event for RemoveAsset {
+    type Output = PathBuf;
+
+    fn invoke(self, _: &mut World) -> Option<Self::Output> {
+        Some(self.path)
+    }
+}
+
+pub struct RemoveAssets {
+    paths: Vec<PathBuf>,
+}
+
+impl RemoveAssets {
+    pub fn new(paths: impl IntoIterator<Item = impl Into<PathBuf>>) -> Self {
+        Self {
+            paths: paths.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl Event for RemoveAssets {
+    type Output = ();
+
+    fn invoke(self, world: &mut World) -> Option<Self::Output> {
+        world.events().add(StartAssetEvent::new(self));
+        None
     }
 }
 
 impl AssetEvent for RemoveAssets {
-    fn execute(&self, database: &AssetDatabase, events: &Events) {
-        let mut dependents = {
-            let reader = database
-                .io()
-                .reader(database.io().temp().join("dependents.lib"));
-            DependentLibrary::load(reader).unwrap_or(DependentLibrary::new())
-        };
-
+    fn execute(&mut self, database: &AssetDatabase, events: &Events) {
+        let config = database.config();
+        let mut dependents = DependentLibrary::load(config).unwrap_or_default();
         let mut reimports = DenseSet::new();
         let mut unloads = Vec::new();
 
         for path in &self.paths {
-            let id = match database.library_mut().remove_path(path) {
+            let path = path
+                .without_prefix(config.root().join(config.assets()))
+                .to_path_buf();
+
+            let id = match database.library_mut().remove_path(&path) {
                 Some(id) => id,
                 None => continue,
             };
 
-            let artifact_meta = match database.io().load_artifact_meta(id) {
+            let artifact_meta = match config.load_artifact_meta(id) {
                 Ok(artifact_meta) => artifact_meta,
                 Err(_) => continue,
             };
+
+            let _ = config.remove_file(config.artifact(id));
 
             for dep in artifact_meta.dependencies() {
                 dependents.remove_dependent(dep, &id);
             }
 
             let mut dependents = dependents.remove_asset(&id);
-            reimports.extend(
-                dependents
-                    .drain()
-                    .filter_map(|id| database.library().path(&id).cloned()),
-            );
+            let dependents = dependents
+                .drain()
+                .filter_map(|id| database.library().path(&id).cloned());
+            reimports.extend(dependents);
 
-            let _ = database.io.remove_file(database.io().artifact(id));
-
+            reimports.remove(&path);
             unloads.push(UnloadAsset::new(id));
         }
 
-        let writer = database
-            .io()
-            .writer(database.io().temp().join("dependents.lib"));
-        dependents.save(writer).unwrap();
+        if let Err(e) = dependents.save(config) {
+            events.add(AssetError::import(DependentLibrary::path(config), e));
+        }
 
-        let import = ImportAssets::new(reimports.drain().collect());
-        database.events().push_front(import);
+        database.events().push_front(ImportAssets::new(reimports));
         events.extend(unloads);
+    }
+}
+
+pub struct AssetImported {
+    id: AssetId,
+    path: PathBuf,
+}
+
+impl AssetImported {
+    pub fn new(id: AssetId, path: impl AsRef<Path>) -> Self {
+        Self {
+            id,
+            path: path.as_ref().to_path_buf(),
+        }
+    }
+
+    pub fn id(&self) -> AssetId {
+        self.id
+    }
+
+    pub fn path(&self) -> &PathBuf {
+        &self.path
+    }
+}
+
+impl Event for AssetImported {
+    type Output = Self;
+
+    fn invoke(self, _: &mut World) -> Option<Self::Output> {
+        Some(self)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use shadow_ecs::{
+        core::Resource,
+        system::{schedule::Root, RunMode},
+        world::World,
+    };
+    use std::path::PathBuf;
+
+    use crate::{
+        asset::{Asset, AssetId, Assets, DefaultSettings},
+        database::{
+            events::{
+                AssetLoaded, AssetUnloaded, ImportFolder, LoadAssets, StartAssetEvent, UnloadAsset,
+            },
+            AssetConfig, AssetDatabase,
+        },
+        io::{vfs::VirtualFileSystem, AssetIoError, AssetReader},
+        loader::{AssetCacher, AssetError, AssetLoader, LoadContext},
+    };
+
+    use super::{AssetImported, ImportAssets, RemoveAssets};
+
+    struct PlainText(String);
+    impl Asset for PlainText {}
+
+    impl AssetCacher for PlainText {
+        type Asset = Self;
+        type Error = AssetIoError;
+
+        fn cache(asset: &Self::Asset) -> Result<Vec<u8>, Self::Error> {
+            Ok(asset.0.as_bytes().to_vec())
+        }
+
+        fn load(data: &[u8]) -> Result<Self::Asset, Self::Error> {
+            let content = String::from_utf8(data.to_vec())
+                .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidData))?;
+
+            Ok(Self(content))
+        }
+    }
+
+    impl AssetLoader for PlainText {
+        type Asset = Self;
+        type Settings = DefaultSettings;
+        type Error = AssetIoError;
+        type Cacher = Self;
+
+        fn load(
+            _: &mut LoadContext<Self::Settings>,
+            reader: &mut dyn AssetReader,
+        ) -> Result<Self::Asset, Self::Error> {
+            reader.read_to_end()?;
+            <Self::Cacher as AssetCacher>::load(&reader.flush()?)
+        }
+
+        fn extensions() -> &'static [&'static str] {
+            &["txt"]
+        }
+    }
+
+    #[derive(Default)]
+    pub struct Tracker {
+        pub imported: bool,
+        pub loaded: bool,
+        pub unloaded: bool,
+    }
+
+    impl Resource for Tracker {}
+
+    fn create_world() -> World {
+        let mut config = AssetConfig::new(VirtualFileSystem::new(""));
+        config.register::<PlainText>();
+        config.add_loader::<PlainText>();
+        config.set_run_mode(RunMode::Sequential);
+        config.init().unwrap();
+
+        let mut writer = config.writer(config.assets().join("test.txt"));
+        writer.write("Hello, world!".as_bytes()).unwrap();
+        writer.flush().unwrap();
+
+        let mut world = World::new();
+        world
+            .add_resource(AssetDatabase::new(config))
+            .init_resource::<Assets<PlainText>>()
+            .init_resource::<Tracker>()
+            .register_event::<AssetLoaded<PlainText>>()
+            .register_event::<AssetUnloaded<PlainText>>()
+            .register_event::<ImportFolder>()
+            .register_event::<ImportAssets>()
+            .register_event::<AssetImported>()
+            .register_event::<RemoveAssets>()
+            .register_event::<LoadAssets>()
+            .register_event::<UnloadAsset>()
+            .register_event::<AssetError>()
+            .register_event::<StartAssetEvent>()
+            .observe::<StartAssetEvent, _>(StartAssetEvent::on_start);
+
+        world
+    }
+
+    #[test]
+    fn import() {
+        let mut world = create_world();
+        world.build();
+
+        world.events().add(ImportFolder::new(""));
+        world.run(Root);
+
+        let database = world.resource::<AssetDatabase>();
+
+        let id = database.library().id(&PathBuf::from("test.txt")).cloned();
+        assert!(id.is_some());
+        assert!(database
+            .config()
+            .filesystem()
+            .exists(&database.config().assets().join("test.txt.meta")));
+        assert!(database
+            .config()
+            .filesystem()
+            .exists(&database.config().artifact(id.unwrap())))
+    }
+
+    #[test]
+    fn load() {
+        let mut world = create_world();
+        world.observe::<AssetLoaded<PlainText>, _>(
+            |ids: &[AssetId], assets: &Assets<PlainText>, tracker: &mut Tracker| match assets
+                .get(&ids[0])
+            {
+                Some(asset) => tracker.loaded = asset.0 == "Hello, world!",
+                None => panic!("Asset not found"),
+            },
+        );
+        world.build();
+
+        world.events().add(ImportFolder::new(""));
+        world.events().add(LoadAssets::hard(vec!["test.txt"]));
+        world.run(Root);
+
+        assert!(world.resource::<Tracker>().loaded);
+    }
+
+    #[test]
+    fn unload() {
+        let mut world = create_world();
+        world.observe::<AssetUnloaded<PlainText>, _>(
+            |unloads: &[AssetUnloaded<PlainText>], tracker: &mut Tracker| {
+                tracker.unloaded = unloads[0].asset().0 == "Hello, world!";
+            },
+        );
+        world.build();
+
+        world.events().add(ImportFolder::new(""));
+        world.events().add(LoadAssets::hard(vec!["test.txt"]));
+        world.run(Root);
+
+        world.events().add(UnloadAsset::new("test.txt"));
+        world.run(Root);
+
+        assert!(world.resource::<Tracker>().unloaded);
+    }
+
+    #[test]
+    fn remove() {
+        let mut world = create_world();
+        world.build();
+
+        world.events().add(ImportFolder::new(""));
+        world.run(Root);
+
+        let id = {
+            let database = world.resource::<AssetDatabase>();
+            database
+                .library()
+                .id(&PathBuf::from("test.txt"))
+                .cloned()
+                .unwrap()
+        };
+
+        world.events().add(RemoveAssets::new(vec!["test.txt"]));
+        world.run(Root);
+
+        let database = world.resource::<AssetDatabase>();
+        let removed = database.library().id(&PathBuf::from("test.txt")).cloned();
+
+        assert!(removed.is_none());
+        assert!(!database
+            .config()
+            .filesystem()
+            .exists(&database.config().artifact(id)))
     }
 }

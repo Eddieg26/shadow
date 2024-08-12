@@ -4,3 +4,4 @@ pub mod bytes;
 pub mod database;
 pub mod io;
 pub mod loader;
+pub mod plugin;

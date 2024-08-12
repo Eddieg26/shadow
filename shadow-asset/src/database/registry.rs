@@ -1,17 +1,30 @@
-use super::{events::AssetUnloaded, state::AssetState};
-use crate::asset::{Asset, AssetId, AssetType, Assets};
+use super::{
+    events::{AssetLoaded, AssetUnloaded},
+    state::AssetState,
+};
+use crate::{
+    asset::{Asset, AssetId, AssetType, Assets},
+    loader::LoadedAsset,
+};
 use shadow_ecs::{
     core::DenseMap,
     world::{event::ErasedEvent, World},
 };
 
 pub struct AssetMetadata {
+    loaded: fn(LoadedAsset) -> ErasedEvent,
     unloaded: fn(AssetId, AssetState, &World) -> Option<ErasedEvent>,
 }
 
 impl AssetMetadata {
     pub fn new<A: Asset>() -> Self {
         Self {
+            loaded: |loaded: LoadedAsset| {
+                let id = loaded.meta.id();
+                let dependencies = loaded.meta.dependencies;
+                let asset = loaded.asset.take::<A>();
+                ErasedEvent::new(AssetLoaded::new(id, asset, dependencies))
+            },
             unloaded: |id, state, world| {
                 let assets = world.resource_mut::<Assets<A>>();
                 let asset = assets.remove(&id)?;
@@ -19,6 +32,10 @@ impl AssetMetadata {
                 Some(AssetUnloaded::new(id, asset, state).into())
             },
         }
+    }
+
+    pub fn loaded(&self, loaded: LoadedAsset) -> ErasedEvent {
+        (self.loaded)(loaded)
     }
 
     pub fn unloaded(&self, id: AssetId, state: AssetState, world: &World) -> Option<ErasedEvent> {
@@ -35,6 +52,10 @@ impl AssetRegistry {
         Self {
             metadata: DenseMap::new(),
         }
+    }
+
+    pub fn has<A: Asset>(&self) -> bool {
+        self.metadata.contains(&AssetType::of::<A>())
     }
 
     pub fn register<A: Asset>(&mut self) {

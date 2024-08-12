@@ -47,7 +47,7 @@ pub trait AssetLoader: 'static {
     type Asset: Asset;
     type Settings: Settings;
     type Error: Error + Send + Sync + 'static;
-    type Cacher: AssetCacher<Asset = Self::Asset, Settings = Self::Settings>;
+    type Cacher: AssetCacher<Asset = Self::Asset>;
 
     fn load(
         ctx: &mut LoadContext<Self::Settings>,
@@ -91,10 +91,9 @@ pub trait AssetProcessor: 'static {
 
 pub trait AssetCacher: 'static {
     type Asset: Asset;
-    type Settings: Settings;
     type Error: Error + Send + Sync + 'static;
 
-    fn cache(asset: &Self::Asset, settings: &Self::Settings) -> Result<Vec<u8>, Self::Error>;
+    fn cache(asset: &Self::Asset) -> Result<Vec<u8>, Self::Error>;
     fn load(data: &[u8]) -> Result<Self::Asset, Self::Error>;
 }
 
@@ -293,5 +292,9 @@ impl LoadedAssets {
 
     pub fn clear(&mut self) {
         self.assets.clear();
+    }
+
+    pub fn drain(&mut self) -> impl Iterator<Item = (AssetId, LoadedAsset)> + '_ {
+        self.assets.drain()
     }
 }

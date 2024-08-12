@@ -29,8 +29,13 @@ impl<K: Hash + Eq> DenseSet<K> {
 
     pub fn insert(&mut self, value: K) {
         let key = hash_value(&value);
-        self.map.insert(key, self.keys.len());
-        self.keys.push(value)
+        if let Some(index) = self.map.get(&key).copied() {
+            self.keys[index] = value;
+        } else {
+            let index = self.keys.len();
+            self.keys.push(value);
+            self.map.insert(key, index);
+        }
     }
 
     pub fn insert_before(&mut self, index: usize, value: K) {

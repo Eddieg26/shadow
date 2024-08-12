@@ -1,19 +1,21 @@
-use super::{state::AssetState, AssetDatabase};
-use crate::asset::{Asset, AssetId, AssetPath, AssetType, Assets};
-use shadow_ecs::world::{
-    event::{Event, Events},
-    World,
+use crate::loader::{AssetError, AssetErrorKind};
+
+use super::AssetDatabase;
+use shadow_ecs::{
+    system::RunMode,
+    task::TaskPool,
+    world::event::{Event, Events},
 };
-use std::{
-    collections::{HashSet, VecDeque},
-    path::{Path, PathBuf},
-};
+use std::collections::VecDeque;
 
 pub mod import;
 pub mod load;
 
-pub trait AssetEvent: 'static {
-    fn execute(&self, database: &AssetDatabase, events: &Events);
+pub use import::*;
+pub use load::*;
+
+pub trait AssetEvent: Send + Sync + 'static {
+    fn execute(&mut self, database: &AssetDatabase, events: &Events);
 }
 
 impl<A: AssetEvent> From<A> for Box<dyn AssetEvent> {
@@ -39,11 +41,11 @@ impl AssetEvents {
         self.running
     }
 
-    pub fn push(&mut self, event: impl AssetEvent) {
+    pub fn push(&mut self, event: impl Into<Box<dyn AssetEvent>>) {
         self.events.push_back(event.into());
     }
 
-    pub fn push_front(&mut self, event: impl AssetEvent) {
+    pub fn push_front(&mut self, event: impl Into<Box<dyn AssetEvent>>) {
         self.events.push_front(event.into());
     }
 
@@ -60,250 +62,83 @@ impl AssetEvents {
     }
 }
 
-pub struct ImportFolder {
-    path: PathBuf,
+pub struct StartAssetEvent {
+    event: Box<dyn AssetEvent>,
 }
 
-impl ImportFolder {
-    pub fn new(path: impl AsRef<Path>) -> Self {
+impl StartAssetEvent {
+    pub fn new(event: impl AssetEvent) -> Self {
         Self {
-            path: path.as_ref().to_path_buf(),
+            event: event.into(),
+        }
+    }
+
+    pub fn boxed(event: Box<dyn AssetEvent>) -> Self {
+        Self { event }
+    }
+
+    pub fn event(&self) -> &dyn AssetEvent {
+        &*self.event
+    }
+
+    pub fn on_start(_: &[()], database: &AssetDatabase, events: &Events, tasks: &TaskPool) {
+        let mut db_events = database.events();
+        if !db_events.is_running() {
+            db_events.start();
+            std::mem::drop(db_events);
+
+            let database = database.clone();
+            let events = events.clone();
+
+            match database.config().mode() {
+                RunMode::Sequential => {
+                    AssetEventExecutor::execute(&database, &events);
+
+                    database.events().stop();
+                }
+                RunMode::Parallel => tasks.spawn(move || {
+                    AssetEventExecutor::execute(&database, &events);
+
+                    database.events().stop();
+                }),
+            }
         }
     }
 }
 
-pub struct ImportAsset {
-    path: PathBuf,
-}
-
-impl ImportAsset {
-    pub fn new(path: impl AsRef<Path>) -> Self {
-        Self {
-            path: path.as_ref().to_path_buf(),
-        }
-    }
-}
-
-impl Event for ImportAsset {
-    type Output = PathBuf;
-
-    fn invoke(self, _: &mut shadow_ecs::world::World) -> Option<Self::Output> {
-        Some(self.path)
-    }
-}
-
-pub struct ImportAssets {
-    paths: Vec<PathBuf>,
-}
-
-impl ImportAssets {
-    pub fn new(paths: Vec<PathBuf>) -> Self {
-        Self { paths }
-    }
-}
-
-pub struct RemoveAsset {
-    path: PathBuf,
-}
-
-impl RemoveAsset {
-    pub fn new(path: impl AsRef<Path>) -> Self {
-        Self {
-            path: path.as_ref().to_path_buf(),
-        }
-    }
-}
-
-impl Event for RemoveAsset {
-    type Output = PathBuf;
-
-    fn invoke(self, _: &mut shadow_ecs::world::World) -> Option<Self::Output> {
-        Some(self.path)
-    }
-}
-
-pub struct RemoveAssets {
-    paths: Vec<PathBuf>,
-}
-
-impl RemoveAssets {
-    pub fn new(paths: Vec<PathBuf>) -> Self {
-        Self { paths }
-    }
-}
-
-#[derive(Clone)]
-pub struct LoadAsset {
-    path: AssetPath,
-    load_dependencies: bool,
-}
-
-impl LoadAsset {
-    pub fn new(path: impl Into<AssetPath>) -> Self {
-        Self {
-            path: path.into(),
-            load_dependencies: true,
-        }
-    }
-
-    pub fn hard(path: impl Into<AssetPath>) -> Self {
-        Self {
-            path: path.into(),
-            load_dependencies: true,
-        }
-    }
-
-    pub fn soft(path: impl Into<AssetPath>) -> Self {
-        Self {
-            path: path.into(),
-            load_dependencies: false,
-        }
-    }
-
-    pub fn path(&self) -> &AssetPath {
-        &self.path
-    }
-
-    pub fn load_dependencies(&self) -> bool {
-        self.load_dependencies
-    }
-}
-
-impl Event for LoadAsset {
-    type Output = Self;
-
-    fn invoke(self, _: &mut shadow_ecs::world::World) -> Option<Self::Output> {
-        Some(self)
-    }
-}
-
-pub struct LoadAssets {
-    loads: Vec<LoadAsset>,
-}
-
-impl LoadAssets {
-    pub fn new(loads: Vec<LoadAsset>) -> Self {
-        Self { loads }
-    }
-
-    pub fn hard(paths: impl IntoIterator<Item = impl Into<AssetPath>>) -> Self {
-        Self {
-            loads: paths.into_iter().map(LoadAsset::hard).collect(),
-        }
-    }
-
-    pub fn soft(paths: impl IntoIterator<Item = impl Into<AssetPath>>) -> Self {
-        Self {
-            loads: paths.into_iter().map(LoadAsset::soft).collect(),
-        }
-    }
-
-    pub fn loads(&self) -> &[LoadAsset] {
-        &self.loads
-    }
-}
-
-pub struct UnloadAsset {
-    path: AssetPath,
-}
-
-impl UnloadAsset {
-    pub fn new(path: impl Into<AssetPath>) -> Self {
-        Self { path: path.into() }
-    }
-}
-
-impl Event for UnloadAsset {
+impl Event for StartAssetEvent {
     type Output = ();
 
     fn invoke(self, world: &mut shadow_ecs::world::World) -> Option<Self::Output> {
         let database = world.resource::<AssetDatabase>();
-        let id = match self.path {
-            AssetPath::Id(id) => id,
-            AssetPath::Path(path) => database.library_mut().id(&path).cloned()?,
-        };
-
-        let state = database.states_mut().unload(&id)?;
-        let registry = database.registry();
-        let metadata = registry.get_metadata(state.ty())?;
-        let event = metadata.unloaded(id, state, world)?;
-        world.events().add(event);
-
-        None
+        database.events().push(self.event);
+        Some(())
     }
 }
 
-pub struct AssetUnloaded<A: Asset> {
-    id: AssetId,
-    asset: A,
-    state: AssetState,
-}
+pub struct AssetEventExecutor;
 
-impl<A: Asset> AssetUnloaded<A> {
-    pub fn new(id: AssetId, asset: A, state: AssetState) -> Self {
-        Self { id, asset, state }
-    }
-
-    pub fn id(&self) -> AssetId {
-        self.id
-    }
-
-    pub fn asset(&self) -> &A {
-        &self.asset
-    }
-
-    pub fn state(&self) -> &AssetState {
-        &self.state
-    }
-}
-
-impl<A: Asset> Event for AssetUnloaded<A> {
-    type Output = Self;
-
-    fn invoke(self, _: &mut World) -> Option<Self::Output> {
-        Some(self)
-    }
-}
-
-pub struct AssetLoaded<A: Asset> {
-    id: AssetId,
-    asset: A,
-    state: AssetState,
-}
-
-impl<A: Asset> AssetLoaded<A> {
-    pub fn new(id: AssetId, asset: A, dependencies: HashSet<AssetId>) -> Self {
-        Self {
-            id,
-            asset,
-            state: AssetState::new(AssetType::of::<A>(), dependencies),
+impl AssetEventExecutor {
+    pub fn execute(database: &AssetDatabase, events: &Events) {
+        while let Some(mut event) = database.pop_event() {
+            event.execute(database, events);
         }
     }
-
-    pub fn id(&self) -> AssetId {
-        self.id
-    }
-
-    pub fn asset(&self) -> &A {
-        &self.asset
-    }
-
-    pub fn state(&self) -> &AssetState {
-        &self.state
-    }
 }
 
-impl<A: Asset> Event for AssetLoaded<A> {
-    type Output = AssetId;
+impl AssetError {
+    pub fn observer(errors: &[AssetError], events: &Events) {
+        let mut remove = Vec::new();
+        let mut unloads = Vec::new();
 
-    fn invoke(self, world: &mut World) -> Option<Self::Output> {
-        let database = world.resource_mut::<AssetDatabase>();
-        let assets = world.resource_mut::<Assets<A>>();
-        let mut states = database.states_mut();
+        for error in errors {
+            match error.kind() {
+                AssetErrorKind::Import(path) => remove.push(path.clone()),
+                AssetErrorKind::Load(path) => unloads.push(UnloadAsset::new(path.clone())),
+            }
+        }
 
-        assets.add(self.id, self.asset);
-        states.load(self.id, self.state);
-
-        Some(self.id)
+        events.add(RemoveAssets::new(remove));
+        events.extend(unloads);
     }
 }

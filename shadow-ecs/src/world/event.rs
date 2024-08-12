@@ -60,24 +60,24 @@ impl<E: Event> From<E> for ErasedEvent {
 
 pub struct EventMeta {
     priority: i32,
-    invoke: Box<dyn Fn(ErasedEvent, &mut World) + Send + Sync>,
-    clear: Box<dyn Fn(&World) + Send + Sync>,
+    invoke: fn(ErasedEvent, &mut World),
+    clear: fn(&World),
 }
 
 impl EventMeta {
     pub fn new<E: Event>() -> Self {
         Self {
             priority: E::PRIORITY,
-            invoke: Box::new(|event, world| {
+            invoke: |event, world| {
                 let event = event.take::<E>();
                 if let Some(output) = event.invoke(world) {
                     world.events().invoked::<E>();
                     world.resource_mut::<EventOutputs<E>>().add(output);
                 }
-            }),
-            clear: Box::new(|world| {
+            },
+            clear: |world| {
                 world.resource_mut::<EventOutputs<E>>().clear();
-            }),
+            },
         }
     }
 

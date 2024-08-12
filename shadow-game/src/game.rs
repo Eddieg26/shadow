@@ -1,6 +1,6 @@
 use super::plugin::Plugins;
 use crate::{
-    phases::{Execute, Init, Shutdown},
+    phases::{Execute, Shutdown, Startup},
     plugin::Plugin,
 };
 use shadow_ecs::{
@@ -22,7 +22,7 @@ pub struct Game {
 impl Game {
     pub fn new() -> Self {
         let mut world = World::new();
-        world.add_phase::<Init>();
+        world.add_phase::<Startup>();
         world.add_phase::<Execute>();
         world.add_phase::<Shutdown>();
 
@@ -65,6 +65,14 @@ impl Game {
         self.world.try_local_resource_mut::<R>()
     }
 
+    pub fn try_init_resource<R: Resource + Default>(&mut self) -> &mut R {
+        self.world.try_init_resource::<R>()
+    }
+
+    pub fn try_init_local_resource<R: LocalResource + Default>(&mut self) -> &mut R {
+        self.world.try_init_local_resource::<R>()
+    }
+
     pub fn register<C: Component>(&mut self) -> &mut Self {
         self.world.register::<C>();
         self
@@ -75,14 +83,32 @@ impl Game {
         self
     }
 
+    pub fn init_resource<R: Resource + Default>(&mut self) -> &mut Self {
+        self.world.add_resource(R::default());
+        self
+    }
+
     pub fn add_resource<R: Resource>(&mut self, resource: R) -> &mut Self {
         self.world.add_resource(resource);
+        self
+    }
+
+    pub fn init_local_resource<R: LocalResource + Default>(&mut self) -> &mut Self {
+        self.world.add_local_resource(R::default());
         self
     }
 
     pub fn add_local_resource<R: LocalResource>(&mut self, resource: R) -> &mut Self {
         self.world.add_local_resource(resource);
         self
+    }
+
+    pub fn remove_resource<R: Resource>(&mut self) -> Option<R> {
+        self.world.remove_resource::<R>()
+    }
+
+    pub fn remove_local_resource<R: LocalResource>(&mut self) -> Option<R> {
+        self.world.remove_local_resource::<R>()
     }
 
     pub fn observe<E: Event, M>(&mut self, observer: impl IntoObserver<E, M>) -> &mut Self {
@@ -100,18 +126,18 @@ impl Game {
         self
     }
 
-    pub fn add_sub_phase<P: Phase, Q: Phase>(&mut self) -> &mut Self {
-        self.world.add_sub_phase::<P, Q>();
+    pub fn add_sub_phase<Main: Phase, Sub: Phase>(&mut self) -> &mut Self {
+        self.world.add_sub_phase::<Main, Sub>();
         self
     }
 
-    pub fn insert_phase_before<P: Phase, Q: Phase>(&mut self) -> &mut Self {
-        self.world.insert_phase_before::<P, Q>();
+    pub fn insert_phase_before<Main: Phase, Before: Phase>(&mut self) -> &mut Self {
+        self.world.insert_phase_before::<Main, Before>();
         self
     }
 
-    pub fn insert_phase_after<P: Phase, Q: Phase>(&mut self) -> &mut Self {
-        self.world.insert_phase_after::<P, Q>();
+    pub fn insert_phase_after<Main: Phase, After: Phase>(&mut self) -> &mut Self {
+        self.world.insert_phase_after::<Main, After>();
         self
     }
 
@@ -147,8 +173,8 @@ impl Game {
         runner.run(self);
     }
 
-    pub fn init(&mut self) {
-        self.world.run(Init);
+    pub fn start(&mut self) {
+        self.world.run(Startup);
     }
 
     pub fn update(&mut self) {
@@ -177,7 +203,7 @@ impl<F: Fn(&mut Game)> GameRunner for F {
 }
 
 pub fn default_runner(game: &mut Game) {
-    game.init();
+    game.start();
     game.update();
     game.shutdown();
 }

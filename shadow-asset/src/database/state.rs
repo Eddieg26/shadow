@@ -1,4 +1,4 @@
-use crate::asset::{AssetId, AssetType};
+use crate::asset::{Asset, AssetId, AssetType};
 use shadow_ecs::core::DenseMap;
 use std::collections::HashSet;
 
@@ -8,8 +8,11 @@ pub struct AssetState {
 }
 
 impl AssetState {
-    pub fn new(ty: AssetType, dependencies: HashSet<AssetId>) -> Self {
-        Self { ty, dependencies }
+    pub fn new<A: Asset>(dependencies: HashSet<AssetId>) -> Self {
+        Self {
+            ty: AssetType::of::<A>(),
+            dependencies,
+        }
     }
 
     pub fn ty(&self) -> AssetType {
@@ -30,6 +33,10 @@ impl AssetStates {
         Self {
             states: DenseMap::new(),
         }
+    }
+
+    pub fn is_loaded(&self, id: &AssetId) -> bool {
+        self.states.contains(id)
     }
 
     pub fn get(&self, id: &AssetId) -> Option<&AssetState> {

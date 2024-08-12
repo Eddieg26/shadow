@@ -266,6 +266,7 @@ impl<'de, S: Settings> serde::Deserialize<'de> for AssetSettings<S> {
     }
 }
 
+#[derive(Debug)]
 pub struct Assets<A: Asset> {
     assets: DenseMap<AssetId, A>,
 }
@@ -331,3 +332,9 @@ impl<A: Asset> Assets<A> {
 }
 
 impl<A: Asset> Resource for Assets<A> {}
+
+impl<A: Asset> Default for Assets<A> {
+    fn default() -> Self {
+        Self::new()
+    }
+}

@@ -33,17 +33,12 @@ impl<K: Hash + Eq, V> DenseMap<K, V> {
 
     pub fn insert(&mut self, key: K, value: V) -> Option<V> {
         let hash = hash_value(&key);
-        if let Some(old) = self.map.insert(hash, self.keys.len()) {
-            let old_value = self.values.swap_remove(old);
-            let key = self.keys.swap_remove(old);
-            for index in old..self.keys.len() {
-                let key = hash_value(&self.keys[index]);
-                self.map.insert(key, index);
-            }
-            self.keys.push(key);
-            self.values.push(value);
+        if let Some(old) = self.map.get(&hash) {
+            let old_value = std::mem::replace(&mut self.values[*old], value);
+            self.keys[*old] = key;
             Some(old_value)
         } else {
+            self.map.insert(hash, self.keys.len());
             self.keys.push(key);
             self.values.push(value);
             None

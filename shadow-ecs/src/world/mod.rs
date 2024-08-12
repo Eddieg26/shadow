@@ -155,14 +155,32 @@ impl World {
         self
     }
 
+    pub fn init_resource<R: Resource + Default>(&mut self) -> &mut Self {
+        self.resources.add(R::default());
+        self
+    }
+
     pub fn add_resource<R: Resource>(&mut self, resource: R) -> &mut Self {
         self.resources.add(resource);
+        self
+    }
+
+    pub fn init_local_resource<R: LocalResource + Default>(&mut self) -> &mut Self {
+        self.local_resources.register(R::default());
         self
     }
 
     pub fn add_local_resource<R: LocalResource>(&mut self, resource: R) -> &mut Self {
         self.local_resources.register(resource);
         self
+    }
+
+    pub fn remove_resource<R: Resource>(&mut self) -> Option<R> {
+        self.resources.remove::<R>()
+    }
+
+    pub fn remove_local_resource<R: LocalResource>(&mut self) -> Option<R> {
+        self.local_resources.remove::<R>()
     }
 
     pub fn observe<E: Event, M>(&mut self, observer: impl IntoObserver<E, M>) -> &mut Self {
@@ -312,6 +330,32 @@ impl World {
 
     pub fn try_local_resource_mut<R: LocalResource>(&self) -> Option<&mut R> {
         self.local_resources.try_get_mut::<R>()
+    }
+
+    pub fn try_init_resource<R: Resource + Default>(&mut self) -> &mut R {
+        let world_ptr: *mut World = self;
+
+        match self.resources.try_get_mut::<R>() {
+            Some(resource) => resource,
+            None => {
+                let world_mut: &mut World = unsafe { world_ptr.as_mut().unwrap() };
+                world_mut.init_resource::<R>();
+                world_mut.resources.get_mut::<R>()
+            }
+        }
+    }
+
+    pub fn try_init_local_resource<R: LocalResource + Default>(&mut self) -> &mut R {
+        let world_ptr: *mut World = self;
+
+        match self.local_resources.try_get_mut::<R>() {
+            Some(resource) => resource,
+            None => {
+                let world_mut: &mut World = unsafe { world_ptr.as_mut().unwrap() };
+                world_mut.init_local_resource::<R>();
+                world_mut.local_resources.get_mut::<R>()
+            }
+        }
     }
 }
 

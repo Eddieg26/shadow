@@ -1,8 +1,3 @@
-use crate::{
-    artifact::{Artifact, ArtifactHeader, ArtifactMeta},
-    asset::{AssetId, AssetSettings, Settings},
-    bytes::IntoBytes,
-};
 use std::{
     error::Error,
     fmt::Debug,
@@ -158,173 +153,19 @@ impl AssetWriter for Box<dyn AssetWriter> {
     }
 }
 
-pub trait AssetFileSystem: Debug + 'static {
+pub trait AssetFileSystem: Send + Sync + Debug + 'static {
+    fn root(&self) -> &Path;
     fn is_dir(&self, path: &Path) -> bool;
     fn exists(&self, path: &Path) -> bool;
     fn reader(&self, path: &Path) -> Box<dyn AssetReader>;
     fn writer(&self, path: &Path) -> Box<dyn AssetWriter>;
 }
 
-pub struct FileSystem {
-    root: PathBuf,
-    inner: Box<dyn AssetFileSystem>,
-}
-
-impl FileSystem {
-    pub fn new<F: AssetFileSystem>(path: impl AsRef<Path>, fs: F) -> Self {
-        Self {
-            root: path.as_ref().to_path_buf(),
-            inner: Box::new(fs),
-        }
-    }
-
-    pub fn is_dir(&self, path: impl AsRef<Path>) -> bool {
-        self.inner.is_dir(path.as_ref())
-    }
-
-    pub fn exists(&self, path: impl AsRef<Path>) -> bool {
-        self.inner.exists(path.as_ref())
-    }
-
-    pub fn reader(&self, path: impl AsRef<Path>) -> Box<dyn AssetReader> {
-        self.inner.reader(path.as_ref())
-    }
-
-    pub fn writer(&self, path: impl AsRef<Path>) -> Box<dyn AssetWriter> {
-        self.inner.writer(path.as_ref())
-    }
-}
-
-impl std::fmt::Debug for FileSystem {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        writeln!(f, "Root: {:?} ", &self.root)?;
-        writeln!(f, "{:?}", &self.inner)
-    }
-}
-
-pub struct AssetIo {
-    fs: FileSystem,
-}
-
-impl AssetIo {
-    pub fn new<F: AssetFileSystem>(path: impl AsRef<Path>, fs: F) -> Self {
-        Self {
-            fs: FileSystem::new::<F>(path, fs),
-        }
-    }
-
-    pub fn filesystem(&self) -> &FileSystem {
-        &self.fs
-    }
-
-    pub fn root(&self) -> &Path {
-        &self.fs.root
-    }
-
-    pub fn assets(&self) -> PathBuf {
-        self.fs.root.join("assets")
-    }
-
-    pub fn cache(&self) -> PathBuf {
-        self.fs.root.join(".cache")
-    }
-
-    pub fn temp(&self) -> PathBuf {
-        self.cache().join("temp")
-    }
-
-    pub fn artifact(&self, id: AssetId) -> PathBuf {
-        self.artifacts().join(id.to_string())
-    }
-
-    pub fn artifacts(&self) -> PathBuf {
-        self.cache().join("artifacts")
-    }
-
-    pub fn reader(&self, path: impl AsRef<Path>) -> Box<dyn AssetReader> {
-        self.fs.reader(path.as_ref())
-    }
-
-    pub fn writer(&self, path: impl AsRef<Path>) -> Box<dyn AssetWriter> {
-        self.fs.writer(path.as_ref())
-    }
-
-    pub fn checksum(&self, asset: &[u8], settings: &[u8]) -> u32 {
-        let mut hasher = crc32fast::Hasher::new();
-        hasher.update(asset);
-        hasher.update(settings);
-        hasher.finalize()
-    }
-
-    pub fn remove_file(&self, path: impl AsRef<Path>) -> Result<()> {
-        let mut writer = self.writer(path);
-        writer.remove_file()
-    }
-
-    pub fn remove_dir(&self, path: impl AsRef<Path>) -> Result<()> {
-        let mut writer = self.writer(path);
-        writer.remove_dir()
-    }
-
-    pub fn load_metadata<S: Settings>(&self, path: impl AsRef<Path>) -> Result<AssetSettings<S>> {
-        let mut reader = self.reader(path);
-        reader.read_to_end()?;
-
-        let meta = String::from_utf8(reader.flush()?).map_err(AssetIoError::other)?;
-        toml::from_str(&meta).map_err(AssetIoError::from)
-    }
-
-    pub fn save_metadata<S: Settings>(
-        &self,
-        path: impl AsRef<Path>,
-        settings: &AssetSettings<S>,
-    ) -> Result<String> {
-        let mut writer = self.writer(path);
-        let meta = toml::to_string(settings).map_err(AssetIoError::from)?;
-
-        writer.write(meta.as_bytes())?;
-        writer.flush()?;
-        Ok(meta)
-    }
-
-    pub fn load_artifact_meta(&self, id: AssetId) -> Result<ArtifactMeta> {
-        let path = self.artifact(id);
-        if !self.filesystem().exists(&path) {
-            return Err(AssetIoError::NotFound(path));
-        }
-
-        let mut reader = self.reader(path);
-        reader.read(ArtifactHeader::SIZE)?;
-
-        let header = ArtifactHeader::from_bytes(reader.bytes())
-            .ok_or(AssetIoError::from(std::io::ErrorKind::InvalidData))?;
-
-        reader.read(header.meta())?;
-
-        let meta_bytes =
-            &reader.bytes()[ArtifactHeader::SIZE..ArtifactHeader::SIZE + header.meta()];
-
-        ArtifactMeta::from_bytes(meta_bytes)
-            .ok_or(AssetIoError::from(std::io::ErrorKind::InvalidData))
-    }
-
-    pub fn load_artifact(&self, id: AssetId) -> Result<Artifact> {
-        let path = self.artifact(id);
-        if !self.filesystem().exists(&path) {
-            return Err(AssetIoError::NotFound(path));
-        }
-
-        let mut reader = self.reader(path);
-        reader.read_to_end()?;
-
-        Artifact::from_bytes(&reader.flush()?)
-            .ok_or(AssetIoError::from(std::io::ErrorKind::InvalidData))
-    }
-}
-
 pub trait PathExt {
     fn ext(&self) -> Option<&str>;
     fn append_ext(&self, ext: &str) -> PathBuf;
+    fn with_prefix(&self, prefix: impl AsRef<Path>) -> PathBuf;
+    fn without_prefix(&self, prefix: impl AsRef<Path>) -> &Path;
 }
 
 impl<T: AsRef<Path>> PathExt for T {
@@ -335,5 +176,23 @@ impl<T: AsRef<Path>> PathExt for T {
     fn append_ext(&self, ext: &str) -> PathBuf {
         let path = self.as_ref().to_path_buf();
         format!("{}.{}", path.display(), ext).into()
+    }
+
+    fn with_prefix(&self, prefix: impl AsRef<Path>) -> PathBuf {
+        match self.as_ref().starts_with(prefix.as_ref()) {
+            true => self.as_ref().to_path_buf(),
+            false => prefix.as_ref().join(self.as_ref()),
+        }
+    }
+
+    fn without_prefix(&self, prefix: impl AsRef<Path>) -> &Path {
+        let path = self.as_ref();
+        let prefix = prefix.as_ref();
+
+        if path.starts_with(prefix) {
+            path.strip_prefix(prefix).unwrap()
+        } else {
+            path
+        }
     }
 }

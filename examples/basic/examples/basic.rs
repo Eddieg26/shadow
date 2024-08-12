@@ -1,18 +1,29 @@
 use shadow_asset::{
-    asset::{Asset, DefaultSettings},
-    database::loaders::AssetLoaders,
+    asset::{Asset, AssetId, Assets, DefaultSettings},
+    database::{
+        events::{
+            AssetEvent, AssetEventExecutor, AssetLoaded, ImportAsset, ImportFolder, LoadAsset,
+        },
+        loaders::AssetLoaders,
+        AssetConfig, AssetDatabase,
+    },
     io::{
         local::LocalFileSystem,
         vfs::{INode, VirtualFileSystem},
-        AssetFileSystem, AssetIo, AssetIoError, FileSystem,
+        AssetFileSystem, AssetIoError,
     },
-    loader::{AssetCacher, AssetLoader, LoadedAssets},
+    loader::{AssetCacher, AssetError, AssetLoader, LoadedAssets},
+    plugin::{AssetExt, AssetPlugin},
 };
-use shadow_game::game::Game;
+use shadow_ecs::world::event::Events;
+use shadow_game::{
+    game::Game,
+    phases::{Init, PostInit, PreInit},
+};
 use std::path::PathBuf;
 
 fn game_runner(game: &mut Game) {
-    game.init();
+    game.start();
     loop {
         game.update();
     }
@@ -32,10 +43,9 @@ impl Asset for PlainText {}
 
 impl AssetCacher for PlainText {
     type Asset = Self;
-    type Settings = DefaultSettings;
     type Error = AssetIoError;
 
-    fn cache(asset: &Self::Asset, _: &Self::Settings) -> Result<Vec<u8>, Self::Error> {
+    fn cache(asset: &Self::Asset) -> Result<Vec<u8>, Self::Error> {
         Ok(asset.content.as_bytes().to_vec())
     }
 
@@ -67,44 +77,37 @@ impl AssetLoader for PlainText {
 }
 
 fn main() {
-    let io = AssetIo::new("", VirtualFileSystem::new());
-    let mut assets = LoadedAssets::new();
-    let mut loaders = AssetLoaders::new();
-    loaders.add_loader::<PlainText>();
+    Game::new()
+        .add_plugin(AssetPlugin)
+        .register_loader::<PlainText>()
+        .add_system(PostInit, create_text)
+        .observe::<AssetLoaded<PlainText>, _>(on_text_loaded)
+        .observe::<AssetError, _>(on_asset_error)
+        .set_runner(game_runner)
+        .run();
+}
 
-    let text = PlainText::new("Hello, world!".to_string());
-
-    let mut writer = io.writer(io.assets());
-    writer.create_dir().unwrap();
-    let mut writer = io.writer(io.artifacts());
-    writer.create_dir().unwrap();
-
-    let mut writer = io.writer(PathBuf::from("assets/test.txt"));
-    writer.write(text.content.as_bytes()).unwrap();
+fn create_text(database: &AssetDatabase, events: &Events) {
+    let config = database.config();
+    let mut writer = config.writer(config.asset("text.txt"));
+    writer.write("Hello, World!".as_bytes()).unwrap();
     writer.flush().unwrap();
 
-    let loader = loaders.get::<PlainText>().unwrap();
-    let id = match loader.import("assets/test.txt", &loaders, &io, &mut assets) {
-        Ok(imported) => {
-            let asset = imported.asset::<PlainText>();
-            println!("Imported {}", asset.content);
-            Some(imported.meta().id())
-        }
-        Err(e) => {
-            println!("Error: {}", e);
-            None
-        }
-    };
+    events.add(ImportAsset::new("text.txt"));
+    events.add(LoadAsset::new("text.txt"));
+}
 
-    if let Some(id) = id {
-        match loader.load(id, &loaders, &io, &mut assets, false) {
-            Ok(loaded) => {
-                let asset = loaded.cast::<PlainText>();
-                println!("Loaded {}", asset.content);
-            }
-            Err(_) => todo!(),
+fn on_text_loaded(ids: &[AssetId], assets: &Assets<PlainText>) {
+    for id in ids {
+        match assets.get(id) {
+            Some(asset) => println!("Loaded: {}", asset.content),
+            None => println!("Failed to load asset"),
         }
     }
+}
 
-    println!("{:?}", io.filesystem());
+fn on_asset_error(errors: &[AssetError]) {
+    for error in errors {
+        println!("Error: {:?}", error);
+    }
 }
