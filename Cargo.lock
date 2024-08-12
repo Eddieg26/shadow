@@ -119,6 +119,7 @@ dependencies = [
  "shadow-asset",
  "shadow-ecs",
  "shadow-game",
+ "shadow-window",
  "toml",
 ]
 
@@ -1399,6 +1400,15 @@ name = "shadow-graphics"
 version = "0.1.0"
 dependencies = [
  "wgpu",
+ "winit",
+]
+
+[[package]]
+name = "shadow-window"
+version = "0.1.0"
+dependencies = [
+ "shadow-ecs",
+ "shadow-game",
  "winit",
 ]
 

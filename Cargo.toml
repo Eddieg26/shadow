@@ -5,6 +5,7 @@ members = [
     "shadow-game",
     "shadow-asset",
     "shadow-graphics",
+    "shadow-window",
     "examples/*",
 ]
 

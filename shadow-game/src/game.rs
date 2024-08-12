@@ -10,7 +10,10 @@ use shadow_ecs::{
         schedule::{Phase, PhaseRunner, SystemGroup},
         IntoSystem,
     },
-    world::{event::Event, World},
+    world::{
+        event::{Event, Events},
+        World,
+    },
 };
 
 pub struct Game {
@@ -161,6 +164,10 @@ impl Game {
         self
     }
 
+    pub fn events(&self) -> &Events {
+        self.world.events()
+    }
+
     pub fn run(&mut self) {
         let mut plugins = self.plugins.dependencies();
         plugins.start(self);
@@ -183,6 +190,14 @@ impl Game {
 
     pub fn shutdown(&mut self) {
         self.world.run(Shutdown);
+    }
+
+    pub fn flush(&mut self) {
+        self.world.flush();
+    }
+
+    pub fn flush_events<E: Event>(&mut self) {
+        self.world.flush_events::<E>();
     }
 }
 
