@@ -5,11 +5,10 @@ use crate::{
     io::{
         local::LocalFileSystem, AssetFileSystem, AssetIoError, AssetReader, AssetWriter, PathExt,
     },
-    loader::{AssetLoader, AssetProcessor},
+    loader::{AssetSerializer, AssetLoader, AssetProcessor},
 };
 use events::{AssetEvent, AssetEvents};
 use library::AssetLibrary;
-use loaders::AssetLoaders;
 use registry::AssetRegistry;
 use shadow_ecs::{core::Resource, system::RunMode};
 use state::AssetStates;
@@ -20,7 +19,6 @@ use std::{
 
 pub mod events;
 pub mod library;
-pub mod loaders;
 pub mod registry;
 pub mod state;
 
@@ -44,10 +42,6 @@ impl AssetDatabase {
 
     pub fn config(&self) -> &AssetConfig {
         &self.config
-    }
-
-    pub fn loaders(&self) -> &AssetLoaders {
-        self.config.loaders()
     }
 
     pub fn registry(&self) -> &AssetRegistry {
@@ -91,7 +85,6 @@ pub struct AssetConfig {
     temp: PathBuf,
     import_batch_size: usize,
     registry: AssetRegistry,
-    loaders: AssetLoaders,
     filesystem: Box<dyn AssetFileSystem>,
     mode: RunMode,
 }
@@ -108,7 +101,6 @@ impl AssetConfig {
             temp,
             import_batch_size: 250,
             registry: AssetRegistry::new(),
-            loaders: AssetLoaders::new(),
             filesystem: Box::new(filesystem),
             mode: RunMode::Parallel,
         }
@@ -146,10 +138,6 @@ impl AssetConfig {
         &self.registry
     }
 
-    pub fn loaders(&self) -> &AssetLoaders {
-        &self.loaders
-    }
-
     pub fn set_file_system<Fs: AssetFileSystem>(&mut self, filesystem: Fs) {
         self.filesystem = Box::new(filesystem);
     }
@@ -169,12 +157,16 @@ impl AssetConfig {
         self.registry.register::<A>();
     }
 
-    pub fn add_loader<L: AssetLoader>(&mut self) {
-        self.loaders.add_loader::<L>();
+    pub fn set_loader<L: AssetLoader>(&mut self) {
+        self.registry.set_loader::<L>();
     }
 
     pub fn set_processor<P: AssetProcessor>(&mut self) {
-        self.loaders.set_processor::<P>();
+        self.registry.set_processor::<P>();
+    }
+
+    pub fn set_cacher<C: AssetSerializer>(&mut self) {
+        self.registry.set_serializer::<C>();
     }
 }
 
@@ -293,7 +285,6 @@ impl Default for AssetConfig {
             temp: PathBuf::from(".temp"),
             import_batch_size: 250,
             registry: AssetRegistry::new(),
-            loaders: AssetLoaders::new(),
             filesystem: Box::new(LocalFileSystem::new("Project")),
             mode: RunMode::Parallel,
         }

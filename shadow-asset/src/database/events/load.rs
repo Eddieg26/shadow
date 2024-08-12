@@ -106,7 +106,7 @@ impl AssetEvent for LoadAssets {
         let mut loaded_ids = DenseSet::new();
         let config = database.config();
 
-        let loaders = database.loaders();
+        let registry = database.registry();
         for load in &self.loads {
             let id = match &load.path {
                 AssetPath::Id(id) => *id,
@@ -128,7 +128,7 @@ impl AssetEvent for LoadAssets {
                 }
             };
 
-            let loader = match loaders.get_ty(meta.ty()) {
+            let loader = match registry.get_metadata(meta.ty()) {
                 Some(loader) => loader,
                 None => {
                     errors.push(AssetError::load(id, LoadErrorKind::NoLoader));
@@ -136,14 +136,14 @@ impl AssetEvent for LoadAssets {
                 }
             };
 
-            let asset = match loader.load(id, &loaders, config, &mut assets, load.load_dependencies)
-            {
-                Ok(asset) => asset,
-                Err(error) => {
-                    errors.push(error);
-                    continue;
-                }
-            };
+            let asset =
+                match loader.load(id, &registry, config, &mut assets, load.load_dependencies) {
+                    Ok(asset) => asset,
+                    Err(error) => {
+                        errors.push(error);
+                        continue;
+                    }
+                };
 
             loaded_ids.insert(id);
             assets.add_erased(id, asset);

@@ -47,7 +47,7 @@ pub trait AssetLoader: 'static {
     type Asset: Asset;
     type Settings: Settings;
     type Error: Error + Send + Sync + 'static;
-    type Cacher: AssetCacher<Asset = Self::Asset>;
+    type Serializer: AssetSerializer<Asset = Self::Asset>;
 
     fn load(
         ctx: &mut LoadContext<Self::Settings>,
@@ -89,12 +89,12 @@ pub trait AssetProcessor: 'static {
     ) -> Result<(), Self::Error>;
 }
 
-pub trait AssetCacher: 'static {
+pub trait AssetSerializer: 'static {
     type Asset: Asset;
     type Error: Error + Send + Sync + 'static;
 
-    fn cache(asset: &Self::Asset) -> Result<Vec<u8>, Self::Error>;
-    fn load(data: &[u8]) -> Result<Self::Asset, Self::Error>;
+    fn serialize(asset: &Self::Asset) -> Result<Vec<u8>, Self::Error>;
+    fn deserialize(data: &[u8]) -> Result<Self::Asset, Self::Error>;
 }
 
 #[derive(Debug)]
@@ -159,9 +159,10 @@ pub enum AssetErrorKind {
 #[derive(Debug)]
 pub enum LoadErrorKind {
     Io(AssetIoError),
-    NoLoader,
-    InvalidExtension(String),
     NoExtension,
+    NoLoader,
+    NoSerializer,
+    InvalidExtension(String),
 }
 
 impl std::fmt::Display for LoadErrorKind {
@@ -171,6 +172,7 @@ impl std::fmt::Display for LoadErrorKind {
             LoadErrorKind::NoLoader => write!(f, "No importer found"),
             LoadErrorKind::InvalidExtension(ext) => write!(f, "Invalid extension: {}", ext),
             LoadErrorKind::NoExtension => write!(f, "No extension found"),
+            LoadErrorKind::NoSerializer => write!(f, "No serializer found"),
         }
     }
 }

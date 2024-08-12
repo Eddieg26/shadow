@@ -113,16 +113,16 @@ impl ImportFolder {
             Some(ext) => ext,
         };
         let config = database.config();
-        let loaders = database.loaders();
+        let registry = database.registry();
         let library = database.library();
-        let loader = match loaders.get_by_ext(ext) {
+        let loader = match registry.get_metadata_by_ext(ext) {
             Some(loader) => loader,
             None => return Some(ImportScan::error(path, LoadErrorKind::NoLoader)),
         };
 
         let metadata = match loader.load_metadata(path, config) {
-            Ok(metadata) => metadata,
-            Err(_) => return Some(ImportScan::added(path)),
+            Some(Ok(metadata)) => metadata,
+            _ => return Some(ImportScan::added(path)),
         };
 
         if library
@@ -264,7 +264,7 @@ impl Event for ImportAssets {
 impl AssetEvent for ImportAssets {
     fn execute(&mut self, database: &AssetDatabase, events: &Events) {
         let config = database.config();
-        let loaders = database.loaders();
+        let registry = database.registry();
         let batch_size = database.config().import_batch_size();
 
         let mut paths = std::mem::take(&mut self.paths);
@@ -281,7 +281,7 @@ impl AssetEvent for ImportAssets {
                     .without_prefix(config.root().join(config.assets()))
                     .to_path_buf();
 
-                let loader = match path.ext().and_then(|ext| loaders.get_by_ext(ext)) {
+                let loader = match path.ext().and_then(|ext| registry.get_metadata_by_ext(ext)) {
                     Some(loader) => loader,
                     None => {
                         errors.push(AssetError::import(path, LoadErrorKind::NoLoader));
@@ -289,7 +289,7 @@ impl AssetEvent for ImportAssets {
                     }
                 };
 
-                let imported = match loader.import(&path, &loaders, config, &mut assets) {
+                let imported = match loader.import(&path, &registry, config, &mut assets) {
                     Ok(imported) => imported,
                     Err(error) => {
                         errors.push(error);

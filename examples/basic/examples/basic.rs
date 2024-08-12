@@ -4,7 +4,6 @@ use shadow_asset::{
         events::{
             AssetEvent, AssetEventExecutor, AssetLoaded, ImportAsset, ImportFolder, LoadAsset,
         },
-        loaders::AssetLoaders,
         AssetConfig, AssetDatabase,
     },
     io::{
@@ -12,7 +11,7 @@ use shadow_asset::{
         vfs::{INode, VirtualFileSystem},
         AssetFileSystem, AssetIoError,
     },
-    loader::{AssetCacher, AssetError, AssetLoader, LoadedAssets},
+    loader::{AssetSerializer, AssetError, AssetLoader, LoadedAssets},
     plugin::{AssetExt, AssetPlugin},
 };
 use shadow_ecs::world::event::Events;
@@ -41,15 +40,15 @@ impl PlainText {
 
 impl Asset for PlainText {}
 
-impl AssetCacher for PlainText {
+impl AssetSerializer for PlainText {
     type Asset = Self;
     type Error = AssetIoError;
 
-    fn cache(asset: &Self::Asset) -> Result<Vec<u8>, Self::Error> {
+    fn serialize(asset: &Self::Asset) -> Result<Vec<u8>, Self::Error> {
         Ok(asset.content.as_bytes().to_vec())
     }
 
-    fn load(data: &[u8]) -> Result<Self::Asset, Self::Error> {
+    fn deserialize(data: &[u8]) -> Result<Self::Asset, Self::Error> {
         let content = String::from_utf8(data.to_vec())
             .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidData))?;
 
@@ -61,14 +60,14 @@ impl AssetLoader for PlainText {
     type Asset = Self;
     type Settings = DefaultSettings;
     type Error = AssetIoError;
-    type Cacher = Self;
+    type Serializer = Self;
 
     fn load(
         _: &mut shadow_asset::loader::LoadContext<Self::Settings>,
         reader: &mut dyn shadow_asset::io::AssetReader,
     ) -> Result<Self::Asset, Self::Error> {
         reader.read_to_end()?;
-        <Self::Cacher as AssetCacher>::load(&reader.flush()?)
+        <Self::Serializer as AssetSerializer>::deserialize(&reader.flush()?)
     }
 
     fn extensions() -> &'static [&'static str] {

@@ -161,7 +161,7 @@ mod tests {
             AssetConfig, AssetDatabase,
         },
         io::{vfs::VirtualFileSystem, AssetIoError, AssetReader},
-        loader::{AssetCacher, AssetError, AssetLoader, LoadContext},
+        loader::{AssetSerializer, AssetError, AssetLoader, LoadContext},
     };
 
     use super::{AssetImported, ImportAssets, RemoveAssets};
@@ -169,15 +169,15 @@ mod tests {
     struct PlainText(String);
     impl Asset for PlainText {}
 
-    impl AssetCacher for PlainText {
+    impl AssetSerializer for PlainText {
         type Asset = Self;
         type Error = AssetIoError;
 
-        fn cache(asset: &Self::Asset) -> Result<Vec<u8>, Self::Error> {
+        fn serialize(asset: &Self::Asset) -> Result<Vec<u8>, Self::Error> {
             Ok(asset.0.as_bytes().to_vec())
         }
 
-        fn load(data: &[u8]) -> Result<Self::Asset, Self::Error> {
+        fn deserialize(data: &[u8]) -> Result<Self::Asset, Self::Error> {
             let content = String::from_utf8(data.to_vec())
                 .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidData))?;
 
@@ -189,14 +189,14 @@ mod tests {
         type Asset = Self;
         type Settings = DefaultSettings;
         type Error = AssetIoError;
-        type Cacher = Self;
+        type Serializer = Self;
 
         fn load(
             _: &mut LoadContext<Self::Settings>,
             reader: &mut dyn AssetReader,
         ) -> Result<Self::Asset, Self::Error> {
             reader.read_to_end()?;
-            <Self::Cacher as AssetCacher>::load(&reader.flush()?)
+            <Self::Serializer as AssetSerializer>::deserialize(&reader.flush()?)
         }
 
         fn extensions() -> &'static [&'static str] {
@@ -216,7 +216,7 @@ mod tests {
     fn create_world() -> World {
         let mut config = AssetConfig::new(VirtualFileSystem::new(""));
         config.register::<PlainText>();
-        config.add_loader::<PlainText>();
+        config.set_loader::<PlainText>();
         config.set_run_mode(RunMode::Sequential);
         config.init().unwrap();
 
