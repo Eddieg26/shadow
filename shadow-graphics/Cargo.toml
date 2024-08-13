@@ -6,5 +6,11 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+shadow-asset = { path = "../shadow-asset", version = "0.1.0" }
+shadow-game = { path = "../shadow-game", version = "0.1.0" }
+shadow-ecs = { path = "../shadow-ecs", version = "0.1.0" }
+shadow-window = { path = "../shadow-window", version = "0.1.0" }
 wgpu = { workspace = true }
-winit = "0.30.5"
+ulid = { workspace = true }
+serde = { workspace = true }
+downcast-rs = "1.2.1"

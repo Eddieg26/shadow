@@ -89,6 +89,18 @@ impl Window {
 
         Self { inner }
     }
+
+    pub fn id(&self) -> WindowId {
+        self.inner.id()
+    }
+
+    pub fn size(&self) -> winit::dpi::PhysicalSize<u32> {
+        self.inner.inner_size()
+    }
+
+    pub fn inner(&self) -> &winit::window::Window {
+        &self.inner
+    }
 }
 
 impl std::ops::Deref for Window {

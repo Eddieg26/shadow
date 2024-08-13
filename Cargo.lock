@@ -84,6 +84,9 @@ name = "arrayvec"
 version = "0.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "96d30a06541fbafbc7f82ed10c06164cfbd2c401138f6addd8404629c4b16711"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "as-raw-xcb-connection"
@@ -1399,8 +1402,14 @@ dependencies = [
 name = "shadow-graphics"
 version = "0.1.0"
 dependencies = [
+ "downcast-rs",
+ "serde",
+ "shadow-asset",
+ "shadow-ecs",
+ "shadow-game",
+ "shadow-window",
+ "ulid",
  "wgpu",
- "winit",
 ]
 
 [[package]]
@@ -1901,6 +1910,7 @@ dependencies = [
  "parking_lot",
  "profiling",
  "raw-window-handle",
+ "serde",
  "smallvec",
  "static_assertions",
  "wasm-bindgen",
@@ -1930,6 +1940,7 @@ dependencies = [
  "profiling",
  "raw-window-handle",
  "rustc-hash",
+ "serde",
  "smallvec",
  "thiserror",
  "wgpu-hal",
@@ -1989,6 +2000,7 @@ checksum = "bc9d91f0e2c4b51434dfa6db77846f2793149d8e73f800fa2e41f52b8eac3c5d"
 dependencies = [
  "bitflags 2.6.0",
  "js-sys",
+ "serde",
  "web-sys",
 ]
 
