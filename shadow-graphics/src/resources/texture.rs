@@ -8,8 +8,7 @@ pub trait Texture: Asset + 'static {
     fn height(&self) -> u32;
     fn depth(&self) -> u32;
     fn format(&self) -> TextureFormat;
-    fn dimension(&self) -> TextureDimension;
-    fn view_dimension(&self) -> TextureViewDimension;
+    fn dimension(&self) -> TextureViewDimension;
     fn filter_mode(&self) -> FilterMode;
     fn wrap_mode(&self) -> WrapMode;
     fn mipmaps(&self) -> bool;
@@ -25,7 +24,6 @@ pub struct Texture2d {
     filter_mode: FilterMode,
     wrap_mode: WrapMode,
     mipmaps: bool,
-    usage: wgpu::TextureUsages,
     pixels: Vec<u8>,
 }
 
@@ -48,11 +46,7 @@ impl Texture for Texture2d {
         self.format
     }
 
-    fn dimension(&self) -> TextureDimension {
-        TextureDimension::D2
-    }
-
-    fn view_dimension(&self) -> TextureViewDimension {
+    fn dimension(&self) -> TextureViewDimension {
         TextureViewDimension::D2
     }
 
@@ -69,7 +63,7 @@ impl Texture for Texture2d {
     }
 
     fn usage(&self) -> wgpu::TextureUsages {
-        self.usage
+        wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST
     }
 
     fn pixels(&self) -> &[u8] {
@@ -81,75 +75,98 @@ impl Texture for Texture2d {
     }
 }
 
-pub struct GpuTexture {
-    handle: wgpu::Texture,
-    view: wgpu::TextureView,
-    sampler: wgpu::Sampler,
+pub struct RenderTexture {
+    format: TextureFormat,
+    width: u32,
+    height: u32,
+    filter_mode: FilterMode,
+    wrap_mode: WrapMode,
+    depth_format: Option<TextureFormat>,
+    mipmaps: bool,
+    pixels: Vec<u8>,
 }
 
-impl GpuTexture {
-    pub fn create<T: Texture>(device: &wgpu::Device, texture: &T) -> Self {
-        let size = wgpu::Extent3d {
-            width: texture.width(),
-            height: texture.height(),
-            depth_or_array_layers: texture.depth(),
-        };
-
-        let mip_level_count = if texture.mipmaps() {
-            size.max_mips(texture.dimension())
-        } else {
-            0
-        };
-
-        let handle = device.create_texture(&wgpu::TextureDescriptor {
-            label: None,
-            size,
-            mip_level_count,
-            sample_count: 1,
-            dimension: texture.dimension(),
-            format: texture.format(),
-            usage: texture.usage(),
-            view_formats: &[texture.format()],
-        });
-
-        let view = handle.create_view(&wgpu::TextureViewDescriptor {
-            label: None,
-            format: Some(texture.format()),
-            dimension: Some(texture.view_dimension()),
-            aspect: wgpu::TextureAspect::All,
-            base_mip_level: 0,
-            mip_level_count: Some(mip_level_count),
-            base_array_layer: 0,
-            array_layer_count: None,
-        });
-
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: None,
-            address_mode_u: texture.wrap_mode(),
-            address_mode_v: texture.wrap_mode(),
-            address_mode_w: texture.wrap_mode(),
-            mag_filter: texture.filter_mode(),
-            min_filter: texture.filter_mode(),
-            mipmap_filter: texture.filter_mode(),
-            ..Default::default()
-        });
+impl RenderTexture {
+    pub fn new(width: u32, height: u32, format: TextureFormat, mipmaps: bool) -> Self {
+        let size = format.target_pixel_byte_cost().unwrap_or(4);
+        let pixels = vec![0; (width * height * size) as usize];
 
         Self {
-            handle,
-            view,
-            sampler,
+            format,
+            width,
+            height,
+            filter_mode: FilterMode::Nearest,
+            wrap_mode: WrapMode::ClampToEdge,
+            depth_format: None,
+            mipmaps,
+            pixels,
         }
     }
 
-    pub fn handle(&self) -> &wgpu::Texture {
-        &self.handle
+    pub fn with_filter_mode(mut self, filter_mode: FilterMode) -> Self {
+        self.filter_mode = filter_mode;
+        self
     }
 
-    pub fn view(&self) -> &wgpu::TextureView {
-        &self.view
+    pub fn with_wrap_mode(mut self, wrap_mode: WrapMode) -> Self {
+        self.wrap_mode = wrap_mode;
+        self
     }
 
-    pub fn sampler(&self) -> &wgpu::Sampler {
-        &self.sampler
+    pub fn with_depth(mut self, format: TextureFormat) -> Self {
+        self.depth_format = Some(format);
+        self
+    }
+
+    pub fn depth_format(&self) -> Option<TextureFormat> {
+        self.depth_format
+    }
+}
+
+impl Asset for RenderTexture {}
+
+impl Texture for RenderTexture {
+    fn width(&self) -> u32 {
+        self.width
+    }
+
+    fn height(&self) -> u32 {
+        self.height
+    }
+
+    fn depth(&self) -> u32 {
+        1
+    }
+
+    fn format(&self) -> TextureFormat {
+        self.format
+    }
+
+    fn dimension(&self) -> TextureViewDimension {
+        TextureViewDimension::D2
+    }
+
+    fn filter_mode(&self) -> FilterMode {
+        self.filter_mode
+    }
+
+    fn wrap_mode(&self) -> WrapMode {
+        self.wrap_mode
+    }
+
+    fn mipmaps(&self) -> bool {
+        self.mipmaps
+    }
+
+    fn usage(&self) -> wgpu::TextureUsages {
+        wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC
+    }
+
+    fn pixels(&self) -> &[u8] {
+        &self.pixels
+    }
+
+    fn pixels_mut(&mut self) -> &mut Vec<u8> {
+        &mut self.pixels
     }
 }

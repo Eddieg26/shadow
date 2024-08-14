@@ -5,6 +5,8 @@ use wgpu::{
     SurfaceTargetUnsafe,
 };
 
+use crate::resources::GpuResourceId;
+
 pub enum RenderSurfaceError {
     Create(wgpu::CreateSurfaceError),
     Adapter,
@@ -19,6 +21,7 @@ impl From<wgpu::CreateSurfaceError> for RenderSurfaceError {
 }
 
 pub struct RenderSurface {
+    id: GpuResourceId,
     inner: wgpu::Surface<'static>,
     config: wgpu::SurfaceConfiguration,
     adapter: wgpu::Adapter,
@@ -82,12 +85,17 @@ impl RenderSurface {
         };
 
         Ok(Self {
+            id: GpuResourceId::gen(),
             inner: surface,
             config,
             adapter,
             format: surface_format,
             depth_format: None,
         })
+    }
+
+    pub fn id(&self) -> GpuResourceId {
+        self.id
     }
 
     pub fn resize(&mut self, device: &wgpu::Device, width: u32, height: u32) {

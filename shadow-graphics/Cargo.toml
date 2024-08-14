@@ -13,4 +13,5 @@ shadow-window = { path = "../shadow-window", version = "0.1.0" }
 wgpu = { workspace = true }
 ulid = { workspace = true }
 serde = { workspace = true }
+pollster = { workspace = true }
 downcast-rs = "1.2.1"

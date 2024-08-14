@@ -15,49 +15,54 @@ use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
 };
+use wgpu::TextureFormat;
 
 #[derive(Clone)]
 pub struct RenderGraphContext<'a> {
-    device: &'a wgpu::Device,
-    queue: &'a wgpu::Queue,
+    surface: &'a RenderSurface,
+    device: &'a RenderDevice,
+    queue: &'a RenderQueue,
     resources: &'a RenderGraphResources,
     world: &'a World,
     buffers: Arc<Mutex<Vec<wgpu::CommandBuffer>>>,
-    target: &'a wgpu::TextureView,
-    surface_override: Option<GpuResourceId>,
+    target_override: Option<GpuResourceId>,
 }
 
 impl<'a> RenderGraphContext<'a> {
     pub fn new(
-        device: &'a wgpu::Device,
-        queue: &'a wgpu::Queue,
+        surface: &'a RenderSurface,
+        device: &'a RenderDevice,
+        queue: &'a RenderQueue,
         world: &'a World,
         resources: &'a RenderGraphResources,
         buffers: Arc<Mutex<Vec<wgpu::CommandBuffer>>>,
-        target: &'a wgpu::TextureView,
     ) -> Self {
         Self {
+            surface,
             device,
             queue,
             world,
             resources,
             buffers,
-            target,
-            surface_override: None,
+            target_override: None,
         }
     }
 
-    pub fn with_surface_override(&self, id: GpuResourceId) -> Self {
+    pub fn with_target_override(&self, id: GpuResourceId) -> Self {
         let mut ctx = self.clone();
-        ctx.surface_override = Some(id);
+        ctx.target_override = Some(id);
         ctx
     }
 
-    pub fn device(&self) -> &'a wgpu::Device {
+    pub fn surface(&self) -> &'a RenderSurface {
+        self.surface
+    }
+
+    pub fn device(&self) -> &'a RenderDevice {
         self.device
     }
 
-    pub fn queue(&self) -> &'a wgpu::Queue {
+    pub fn queue(&self) -> &'a RenderQueue {
         self.queue
     }
 
@@ -65,15 +70,15 @@ impl<'a> RenderGraphContext<'a> {
         self.resources
     }
 
-    pub fn target(&self) -> &'a wgpu::TextureView {
-        match self.surface_override {
-            Some(id) => self.resources.texture(id).unwrap_or(&self.target),
-            None => self.target,
-        }
-    }
-
     pub fn resource<R: Resource>(&self) -> &R {
         self.world.resource::<R>()
+    }
+
+    pub fn target(&self) -> Option<&RenderTarget> {
+        match self.target_override {
+            Some(id) => self.resources.render_target(id),
+            None => self.resources.render_target(self.surface.id()),
+        }
     }
 
     pub fn encoder(&self) -> wgpu::CommandEncoder {
@@ -111,7 +116,7 @@ pub struct SubGraph {
 impl RenderGraphNode for SubGraph {
     fn execute(&self, ctx: &RenderGraphContext) {
         let ctx = match self.surface_override {
-            Some(id) => Cow::Owned(ctx.with_surface_override(id)),
+            Some(id) => Cow::Owned(ctx.with_target_override(id)),
             None => Cow::Borrowed(ctx),
         };
 
@@ -242,6 +247,15 @@ impl RenderGraphBuilder {
         }
     }
 
+    pub fn add_render_target(
+        &mut self,
+        device: &wgpu::Device,
+        id: impl Into<GpuResourceId>,
+        info: RenderTargetInfo,
+    ) {
+        self.resources.add_render_target(device, id, info);
+    }
+
     pub fn add_texture(&mut self, id: impl Into<GpuResourceId>, info: TextureInfo) {
         self.resources.add_texture(id, info);
     }
@@ -250,20 +264,8 @@ impl RenderGraphBuilder {
         self.resources.add_buffer(id, info);
     }
 
-    pub fn import_texture(&mut self, id: impl Into<GpuResourceId>, texture: wgpu::TextureView) {
-        self.resources.import_texture(id, texture);
-    }
-
-    pub fn import_buffer(&mut self, id: impl Into<GpuResourceId>, buffer: wgpu::Buffer) {
-        self.resources.import_buffer(id, buffer);
-    }
-
-    pub fn remove_texture(&mut self, id: impl Into<GpuResourceId>) -> Option<wgpu::TextureView> {
-        self.resources.remove_texture(id)
-    }
-
-    pub fn remove_buffer(&mut self, id: impl Into<GpuResourceId>) -> Option<wgpu::Buffer> {
-        self.resources.remove_buffer(id)
+    pub fn remove_render_target(&mut self, id: impl Into<GpuResourceId>) -> Option<RenderTarget> {
+        self.resources.remove_render_target(id)
     }
 
     pub fn node<N: RenderGraphNodeBuilder>(&self, id: impl Into<GpuResourceId>) -> Option<&N> {
@@ -283,7 +285,7 @@ impl RenderGraphBuilder {
         &mut self,
         surface_override: Option<impl Into<GpuResourceId>>,
     ) -> GpuResourceId {
-        let id = GpuResourceId::new();
+        let id = GpuResourceId::gen();
         let mut sub_graph = SubGraphBuilder::new();
 
         for (id, node) in self.nodes.drain() {
@@ -358,23 +360,16 @@ impl RenderGraph {
         let queue = world.resource::<RenderQueue>();
         let surface = world.resource::<RenderSurface>();
 
-        let surface = match surface.surface_texture() {
-            Ok(texture) => texture,
-            Err(_) => return,
-        };
-
-        let view = surface
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
+        let texture = self.resources.set_surface_texture(surface).unwrap();
 
         for level in &self.hierarchy {
             let ctx = RenderGraphContext::new(
+                surface,
                 &device,
                 &queue,
                 world,
                 &self.resources,
                 Arc::new(Mutex::new(Vec::<wgpu::CommandBuffer>::new())),
-                &view,
             );
 
             for index in level {
@@ -385,7 +380,9 @@ impl RenderGraph {
             queue.submit(ctx.finish());
         }
 
-        surface.present();
+        texture.present();
+
+        self.resources.clear_surface_texture(surface);
     }
 }
 
@@ -400,10 +397,138 @@ impl TextureInfo {
     }
 }
 
+pub struct RenderTargetInfo {
+    width: u32,
+    height: u32,
+    format: Option<TextureFormat>,
+    depth_format: Option<TextureFormat>,
+    mipmaps: bool,
+}
+
+pub struct RenderTarget {
+    width: u32,
+    height: u32,
+    color_texture: Option<wgpu::TextureView>,
+    depth_texture: Option<wgpu::TextureView>,
+    textures: HashMap<GpuResourceId, wgpu::TextureView>,
+}
+
+impl RenderTarget {
+    pub fn create(
+        device: &wgpu::Device,
+        info: RenderTargetInfo,
+        textures: &HashMap<GpuResourceId, TextureInfo>,
+    ) -> Self {
+        let size = wgpu::Extent3d {
+            width: info.width,
+            height: info.height,
+            depth_or_array_layers: 1,
+        };
+
+        let mip_level_count = match info.mipmaps {
+            true => size.max_mips(wgpu::TextureDimension::D2),
+            false => 1,
+        };
+
+        let color_texture = info.format.map(|format| {
+            device
+                .create_texture(&wgpu::TextureDescriptor {
+                    label: None,
+                    size,
+                    mip_level_count,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                        | wgpu::TextureUsages::TEXTURE_BINDING,
+                    view_formats: &[format],
+                })
+                .create_view(&wgpu::TextureViewDescriptor::default())
+        });
+
+        let depth_texture = info.depth_format.map(|format| {
+            device
+                .create_texture(&wgpu::TextureDescriptor {
+                    label: None,
+                    size,
+                    mip_level_count,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                        | wgpu::TextureUsages::TEXTURE_BINDING,
+                    view_formats: &[format],
+                })
+                .create_view(&wgpu::TextureViewDescriptor::default())
+        });
+
+        let textures = textures.iter().map(|(id, info)| {
+            let texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: None,
+                size,
+                mip_level_count,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: info.format,
+                usage: info.usage,
+                view_formats: &[info.format],
+            });
+
+            let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+            (*id, view)
+        });
+
+        Self {
+            width: info.width,
+            height: info.height,
+            color_texture,
+            depth_texture,
+            textures: textures.collect(),
+        }
+    }
+
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+
+    pub fn color_texture(&self) -> Option<&wgpu::TextureView> {
+        self.color_texture.as_ref()
+    }
+
+    pub fn depth_texture(&self) -> Option<&wgpu::TextureView> {
+        self.depth_texture.as_ref()
+    }
+
+    pub fn texture(&self, id: impl Into<GpuResourceId>) -> Option<&wgpu::TextureView> {
+        self.textures.get(&id.into())
+    }
+
+    pub(crate) fn set_surface_texture(
+        &mut self,
+        surface: &RenderSurface,
+    ) -> Option<wgpu::SurfaceTexture> {
+        let surface = surface.surface_texture().ok()?;
+        let view = surface
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+
+        self.color_texture = Some(view);
+        Some(surface)
+    }
+
+    pub(crate) fn clear_surface_texture(&mut self) {
+        self.color_texture = None;
+    }
+}
+
 pub struct RenderGraphResources {
     texture_infos: HashMap<GpuResourceId, TextureInfo>,
     buffer_infos: HashMap<GpuResourceId, BufferInfo>,
-    textures: HashMap<GpuResourceId, wgpu::TextureView>,
+    targets: HashMap<GpuResourceId, RenderTarget>,
     buffers: HashMap<GpuResourceId, wgpu::Buffer>,
 }
 
@@ -412,17 +537,37 @@ impl RenderGraphResources {
         Self {
             texture_infos: HashMap::new(),
             buffer_infos: HashMap::new(),
-            textures: HashMap::new(),
+            targets: HashMap::new(),
             buffers: HashMap::new(),
         }
     }
 
-    pub fn texture(&self, id: impl Into<GpuResourceId>) -> Option<&wgpu::TextureView> {
-        self.textures.get(&id.into())
+    pub fn render_target(&self, id: impl Into<GpuResourceId>) -> Option<&RenderTarget> {
+        self.targets.get(&id.into())
+    }
+
+    pub fn texture(
+        &self,
+        target: impl Into<GpuResourceId>,
+        id: impl Into<GpuResourceId>,
+    ) -> Option<&wgpu::TextureView> {
+        self.targets
+            .get(&target.into())
+            .and_then(|target| target.texture(id))
     }
 
     pub fn buffer(&self, id: impl Into<GpuResourceId>) -> Option<&wgpu::Buffer> {
         self.buffers.get(&id.into())
+    }
+
+    pub fn add_render_target(
+        &mut self,
+        device: &wgpu::Device,
+        id: impl Into<GpuResourceId>,
+        info: RenderTargetInfo,
+    ) -> Option<RenderTarget> {
+        let render_target = RenderTarget::create(device, info, &self.texture_infos);
+        self.targets.insert(id.into(), render_target)
     }
 
     pub fn add_texture(&mut self, id: impl Into<GpuResourceId>, info: TextureInfo) {
@@ -433,60 +578,29 @@ impl RenderGraphResources {
         self.buffer_infos.insert(id.into(), info);
     }
 
-    pub fn import_texture(&mut self, id: impl Into<GpuResourceId>, texture: wgpu::TextureView) {
-        self.textures.insert(id.into(), texture);
+    pub fn remove_render_target(&mut self, id: impl Into<GpuResourceId>) -> Option<RenderTarget> {
+        self.targets.remove(&id.into())
     }
 
-    pub fn import_buffer(&mut self, id: impl Into<GpuResourceId>, buffer: wgpu::Buffer) {
-        self.buffers.insert(id.into(), buffer);
+    pub(crate) fn set_surface_texture(
+        &mut self,
+        surface: &RenderSurface,
+    ) -> Option<wgpu::SurfaceTexture> {
+        let id = surface.id();
+        let target = self.targets.get_mut(&id)?;
+        target.set_surface_texture(surface)
     }
 
-    pub fn remove_texture(&mut self, id: impl Into<GpuResourceId>) -> Option<wgpu::TextureView> {
-        self.textures.remove(&id.into())
-    }
-
-    pub fn remove_buffer(&mut self, id: impl Into<GpuResourceId>) -> Option<wgpu::Buffer> {
-        self.buffers.remove(&id.into())
-    }
-
-    pub fn build(&mut self, device: &wgpu::Device, width: u32, height: u32) {
-        for (id, info) in self.texture_infos.iter() {
-            let texture = device.create_texture(&wgpu::TextureDescriptor {
-                label: None,
-                size: wgpu::Extent3d {
-                    width,
-                    height,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: info.format,
-                usage: info.usage,
-                view_formats: &[info.format],
-            });
-
-            self.textures.insert(
-                *id,
-                texture.create_view(&wgpu::TextureViewDescriptor::default()),
-            );
-        }
-
-        for (id, info) in self.buffer_infos.iter() {
-            let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-                label: None,
-                size: info.size,
-                usage: info.usage,
-                mapped_at_creation: info.mapped_at_creation,
-            });
-
-            self.buffers.insert(*id, buffer);
-        }
+    pub(crate) fn clear_surface_texture(&mut self, surface: &RenderSurface) -> Option<()> {
+        let id = surface.id();
+        let target = self.targets.get_mut(&id)?;
+        Some(target.clear_surface_texture())
     }
 }
 
 pub struct Render {
     pub clear_color: Option<wgpu::Color>,
+    pub target: Option<GpuResourceId>,
 }
 
 pub struct Renders {

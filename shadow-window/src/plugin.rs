@@ -6,17 +6,13 @@ use crate::{
         ModifiersChanged, MouseInput, MouseWheel, Moved, Occluded, PanGesture, PinchGesture,
         Resized, RotationGesture, ScaleFactorChanged, TouchpadPressure, WindowCreated,
     },
-    window::{WindowConfig, Windows},
+    window::WindowConfig,
 };
 use shadow_game::{game::Game, plugin::Plugin};
 
 pub struct WindowPlugin;
 
 impl Plugin for WindowPlugin {
-    fn start(&mut self, game: &mut Game) {
-        game.try_init_resource::<Windows>();
-    }
-
     fn run(&mut self, game: &mut Game) {
         game.register_event::<AppRunError>()
             .register_event::<WindowCreated>()
@@ -46,16 +42,10 @@ impl Plugin for WindowPlugin {
             .register_event::<Occluded>()
             .set_runner(App::runner);
     }
-}
 
-pub trait WindowExt {
-    fn add_window(&mut self, config: WindowConfig) -> &mut Self;
-}
-
-impl WindowExt for Game {
-    fn add_window(&mut self, config: WindowConfig) -> &mut Self {
-        let windows = self.try_init_resource::<Windows>();
-        windows.add_config(config);
-        self
+    fn finish(&mut self, game: &mut Game) {
+        if let None = game.try_resource::<WindowConfig>() {
+            game.add_resource(WindowConfig::new("Window"));
+        }
     }
 }

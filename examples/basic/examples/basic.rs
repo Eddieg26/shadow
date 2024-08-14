@@ -1,12 +1,6 @@
 use shadow_game::game::Game;
-use shadow_window::{
-    plugin::{WindowExt, WindowPlugin},
-    window::WindowConfig,
-};
+use shadow_window::plugin::WindowPlugin;
 
 fn main() {
-    Game::new()
-        .add_plugin(WindowPlugin)
-        .add_window(WindowConfig::new("Basic Game"))
-        .run();
+    Game::new().add_plugin(WindowPlugin).run();
 }

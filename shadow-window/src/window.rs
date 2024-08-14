@@ -1,4 +1,4 @@
-use shadow_ecs::core::{DenseMap, Resource};
+use shadow_ecs::core::Resource;
 use winit::{event_loop::ActiveEventLoop, window::WindowId};
 
 pub struct WindowConfig {
@@ -70,6 +70,8 @@ impl WindowConfig {
     }
 }
 
+impl Resource for WindowConfig {}
+
 pub struct Window {
     inner: winit::window::Window,
 }
@@ -117,50 +119,4 @@ impl std::ops::DerefMut for Window {
     }
 }
 
-#[derive(Default)]
-pub struct Windows {
-    windows: DenseMap<WindowId, Window>,
-    configs: Vec<WindowConfig>,
-}
-
-impl Windows {
-    pub fn new() -> Self {
-        Self {
-            windows: DenseMap::new(),
-            configs: Vec::new(),
-        }
-    }
-
-    pub fn get(&self, id: &WindowId) -> Option<&Window> {
-        self.windows.get(id)
-    }
-
-    pub fn add_config(&mut self, config: WindowConfig) {
-        self.configs.push(config);
-    }
-
-    pub fn create_windows(&mut self, event_loop: &ActiveEventLoop) -> Vec<WindowId> {
-        let mut ids = Vec::new();
-        for config in self.configs.drain(..) {
-            let window = Window::new(config, event_loop);
-            ids.push(window.id());
-            self.windows.insert(window.id(), window);
-        }
-
-        ids
-    }
-
-    pub fn remove_window(&mut self, id: &WindowId) -> Option<Window> {
-        self.windows.remove(id)
-    }
-
-    pub fn len(&self) -> usize {
-        self.windows.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.windows.is_empty()
-    }
-}
-
-impl Resource for Windows {}
+impl Resource for Window {}

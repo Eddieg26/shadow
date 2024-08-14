@@ -5,7 +5,7 @@ use crate::{
         ModifiersChanged, MouseInput, MouseWheel, Moved, Occluded, PanGesture, PinchGesture,
         Resized, RotationGesture, ScaleFactorChanged, Touch, TouchpadPressure, WindowCreated,
     },
-    window::Windows,
+    window::{Window, WindowConfig},
 };
 use shadow_ecs::world::event::Event;
 use shadow_game::game::Game;
@@ -68,26 +68,18 @@ impl<'a> App<'a> {
 
 impl ApplicationHandler for App<'_> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        {
-            let windows = self.game.resource_mut::<Windows>();
-            for id in windows.create_windows(event_loop) {
-                self.game.events().add(WindowCreated::new(id));
-            }
+        if let Some(config) = self.game.remove_resource::<WindowConfig>() {
+            let window = Window::new(config, event_loop);
+            self.game.add_resource(window);
+            self.game.flush_events::<WindowCreated>();
         }
-
-        self.game.flush_events::<WindowCreated>();
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, window: WindowId, event: WindowEvent) {
         match event {
             WindowEvent::CloseRequested => {
-                if let Some(window) = self.game.resource_mut::<Windows>().remove_window(&window) {
-                    self.run_event(CloseRequested::new(window.id()));
-                }
-
-                if self.game.resource::<Windows>().is_empty() {
-                    event_loop.exit();
-                }
+                self.run_event(CloseRequested::new(window));
+                event_loop.exit();
             }
             WindowEvent::RedrawRequested => self.update(),
             WindowEvent::AxisMotion {

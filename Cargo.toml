@@ -16,4 +16,5 @@ serde = "1.0.203"
 toml = "0.8.13"
 crc32fast = "1.0.3"
 either = "1.13.0"
+pollster = "0.2.4"
 wgpu = { version = "22.1.0", features = ["serde"] }

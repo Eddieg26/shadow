@@ -9,7 +9,7 @@ use crate::{
     },
     loader::{AssetError, AssetLoader, AssetProcessor, AssetSerializer},
 };
-use shadow_ecs::world::{event::Events, World};
+use shadow_ecs::world::World;
 use shadow_game::{game::Game, phases::Init, plugin::Plugin};
 
 pub struct AssetPlugin;
@@ -130,13 +130,11 @@ impl AssetExt for World {
     }
 }
 
-fn asset_config_init(database: &AssetDatabase, events: &Events) {
+fn asset_config_init(database: &AssetDatabase) {
     let config = database.config();
 
     if let Err(error) = config.init() {
         println!("Failed to initialize asset database: {}", error);
         return;
     }
-
-    events.add(ImportFolder::new(""));
 }
