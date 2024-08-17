@@ -498,6 +498,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "glam"
+version = "0.8.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b00572b5b10070ac495be20a25b4c8d379d20bcdec8ea0c870022b620ec79b20"
+
+[[package]]
 name = "glow"
 version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1409,6 +1415,7 @@ name = "shadow-graphics"
 version = "0.1.0"
 dependencies = [
  "downcast-rs",
+ "glam",
  "pollster",
  "serde",
  "shadow-asset",
@@ -1417,6 +1424,14 @@ dependencies = [
  "shadow-window",
  "ulid",
  "wgpu",
+]
+
+[[package]]
+name = "shadow-spatial"
+version = "0.1.0"
+dependencies = [
+ "glam",
+ "shadow-ecs",
 ]
 
 [[package]]
