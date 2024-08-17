@@ -5,7 +5,7 @@ use wgpu::{
     SurfaceTargetUnsafe,
 };
 
-use crate::resources::GpuResourceId;
+use crate::resources::ResourceId;
 
 pub enum RenderSurfaceError {
     Create(wgpu::CreateSurfaceError),
@@ -21,7 +21,7 @@ impl From<wgpu::CreateSurfaceError> for RenderSurfaceError {
 }
 
 pub struct RenderSurface {
-    id: GpuResourceId,
+    id: ResourceId,
     inner: wgpu::Surface<'static>,
     config: wgpu::SurfaceConfiguration,
     adapter: wgpu::Adapter,
@@ -85,7 +85,7 @@ impl RenderSurface {
         };
 
         Ok(Self {
-            id: GpuResourceId::gen(),
+            id: ResourceId::gen(),
             inner: surface,
             config,
             adapter,
@@ -94,7 +94,7 @@ impl RenderSurface {
         })
     }
 
-    pub fn id(&self) -> GpuResourceId {
+    pub fn id(&self) -> ResourceId {
         self.id
     }
 

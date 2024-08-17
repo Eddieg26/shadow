@@ -175,6 +175,12 @@ impl<K: Hash + Eq, V> DenseMap<K, V> {
         self.keys.drain(..).zip(self.values.drain(..))
     }
 
+    pub fn drain_values(&mut self) -> impl Iterator<Item = V> + '_ {
+        self.map.clear();
+        self.keys.clear();
+        self.values.drain(..)
+    }
+
     pub fn sort(&mut self, mut sorter: impl FnMut(&K, &K) -> std::cmp::Ordering) {
         let mut keys = std::mem::take(&mut self.keys);
         let values = std::mem::take(&mut self.values);

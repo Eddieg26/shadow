@@ -1,0 +1,109 @@
+use super::resources::{RenderGraphResources, RenderTarget};
+use crate::{
+    core::device::{RenderDevice, RenderQueue},
+    resources::ResourceId,
+};
+use shadow_ecs::{
+    core::{LocalResource, Resource},
+    world::World,
+};
+use std::sync::{Arc, Mutex};
+
+pub enum RenderNodeAction {
+    Submit(wgpu::CommandBuffer),
+    Flush,
+}
+
+pub struct RenderContext<'a> {
+    surface_id: ResourceId,
+    device: &'a RenderDevice,
+    queue: &'a RenderQueue,
+    resources: &'a RenderGraphResources,
+    world: &'a World,
+    actions: Arc<Mutex<Vec<RenderNodeAction>>>,
+}
+
+impl<'a> RenderContext<'a> {
+    pub fn new(
+        surface_id: ResourceId,
+        device: &'a RenderDevice,
+        queue: &'a RenderQueue,
+        resources: &'a RenderGraphResources,
+        world: &'a World,
+    ) -> Self {
+        Self {
+            surface_id,
+            device,
+            queue,
+            resources,
+            world,
+            actions: Arc::default(),
+        }
+    }
+
+    pub fn surface_id(&self) -> ResourceId {
+        self.surface_id
+    }
+
+    pub fn device(&self) -> &RenderDevice {
+        self.device
+    }
+
+    pub fn queue(&self) -> &RenderQueue {
+        self.queue
+    }
+
+    pub fn render_target(&self, id: ResourceId) -> Option<&RenderTarget> {
+        self.resources.target(id)
+    }
+
+    pub fn texture(&self, target: ResourceId, texture: ResourceId) -> Option<&wgpu::TextureView> {
+        self.resources
+            .target(target)
+            .and_then(|t| t.texture(texture))
+            .or_else(|| self.resources.texture(texture))
+    }
+
+    pub fn buffer(&self, id: ResourceId) -> Option<&wgpu::Buffer> {
+        self.resources.buffer(id)
+    }
+
+    pub fn resource<R: Resource>(&self) -> &R {
+        self.world.resource::<R>()
+    }
+
+    pub fn local_resource<R: LocalResource>(&self) -> &R {
+        self.world.local_resource::<R>()
+    }
+
+    pub fn submit(&self, buffer: wgpu::CommandBuffer) {
+        self.actions
+            .lock()
+            .unwrap()
+            .push(RenderNodeAction::Submit(buffer));
+    }
+
+    pub(crate) fn append_actions(&self, actions: impl IntoIterator<Item = RenderNodeAction>) {
+        self.actions.lock().unwrap().extend(actions);
+    }
+
+    pub(crate) fn finish(self) -> Vec<RenderNodeAction> {
+        match self.actions.try_lock() {
+            Ok(mut actions) => std::mem::take(&mut *actions),
+            Err(_) => Vec::new(),
+        }
+    }
+}
+
+impl<'a> Clone for RenderContext<'a> {
+    fn clone(&self) -> Self {
+        Self {
+            surface_id: self.surface_id,
+            device: self.device,
+            queue: self.queue,
+            resources: self.resources,
+            world: self.world,
+            actions: Arc::default(),
+        }
+    }
+}
