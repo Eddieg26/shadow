@@ -1,8 +1,7 @@
 use super::World;
-use crate::core::{internal::blob::BlobCell, DenseSet, Resource};
+use crate::core::{internal::blob::BlobCell, DenseMap, DenseSet, Resource};
 use std::{
     any::TypeId,
-    collections::HashMap,
     hash::Hash,
     sync::{Arc, Mutex, RwLock},
 };
@@ -58,6 +57,7 @@ impl<E: Event> From<E> for ErasedEvent {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
 pub struct EventMeta {
     priority: i32,
     invoke: fn(ErasedEvent, &mut World),
@@ -94,37 +94,73 @@ impl EventMeta {
     }
 }
 
+#[derive(Default)]
+pub struct EventMetas {
+    metas: DenseMap<EventType, EventMeta>,
+}
+
+impl EventMetas {
+    pub fn new() -> Self {
+        Self {
+            metas: DenseMap::new(),
+        }
+    }
+
+    pub fn insert(&mut self, ty: EventType, meta: EventMeta) {
+        self.metas.insert(ty, meta);
+    }
+
+    pub fn get(&self, ty: &EventType) -> Option<&EventMeta> {
+        self.metas.get(ty)
+    }
+
+    pub fn remove(&mut self, ty: &EventType) -> Option<EventMeta> {
+        self.metas.remove(ty)
+    }
+
+    pub fn append_copies(&mut self, metas: &Self) {
+        let mut copies = metas.metas.clone();
+        self.metas.append(&mut copies);
+    }
+
+    pub fn clear(&mut self) {
+        self.metas.clear();
+    }
+}
+
 #[derive(Clone)]
 pub struct Events {
     events: Arc<Mutex<Vec<ErasedEvent>>>,
-    metas: HashMap<EventType, Arc<EventMeta>>,
+    metas: Arc<RwLock<EventMetas>>,
     invocations: Arc<RwLock<DenseSet<EventInvocation>>>,
 }
 
 impl Events {
     pub fn new() -> Self {
         Self {
-            events: Arc::new(Mutex::new(Vec::new())),
-            metas: HashMap::new(),
-            invocations: Arc::new(RwLock::new(DenseSet::new())),
+            events: Arc::default(),
+            metas: Arc::default(),
+            invocations: Arc::default(),
         }
     }
 
     pub fn register<E: Event>(&mut self) -> EventOutputs<E> {
-        let meta = Arc::new(EventMeta::new::<E>());
-        self.metas.insert(TypeId::of::<E>(), meta);
+        let mut metas = self.metas.write().unwrap();
+        metas.insert(TypeId::of::<E>(), EventMeta::new::<E>());
         EventOutputs::<E>::new()
     }
 
-    pub fn meta<E: Event>(&self) -> Arc<EventMeta> {
+    pub fn meta<E: Event>(&self) -> EventMeta {
+        let metas = self.metas.read().unwrap();
         let ty = TypeId::of::<E>();
-        let meta = self.metas.get(&ty).expect("Event not registered");
-        meta.clone()
+        let meta = metas.get(&ty).expect("Event not registered");
+        *meta
     }
 
-    pub fn meta_dynamic(&self, ty: &EventType) -> Arc<EventMeta> {
-        let meta = self.metas.get(ty).expect("Event not registered");
-        meta.clone()
+    pub fn meta_dynamic(&self, ty: &EventType) -> EventMeta {
+        let metas = self.metas.read().unwrap();
+        let meta = metas.get(ty).expect("Event not registered");
+        *meta
     }
 
     pub fn add(&self, event: impl Into<ErasedEvent>) {
@@ -172,6 +208,14 @@ impl Events {
         let mut invocations = self.invocations.write().unwrap();
         let invocation = EventInvocation::new::<E>();
         invocations.remove(&invocation).map(|_| invocation)
+    }
+
+    pub(crate) fn metas(&self) -> std::sync::RwLockReadGuard<EventMetas> {
+        self.metas.read().unwrap()
+    }
+
+    pub(crate) fn metas_mut(&self) -> std::sync::RwLockWriteGuard<EventMetas> {
+        self.metas.write().unwrap()
     }
 
     pub fn clear(&self) {

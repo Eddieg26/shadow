@@ -32,6 +32,7 @@ impl TaskPoolState {
     }
 }
 
+#[derive(Clone)]
 pub struct TaskPool {
     state: Arc<Mutex<TaskPoolState>>,
 }

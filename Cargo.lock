@@ -1421,6 +1421,7 @@ dependencies = [
  "shadow-asset",
  "shadow-ecs",
  "shadow-game",
+ "shadow-spatial",
  "shadow-window",
  "ulid",
  "wgpu",

@@ -1,5 +1,3 @@
-use event::{Event, Events};
-
 use self::event::{
     AddChildren, AddComponent, AddComponents, ComponentEvents, Despawn, RemoveChildren,
     RemoveComponent, RemoveComponents, SetParent, Spawn,
@@ -18,7 +16,8 @@ use super::{
     task::{max_thread_count, TaskPool},
 };
 use crate::archetype::table::EntityRow;
-use std::{any::TypeId, collections::HashSet};
+use event::{Event, Events};
+use std::collections::HashSet;
 
 pub mod event;
 pub mod query;
@@ -38,15 +37,7 @@ pub struct World {
 
 impl World {
     pub fn new() -> Self {
-        let mut resources = Resources::new();
-        let mut events = Events::new();
-        resources.add(events.register::<Spawn>());
-        resources.add(events.register::<Despawn>());
-        resources.add(events.register::<SetParent>());
-        resources.add(events.register::<AddChildren>());
-        resources.add(events.register::<RemoveChildren>());
-        resources.add(events.register::<AddComponents>());
-        resources.add(events.register::<RemoveComponents>());
+        let (resources, events) = Self::init();
 
         Self {
             resources,
@@ -60,6 +51,31 @@ impl World {
             observers: EventObservers::new(),
             tasks: TaskPool::new(max_thread_count().min(3)),
         }
+    }
+
+    pub fn with_run_mode(mode: RunMode) -> Self {
+        let (resources, events) = Self::init();
+
+        Self {
+            resources,
+            events,
+            systems: Some(Systems::new(mode)),
+            infos: SystemsInfo::new(),
+            local_resources: LocalResources::new(),
+            components: Components::new(),
+            entities: Entities::new(),
+            archetypes: Archetypes::new(),
+            observers: EventObservers::new(),
+            tasks: TaskPool::new(max_thread_count().min(3)),
+        }
+    }
+
+    pub fn init_sub_world(&self, sub_world: &mut World) {
+        sub_world
+            .events
+            .metas_mut()
+            .append_copies(&self.events.metas());
+        sub_world.tasks = self.tasks.clone();
     }
 
     pub fn resource<R: Resource>(&self) -> &R {
@@ -96,6 +112,12 @@ impl World {
 
     pub fn tasks(&self) -> &TaskPool {
         &self.tasks
+    }
+}
+
+impl Default for World {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -291,8 +313,7 @@ impl World {
 
     pub fn flush_events<E: Event>(&mut self) {
         let mut events = self.events.remove::<E>();
-        let ty = TypeId::of::<E>();
-        let meta = self.events.meta_dynamic(&ty);
+        let meta = self.events.meta::<E>();
         while !events.is_empty() {
             for event in events {
                 meta.invoke(event, self);
@@ -303,15 +324,15 @@ impl World {
         }
     }
 
-    pub fn run(&mut self, phase: impl Phase) -> &mut Self {
-        let systems = self.systems.take().unwrap();
+    pub fn run(&mut self, phase: impl Phase) {
+        let mut systems = self.systems.take().unwrap();
         let id = phase.id();
+
+        self.infos.update(&mut systems);
 
         systems.run(id, self);
 
         self.systems = Some(systems);
-
-        self
     }
 }
 
@@ -357,10 +378,18 @@ impl World {
             }
         }
     }
-}
 
-impl Default for World {
-    fn default() -> Self {
-        Self::new()
+    fn init() -> (Resources, Events) {
+        let mut resources = Resources::new();
+        let mut events = Events::new();
+        resources.add(events.register::<Spawn>());
+        resources.add(events.register::<Despawn>());
+        resources.add(events.register::<SetParent>());
+        resources.add(events.register::<AddChildren>());
+        resources.add(events.register::<RemoveChildren>());
+        resources.add(events.register::<AddComponents>());
+        resources.add(events.register::<RemoveComponents>());
+
+        (resources, events)
     }
 }

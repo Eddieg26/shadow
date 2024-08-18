@@ -1,5 +1,6 @@
 use super::plugin::Plugins;
 use crate::{
+    app::{SubApp, SubApps, SubWorlds},
     phases::{Execute, Shutdown, Startup},
     plugin::Plugin,
 };
@@ -18,6 +19,7 @@ use shadow_ecs::{
 
 pub struct Game {
     world: World,
+    sub_apps: SubWorlds,
     plugins: Plugins,
     runner: Option<Box<dyn GameRunner>>,
 }
@@ -31,6 +33,7 @@ impl Game {
 
         Self {
             world,
+            sub_apps: SubWorlds::new(),
             plugins: Plugins::new(),
             runner: Some(Box::new(default_runner)),
         }
@@ -76,6 +79,14 @@ impl Game {
         self.world.try_init_local_resource::<R>()
     }
 
+    pub fn sub_app<S: SubApp>(&self) -> &World {
+        self.sub_apps.get::<S>().expect("SubApp not found")
+    }
+
+    pub fn sub_app_mut<S: SubApp>(&mut self) -> &mut World {
+        self.sub_apps.get_mut::<S>().expect("SubApp not found")
+    }
+
     pub fn register<C: Component>(&mut self) -> &mut Self {
         self.world.register::<C>();
         self
@@ -103,6 +114,11 @@ impl Game {
 
     pub fn add_local_resource<R: LocalResource>(&mut self, resource: R) -> &mut Self {
         self.world.add_local_resource(resource);
+        self
+    }
+
+    pub fn add_sub_app<S: SubApp>(&mut self) -> &mut Self {
+        self.sub_apps.add::<S>();
         self
     }
 
@@ -177,7 +193,10 @@ impl Game {
         self.world.build();
 
         let runner = self.runner.take().unwrap_or(Box::new(default_runner));
-        runner.run(self);
+        let world = std::mem::take(&mut self.world);
+        let sub_apps = std::mem::take(&mut self.sub_apps).into();
+        let mut game = GameInstance::new(world, sub_apps);
+        runner.run(&mut game);
     }
 
     pub fn start(&mut self) {
@@ -207,17 +226,54 @@ impl Default for Game {
     }
 }
 
-pub trait GameRunner {
-    fn run(&self, game: &mut Game);
+pub struct GameInstance {
+    world: Option<World>,
+    sub_apps: SubApps,
 }
 
-impl<F: Fn(&mut Game)> GameRunner for F {
-    fn run(&self, game: &mut Game) {
+impl GameInstance {
+    pub fn new(world: World, sub_apps: SubApps) -> Self {
+        Self {
+            world: Some(world),
+            sub_apps,
+        }
+    }
+
+    pub fn start(&mut self) {
+        self.world_mut().run(Startup);
+    }
+
+    pub fn update(&mut self) {
+        if let Some(mut world) = self.world.take() {
+            world.run(Execute);
+            self.world = Some(self.sub_apps.update(world));
+        }
+    }
+
+    pub fn shutdown(&mut self) {
+        self.world_mut().run(Shutdown);
+    }
+
+    pub fn world(&self) -> &World {
+        self.world.as_ref().expect("World not found")
+    }
+
+    pub fn world_mut(&mut self) -> &mut World {
+        self.world.as_mut().expect("World not found")
+    }
+}
+
+pub trait GameRunner {
+    fn run(&self, game: &mut GameInstance);
+}
+
+impl<F: Fn(&mut GameInstance)> GameRunner for F {
+    fn run(&self, game: &mut GameInstance) {
         self(game)
     }
 }
 
-pub fn default_runner(game: &mut Game) {
+pub fn default_runner(game: &mut GameInstance) {
     game.start();
     game.update();
     game.shutdown();

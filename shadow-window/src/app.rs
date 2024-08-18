@@ -8,7 +8,7 @@ use crate::{
     window::{Window, WindowConfig},
 };
 use shadow_ecs::world::event::Event;
-use shadow_game::game::Game;
+use shadow_game::game::GameInstance;
 use winit::{
     application::ApplicationHandler,
     error::EventLoopError,
@@ -18,11 +18,11 @@ use winit::{
 };
 
 pub struct App<'a> {
-    game: &'a mut Game,
+    game: &'a mut GameInstance,
 }
 
 impl<'a> App<'a> {
-    pub fn new(game: &'a mut Game) -> Self {
+    pub fn new(game: &'a mut GameInstance) -> Self {
         Self { game }
     }
 
@@ -39,8 +39,8 @@ impl<'a> App<'a> {
     }
 
     fn run_event<E: Event>(&mut self, event: E) {
-        self.game.events().add(event);
-        self.game.flush_events::<E>();
+        self.game.world().events().add(event);
+        self.game.world_mut().flush_events::<E>();
     }
 
     fn run(&mut self, event_loop: EventLoop<()>) {
@@ -55,7 +55,7 @@ impl<'a> App<'a> {
         self.shutdown();
     }
 
-    pub fn runner(game: &mut Game) {
+    pub fn runner(game: &mut GameInstance) {
         match EventLoop::new() {
             Ok(event_loop) => {
                 let mut app = App::new(game);
@@ -68,10 +68,11 @@ impl<'a> App<'a> {
 
 impl ApplicationHandler for App<'_> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        if let Some(config) = self.game.remove_resource::<WindowConfig>() {
+        let world = self.game.world_mut();
+        if let Some(config) = world.remove_resource::<WindowConfig>() {
             let window = Window::new(config, event_loop);
-            self.game.add_resource(window);
-            self.game.flush_events::<WindowCreated>();
+            world.add_resource(window);
+            world.flush_events::<WindowCreated>();
         }
     }
 
