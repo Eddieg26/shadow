@@ -1,6 +1,5 @@
-use std::collections::HashMap;
-
 use crate::resources::ResourceId;
+use std::collections::HashMap;
 
 pub struct TextureDesc {
     pub format: wgpu::TextureFormat,
@@ -17,6 +16,22 @@ pub struct RenderTargetDesc {
     pub height: u32,
     pub format: wgpu::TextureFormat,
     pub depth_format: Option<wgpu::TextureFormat>,
+}
+
+impl RenderTargetDesc {
+    pub fn new(
+        width: u32,
+        height: u32,
+        format: wgpu::TextureFormat,
+        depth_format: Option<wgpu::TextureFormat>,
+    ) -> Self {
+        Self {
+            width,
+            height,
+            format,
+            depth_format,
+        }
+    }
 }
 
 pub struct RenderTarget {
@@ -101,6 +116,7 @@ impl RenderTarget {
     }
 }
 
+#[derive(Default)]
 pub struct RenderGraphResources {
     targets: HashMap<ResourceId, RenderTarget>,
     buffers: HashMap<ResourceId, wgpu::Buffer>,

@@ -9,21 +9,18 @@ use crate::{
     },
     loader::{AssetError, AssetLoader, AssetProcessor, AssetSerializer},
 };
-use shadow_ecs::world::World;
 use shadow_game::{game::Game, phases::Init, plugin::Plugin};
 
 pub struct AssetPlugin;
 
 impl Plugin for AssetPlugin {
-    fn run(&mut self, game: &mut Game) {
-        let config = match game.remove_resource::<AssetConfig>() {
-            Some(config) => config,
-            None => AssetConfig::default(),
-        };
+    fn start(&self, game: &mut Game) {
+        game.init_resource::<AssetConfig>()
+            .add_system(Init, asset_config_init);
+    }
 
-        game.add_resource(AssetDatabase::new(config))
-            .add_system(Init, asset_config_init)
-            .register_event::<ImportFolder>()
+    fn run(&mut self, game: &mut Game) {
+        game.register_event::<ImportFolder>()
             .register_event::<ImportAsset>()
             .register_event::<ImportAssets>()
             .register_event::<AssetImported>()
@@ -43,7 +40,6 @@ impl Plugin for AssetPlugin {
 }
 
 pub trait AssetExt: Sized {
-    fn config(&mut self) -> &mut AssetConfig;
     fn register_asset<A: Asset>(&mut self) -> &mut Self;
     fn register_loader<L: AssetLoader>(&mut self) -> &mut Self;
     fn register_processor<P: AssetProcessor>(&mut self) -> &mut Self;
@@ -51,13 +47,10 @@ pub trait AssetExt: Sized {
 }
 
 impl AssetExt for Game {
-    fn config(&mut self) -> &mut AssetConfig {
-        self.try_init_resource::<AssetConfig>()
-    }
-
     fn register_asset<A: Asset>(&mut self) -> &mut Self {
-        if !self.config().registry().has::<A>() {
-            self.config().register::<A>();
+        let config = self.resource_mut::<AssetConfig>();
+        if !config.registry().has::<A>() {
+            config.register::<A>();
             self.register_event::<AssetLoaded<A>>()
                 .register_event::<AssetUnloaded<A>>()
                 .observe::<AssetLoaded<A>, _>(AssetLoaded::<A>::observer)
@@ -70,61 +63,21 @@ impl AssetExt for Game {
 
     fn register_loader<L: AssetLoader>(&mut self) -> &mut Self {
         self.register_asset::<L::Asset>();
-        self.config().set_loader::<L>();
+        self.resource_mut::<AssetConfig>().set_loader::<L>();
 
         self
     }
 
     fn register_processor<P: AssetProcessor>(&mut self) -> &mut Self {
         self.register_loader::<P::Loader>();
-        self.config().set_processor::<P>();
+        self.resource_mut::<AssetConfig>().set_processor::<P>();
 
         self
     }
 
     fn register_serializer<S: AssetSerializer>(&mut self) -> &mut Self {
         self.register_asset::<S::Asset>();
-        self.config().set_cacher::<S>();
-
-        self
-    }
-}
-
-impl AssetExt for World {
-    fn config(&mut self) -> &mut AssetConfig {
-        self.try_init_resource::<AssetConfig>()
-    }
-
-    fn register_asset<A: Asset>(&mut self) -> &mut Self {
-        if !self.config().registry().has::<A>() {
-            self.config().register::<A>();
-            self.register_event::<AssetLoaded<A>>()
-                .register_event::<AssetUnloaded<A>>()
-                .observe::<AssetLoaded<A>, _>(AssetLoaded::<A>::observer)
-                .observe::<AssetUnloaded<A>, _>(AssetUnloaded::<A>::observer)
-                .init_resource::<Assets<A>>();
-        }
-
-        self
-    }
-
-    fn register_loader<L: AssetLoader>(&mut self) -> &mut Self {
-        self.register_asset::<L::Asset>();
-        self.config().set_loader::<L>();
-
-        self
-    }
-
-    fn register_processor<P: AssetProcessor>(&mut self) -> &mut Self {
-        self.register_loader::<P::Loader>();
-        self.config().set_processor::<P>();
-
-        self
-    }
-
-    fn register_serializer<S: AssetSerializer>(&mut self) -> &mut Self {
-        self.register_asset::<S::Asset>();
-        self.config().set_cacher::<S>();
+        self.resource_mut::<AssetConfig>().set_cacher::<S>();
 
         self
     }

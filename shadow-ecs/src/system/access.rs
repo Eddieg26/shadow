@@ -1,4 +1,4 @@
-use crate::core::{ComponentId, ResourceType};
+use crate::core::{Component, ComponentId, Resource, ResourceType};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum WorldAccessType {
@@ -7,6 +7,20 @@ pub enum WorldAccessType {
     Component(ComponentId),
     Resource(ResourceType),
     LocalResource(ResourceType),
+}
+
+impl WorldAccessType {
+    pub fn resource<R: Resource>() -> Self {
+        Self::Resource(ResourceType::new::<R>())
+    }
+
+    pub fn local_resource<R: Resource>() -> Self {
+        Self::LocalResource(ResourceType::new::<R>())
+    }
+
+    pub fn component<C: Component>() -> Self {
+        Self::Component(ComponentId::new::<C>())
+    }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]

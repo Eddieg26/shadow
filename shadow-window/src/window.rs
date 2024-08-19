@@ -1,16 +1,17 @@
 use shadow_ecs::core::Resource;
+use std::sync::Arc;
 use winit::{event_loop::ActiveEventLoop, window::WindowId};
 
 pub struct WindowConfig {
-    width: u32,
-    height: u32,
-    title: String,
-    resizable: bool,
-    visible: bool,
-    blur: bool,
-    transparent: bool,
-    maximized: bool,
-    decorations: bool,
+    pub width: u32,
+    pub height: u32,
+    pub title: String,
+    pub resizable: bool,
+    pub visible: bool,
+    pub blur: bool,
+    pub transparent: bool,
+    pub maximized: bool,
+    pub decorations: bool,
 }
 
 impl WindowConfig {
@@ -72,8 +73,9 @@ impl WindowConfig {
 
 impl Resource for WindowConfig {}
 
+#[derive(Clone)]
 pub struct Window {
-    inner: winit::window::Window,
+    inner: Arc<winit::window::Window>,
 }
 
 impl Window {
@@ -87,9 +89,11 @@ impl Window {
             .with_maximized(config.maximized)
             .with_decorations(config.decorations);
 
-        let inner = event_loop.create_window(attributes).unwrap();
+        let window = event_loop.create_window(attributes).unwrap();
 
-        Self { inner }
+        Self {
+            inner: Arc::new(window),
+        }
     }
 
     pub fn id(&self) -> WindowId {
@@ -110,12 +114,6 @@ impl std::ops::Deref for Window {
 
     fn deref(&self) -> &Self::Target {
         &self.inner
-    }
-}
-
-impl std::ops::DerefMut for Window {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.inner
     }
 }
 

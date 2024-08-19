@@ -61,6 +61,7 @@ impl<E: Event> From<E> for ErasedEvent {
 pub struct EventMeta {
     priority: i32,
     invoke: fn(ErasedEvent, &mut World),
+    add_outputs: fn(&mut World),
     clear: fn(&World),
 }
 
@@ -75,6 +76,9 @@ impl EventMeta {
                     world.resource_mut::<EventOutputs<E>>().add(output);
                 }
             },
+            add_outputs: |world| {
+                world.add_resource(EventOutputs::<E>::new());
+            },
             clear: |world| {
                 world.resource_mut::<EventOutputs<E>>().clear();
             },
@@ -87,6 +91,10 @@ impl EventMeta {
 
     pub fn invoke(&self, event: ErasedEvent, world: &mut World) {
         (self.invoke)(event, world)
+    }
+
+    pub fn add_outputs(&self, world: &mut World) {
+        (self.add_outputs)(world)
     }
 
     pub fn clear(&self, world: &World) {
@@ -114,13 +122,12 @@ impl EventMetas {
         self.metas.get(ty)
     }
 
-    pub fn remove(&mut self, ty: &EventType) -> Option<EventMeta> {
-        self.metas.remove(ty)
+    pub fn iter(&self) -> impl Iterator<Item = (&EventType, &EventMeta)> {
+        self.metas.iter()
     }
 
-    pub fn append_copies(&mut self, metas: &Self) {
-        let mut copies = metas.metas.clone();
-        self.metas.append(&mut copies);
+    pub fn remove(&mut self, ty: &EventType) -> Option<EventMeta> {
+        self.metas.remove(ty)
     }
 
     pub fn clear(&mut self) {
@@ -207,14 +214,16 @@ impl Events {
     pub(crate) fn invocation_type<E: Event>(&self) -> Option<EventInvocation> {
         let mut invocations = self.invocations.write().unwrap();
         let invocation = EventInvocation::new::<E>();
-        invocations.remove(&invocation).map(|_| invocation)
+        let removed = invocations.remove(&invocation).map(|_| invocation);
+
+        removed
     }
 
-    pub(crate) fn metas(&self) -> std::sync::RwLockReadGuard<EventMetas> {
+    pub fn metas(&self) -> std::sync::RwLockReadGuard<EventMetas> {
         self.metas.read().unwrap()
     }
 
-    pub(crate) fn metas_mut(&self) -> std::sync::RwLockWriteGuard<EventMetas> {
+    pub fn metas_mut(&self) -> std::sync::RwLockWriteGuard<EventMetas> {
         self.metas.write().unwrap()
     }
 

@@ -1,11 +1,10 @@
+use crate::resources::ResourceId;
 use shadow_ecs::core::Resource;
 use shadow_window::window::Window;
 use wgpu::{
     rwh::{HasDisplayHandle, HasWindowHandle},
     SurfaceTargetUnsafe,
 };
-
-use crate::resources::ResourceId;
 
 pub enum RenderSurfaceError {
     Create(wgpu::CreateSurfaceError),
@@ -22,6 +21,7 @@ impl From<wgpu::CreateSurfaceError> for RenderSurfaceError {
 
 pub struct RenderSurface {
     id: ResourceId,
+    window: Window,
     inner: wgpu::Surface<'static>,
     config: wgpu::SurfaceConfiguration,
     adapter: wgpu::Adapter,
@@ -86,6 +86,7 @@ impl RenderSurface {
 
         Ok(Self {
             id: ResourceId::gen(),
+            window: window.clone(),
             inner: surface,
             config,
             adapter,
@@ -96,6 +97,10 @@ impl RenderSurface {
 
     pub fn id(&self) -> ResourceId {
         self.id
+    }
+
+    pub fn window(&self) -> &Window {
+        &self.window
     }
 
     pub fn resize(&mut self, device: &wgpu::Device, width: u32, height: u32) {

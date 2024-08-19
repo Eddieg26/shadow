@@ -122,6 +122,7 @@ dependencies = [
  "shadow-asset",
  "shadow-ecs",
  "shadow-game",
+ "shadow-graphics",
  "shadow-window",
  "toml",
 ]
@@ -1414,6 +1415,7 @@ dependencies = [
 name = "shadow-graphics"
 version = "0.1.0"
 dependencies = [
+ "crc32fast",
  "downcast-rs",
  "glam",
  "pollster",

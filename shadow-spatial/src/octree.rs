@@ -34,7 +34,7 @@ impl<N: Entity3D> OctreeNode<N> {
         } else {
             let index = self
                 .children
-                .iter()
+                .items()
                 .position(|child| child.contains(object.bounds()));
 
             match index {
@@ -114,7 +114,7 @@ impl<N: Entity3D> OctreeNode<N> {
 
         for object in objects {
             let index = children
-                .iter()
+                .items()
                 .position(|child| child.bounds.contains(object.bounds()));
 
             match index {
@@ -132,8 +132,20 @@ impl<N: Entity3D> OctreeNode<N> {
 
     pub fn iter(&self) -> impl Iterator<Item = &N> {
         self.objects
-            .iter()
-            .chain(self.children.iter().flat_map(|child| child.objects.iter()))
+            .items()
+            .chain(self.children.items().flat_map(|child| child.objects.items()))
+    }
+
+    pub fn drain(&mut self) -> Vec<N> {
+        let mut objects = vec![];
+
+        for child in &mut self.children {
+            objects.extend(child.drain());
+        }
+
+        objects.append(&mut self.objects);
+
+        objects
     }
 
     pub fn query(&self, bounds: &BoundingBox, filter: impl Fn(&N) -> bool) -> Vec<&N> {
@@ -193,7 +205,7 @@ impl<N: Entity3D> Partition for Octree<N> {
         self.root.insert(item);
     }
 
-    fn iter(&self) -> impl Iterator<Item = &Self::Item> {
+    fn items(&self) -> impl Iterator<Item = &Self::Item> {
         self.root.iter()
     }
 
@@ -201,7 +213,17 @@ impl<N: Entity3D> Partition for Octree<N> {
         self.root.query(&query.bounds, &query.filter)
     }
 
+    fn drain(&mut self) -> Vec<Self::Item> {
+        self.root.drain()
+    }
+
     fn clear(&mut self) {
         self.root = OctreeNode::new(self.root.bounds, self.max_objects, 0, self.max_depth);
+    }
+}
+
+impl<N: Entity3D> Default for Octree<N> {
+    fn default() -> Self {
+        Self::new(BoundingBox::new(Vec3::zero(), Vec3::zero()), 8, 8)
     }
 }

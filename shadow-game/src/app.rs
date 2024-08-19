@@ -1,8 +1,8 @@
-use crate::phases::Update;
+use crate::phases::{PostUpdate, PreUpdate, Update};
 use shadow_ecs::{
     core::{DenseMap, Resource},
-    system::schedule::Phase,
-    world::World,
+    system::schedule::{Phase, Schedule},
+    world::{event::Events, World},
 };
 use std::{
     any::TypeId,
@@ -12,6 +12,19 @@ use std::{
 pub struct Extract;
 
 impl Phase for Extract {}
+
+pub struct SubWorldUpdate;
+
+impl Phase for SubWorldUpdate {
+    fn schedule() -> Schedule {
+        let mut schedule = Schedule::from::<Self>();
+        schedule.add_schedule(Schedule::from::<PreUpdate>());
+        schedule.add_schedule(Schedule::from::<Update>());
+        schedule.add_schedule(Schedule::from::<PostUpdate>());
+
+        schedule
+    }
+}
 
 pub struct MainWorld(World);
 
@@ -43,6 +56,24 @@ impl std::ops::DerefMut for MainWorld {
 
 impl Resource for MainWorld {}
 
+pub struct MainEvents(Events);
+
+impl From<Events> for MainEvents {
+    fn from(events: Events) -> Self {
+        Self(events)
+    }
+}
+
+impl std::ops::Deref for MainEvents {
+    type Target = Events;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Resource for MainEvents {}
+
 pub trait SubApp: 'static {}
 
 #[derive(Default)]
@@ -57,8 +88,12 @@ impl SubWorlds {
         }
     }
 
-    pub fn add<A: SubApp>(&mut self) {
-        self.worlds.insert(TypeId::of::<A>(), World::new());
+    pub fn add<A: SubApp>(&mut self, world: World) -> &mut World {
+        let ty = TypeId::of::<A>();
+        if !self.worlds.contains(&ty) {
+            self.worlds.insert(ty, world);
+        }
+        self.worlds.get_mut(&ty).unwrap()
     }
 
     pub fn get<A: SubApp>(&self) -> Option<&World> {
@@ -72,20 +107,21 @@ impl SubWorlds {
     pub fn into_apps(self, main_world: &World) -> SubApps {
         let mut apps = SubApps::new();
         for (id, mut world) in self.worlds {
-            main_world.init_sub_world(&mut world);
+            Self::init_sub_worlds(main_world, &mut world);
+
+            let main_events = MainEvents::from(main_world.events().clone());
+            world.add_resource(main_events);
             apps.apps.insert(id, SubAppWorld::new(world));
         }
         apps
     }
-}
 
-impl Into<SubApps> for SubWorlds {
-    fn into(self) -> SubApps {
-        let mut apps = SubApps::new();
-        for (id, world) in self.worlds {
-            apps.apps.insert(id, SubAppWorld::new(world));
+    fn init_sub_worlds(main: &World, sub: &mut World) {
+        let metas = main.events().metas();
+        for (ty, meta) in metas.iter() {
+            meta.add_outputs(sub);
+            sub.events().metas_mut().insert(*ty, *meta);
         }
-        apps
     }
 }
 
@@ -96,7 +132,7 @@ pub struct SubAppWorld {
 impl SubAppWorld {
     pub fn new(mut world: World) -> Self {
         world.add_phase::<Extract>();
-        world.add_phase::<Update>();
+        world.add_phase::<SubWorldUpdate>();
         Self {
             world: Arc::new(RwLock::new(world)),
         }
@@ -118,7 +154,7 @@ impl SubAppWorld {
         let world = self.world.clone();
         tasks.spawn(move || {
             let mut world = world.write().unwrap();
-            world.run(Update);
+            world.run(SubWorldUpdate);
         });
 
         main_world.into()
@@ -152,3 +188,33 @@ impl SubApps {
         main_world
     }
 }
+
+pub struct SubEvents<S: SubApp> {
+    events: Events,
+    _marker: std::marker::PhantomData<S>,
+}
+
+impl<S: SubApp> SubEvents<S> {
+    pub fn new(events: Events) -> Self {
+        Self {
+            events,
+            _marker: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<S: SubApp> std::ops::Deref for SubEvents<S> {
+    type Target = Events;
+
+    fn deref(&self) -> &Self::Target {
+        &self.events
+    }
+}
+
+impl<S: SubApp> std::ops::DerefMut for SubEvents<S> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.events
+    }
+}
+
+impl<S: SubApp> Resource for SubEvents<S> {}

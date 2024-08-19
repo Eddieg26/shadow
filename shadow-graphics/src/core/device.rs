@@ -1,4 +1,5 @@
 use shadow_ecs::core::Resource;
+use std::sync::Arc;
 
 pub struct RenderInstance(wgpu::Instance);
 
@@ -21,7 +22,8 @@ impl std::ops::Deref for RenderInstance {
     }
 }
 
-pub struct RenderDevice(wgpu::Device);
+#[derive(Clone)]
+pub struct RenderDevice(Arc<wgpu::Device>);
 
 impl RenderDevice {
     pub async fn create(
@@ -31,7 +33,7 @@ impl RenderDevice {
             .request_device(&wgpu::DeviceDescriptor::default(), None)
             .await?;
 
-        Ok((RenderDevice(device), RenderQueue(queue)))
+        Ok((RenderDevice(Arc::new(device)), RenderQueue(Arc::new(queue))))
     }
 }
 
@@ -45,7 +47,9 @@ impl std::ops::Deref for RenderDevice {
 
 impl Resource for RenderDevice {}
 
-pub struct RenderQueue(wgpu::Queue);
+
+#[derive(Clone)]
+pub struct RenderQueue(Arc<wgpu::Queue>);
 
 impl std::ops::Deref for RenderQueue {
     type Target = wgpu::Queue;

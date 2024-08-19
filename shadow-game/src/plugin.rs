@@ -18,6 +18,11 @@ impl Plugins {
         self
     }
 
+    pub fn add_boxed_plugin(&mut self, type_id: TypeId, plugin: Box<dyn Plugin>) -> &mut Self {
+        self.plugins.insert(type_id, plugin);
+        self
+    }
+
     pub fn append(&mut self, mut plugins: Plugins) -> &mut Self {
         for (type_id, plugin) in plugins.plugins.drain() {
             if !self.plugins.contains(&type_id) {
@@ -25,6 +30,14 @@ impl Plugins {
             }
         }
         self
+    }
+
+    pub fn contains(&self, type_id: &TypeId) -> bool {
+        self.plugins.contains(type_id)
+    }
+
+    pub(crate) fn drain(&mut self) -> impl Iterator<Item = (TypeId, Box<dyn Plugin>)> + '_ {
+        self.plugins.drain()
     }
 
     pub(crate) fn dependencies(&mut self) -> Plugins {
@@ -35,12 +48,6 @@ impl Plugins {
             plugins.plugins.insert(type_id, plugin);
         }
         plugins
-    }
-
-    pub(crate) fn start(&mut self, game: &mut Game) {
-        for plugin in self.plugins.values_mut() {
-            plugin.start(game);
-        }
     }
 
     pub(crate) fn run(&mut self, game: &mut Game) {
@@ -60,7 +67,7 @@ pub trait Plugin: 'static {
     fn dependencies(&self) -> Plugins {
         Plugins::new()
     }
-    fn start(&mut self, _: &mut Game) {}
-    fn run(&mut self, game: &mut Game);
+    fn start(&self, _: &mut Game) {}
+    fn run(&mut self, _: &mut Game) {}
     fn finish(&mut self, _: &mut Game) {}
 }

@@ -10,4 +10,5 @@ shadow-game = { path = "../../shadow-game", version = "0.1.0" }
 shadow-ecs = { path = "../../shadow-ecs", version = "0.1.0" }
 shadow-asset = { path = "../../shadow-asset", version = "0.1.0" }
 shadow-window = { path = "../../shadow-window", version = "0.1.0" }
+shadow-graphics = { path = "../../shadow-graphics", version = "0.1.0" }
 toml = { workspace = true }

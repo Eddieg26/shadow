@@ -57,9 +57,9 @@ impl<'a> RenderContext<'a> {
         self.resources.target(id)
     }
 
-    pub fn texture(&self, target: ResourceId, texture: ResourceId) -> Option<&wgpu::TextureView> {
+    pub fn texture(&self, texture: ResourceId) -> Option<&wgpu::TextureView> {
         self.resources
-            .target(target)
+            .target(self.surface_id)
             .and_then(|t| t.texture(texture))
             .or_else(|| self.resources.texture(texture))
     }
@@ -72,8 +72,21 @@ impl<'a> RenderContext<'a> {
         self.world.resource::<R>()
     }
 
+    pub fn try_resource<R: Resource>(&self) -> Option<&R> {
+        self.world.try_resource::<R>()
+    }
+
     pub fn local_resource<R: LocalResource>(&self) -> &R {
         self.world.local_resource::<R>()
+    }
+
+    pub fn try_local_resource<R: LocalResource>(&self) -> Option<&R> {
+        self.world.try_local_resource::<R>()
+    }
+
+    pub fn encoder(&self) -> wgpu::CommandEncoder {
+        self.device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default())
     }
 
     pub fn submit(&self, buffer: wgpu::CommandBuffer) {

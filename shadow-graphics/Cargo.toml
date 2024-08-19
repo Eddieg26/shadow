@@ -10,8 +10,11 @@ shadow-asset = { path = "../shadow-asset", version = "0.1.0" }
 shadow-game = { path = "../shadow-game", version = "0.1.0" }
 shadow-ecs = { path = "../shadow-ecs", version = "0.1.0" }
 shadow-window = { path = "../shadow-window", version = "0.1.0" }
+shadow-spatial = { path = "../shadow-spatial", version = "0.1.0" }
 wgpu = { workspace = true }
 ulid = { workspace = true }
 serde = { workspace = true }
 pollster = { workspace = true }
+crc32fast = { workspace = true }
+glam = { workspace = true }
 downcast-rs = "1.2.1"

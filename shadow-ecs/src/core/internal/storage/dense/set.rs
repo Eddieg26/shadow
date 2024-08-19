@@ -1,5 +1,5 @@
 use super::hash_value;
-use std::{collections::HashMap, hash::Hash};
+use std::{collections::HashMap, fmt::Debug, hash::Hash};
 
 pub struct DenseSet<K: Hash + Eq> {
     keys: Vec<K>,
@@ -57,6 +57,7 @@ impl<K: Hash + Eq> DenseSet<K> {
     pub fn remove(&mut self, value: &K) -> Option<usize> {
         let key = hash_value(value);
         if let Some(index) = self.map.remove(&key) {
+            self.keys.remove(index);
             for index in index..(self.keys.len().max(index)) {
                 let key = hash_value(&self.keys[index]);
                 self.map.insert(key, index);
@@ -157,6 +158,12 @@ impl<K: Hash + Eq> DenseSet<K> {
     pub fn clear(&mut self) {
         self.map.clear();
         self.keys.clear();
+    }
+}
+
+impl<K: Hash + Eq + Debug> Debug for DenseSet<K> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_list().entries(self.keys.iter()).finish()
     }
 }
 

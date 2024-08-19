@@ -1,6 +1,6 @@
 use super::plugin::Plugins;
 use crate::{
-    app::{SubApp, SubApps, SubWorlds},
+    app::{SubApp, SubApps, SubEvents, SubWorlds},
     phases::{Execute, Shutdown, Startup},
     plugin::Plugin,
 };
@@ -79,12 +79,12 @@ impl Game {
         self.world.try_init_local_resource::<R>()
     }
 
-    pub fn sub_app<S: SubApp>(&self) -> &World {
-        self.sub_apps.get::<S>().expect("SubApp not found")
+    pub fn sub_app<S: SubApp>(&mut self) -> Option<&World> {
+        self.sub_apps.get::<S>()
     }
 
-    pub fn sub_app_mut<S: SubApp>(&mut self) -> &mut World {
-        self.sub_apps.get_mut::<S>().expect("SubApp not found")
+    pub fn sub_app_mut<S: SubApp>(&mut self) -> Option<&mut World> {
+        self.sub_apps.get_mut::<S>()
     }
 
     pub fn register<C: Component>(&mut self) -> &mut Self {
@@ -118,7 +118,12 @@ impl Game {
     }
 
     pub fn add_sub_app<S: SubApp>(&mut self) -> &mut Self {
-        self.sub_apps.add::<S>();
+        let events = {
+            let app = self.sub_apps.add::<S>(self.world.sub());
+            SubEvents::<S>::new(app.events().clone())
+        };
+
+        self.add_resource(events);
         self
     }
 
@@ -171,7 +176,20 @@ impl Game {
     }
 
     pub fn add_plugin<P: Plugin>(&mut self, plugin: P) -> &mut Self {
-        self.plugins.add_plugin(plugin);
+        let ty = std::any::TypeId::of::<P>();
+        if !self.plugins.contains(&ty) {
+            let mut plugins = plugin.dependencies().dependencies();
+            for (id, plugin) in plugins.drain() {
+                if !self.plugins.contains(&id) {
+                    plugin.start(self);
+                    self.plugins.add_boxed_plugin(id, plugin);
+                }
+            }
+
+            plugin.start(self);
+            self.plugins.add_boxed_plugin(ty, Box::new(plugin));
+        }
+
         self
     }
 
@@ -186,7 +204,6 @@ impl Game {
 
     pub fn run(&mut self) {
         let mut plugins = self.plugins.dependencies();
-        plugins.start(self);
         plugins.run(self);
         plugins.finish(self);
 
@@ -194,7 +211,7 @@ impl Game {
 
         let runner = self.runner.take().unwrap_or(Box::new(default_runner));
         let world = std::mem::take(&mut self.world);
-        let sub_apps = std::mem::take(&mut self.sub_apps).into();
+        let sub_apps = std::mem::take(&mut self.sub_apps).into_apps(&world);
         let mut game = GameInstance::new(world, sub_apps);
         runner.run(&mut game);
     }

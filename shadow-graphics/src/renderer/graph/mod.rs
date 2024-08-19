@@ -7,7 +7,10 @@ use crate::{
 };
 use context::{RenderContext, RenderNodeAction};
 use resources::{BufferDesc, RenderGraphResources, RenderTarget, RenderTargetDesc, TextureDesc};
-use shadow_ecs::{core::{DenseMap, Resource}, world::World};
+use shadow_ecs::{
+    core::{DenseMap, Resource},
+    world::World,
+};
 use std::collections::{HashMap, HashSet};
 
 pub mod context;
@@ -155,10 +158,15 @@ impl RenderGraphBuilder {
 
         RenderGraph::new(self.resources, nodes, order)
     }
+
+    pub fn len(&self) -> usize {
+        self.nodes.len()
+    }
 }
 
 impl Resource for RenderGraphBuilder {}
 
+#[derive(Default)]
 pub struct RenderGraph {
     resources: RenderGraphResources,
     nodes: Vec<Box<dyn RenderGraphNode>>,
@@ -196,7 +204,10 @@ impl RenderGraph {
         let queue = world.resource::<RenderQueue>();
         let surface = world.resource::<RenderSurface>();
 
-        let texture = surface.surface_texture().unwrap();
+        let texture = match surface.surface_texture() {
+            Ok(texture) => texture,
+            Err(e) => panic!("Failed to get surface texture: {:?}", e),
+        };
         let view = texture
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -217,14 +228,12 @@ impl RenderGraph {
         }
 
         let mut buffers = vec![];
-        while !actions.is_empty() {
-            for i in 0..actions.len() {
-                let action = actions.remove(i);
-                match action {
-                    RenderNodeAction::Submit(buffer) => buffers.push(buffer),
-                    RenderNodeAction::Flush => {
-                        queue.submit(std::mem::take(&mut buffers));
-                        buffers.clear();
+        for action in actions.drain(..) {
+            match action {
+                RenderNodeAction::Submit(buffer) => buffers.push(buffer),
+                RenderNodeAction::Flush => {
+                    if !buffers.is_empty() {
+                        queue.submit(buffers.drain(..));
                     }
                 }
             }
@@ -237,7 +246,6 @@ impl RenderGraph {
 }
 
 impl Resource for RenderGraph {}
-
 
 pub trait RenderGraphNode: downcast_rs::Downcast + 'static {
     fn execute(&self, ctx: &RenderContext);

@@ -22,7 +22,24 @@ use std::collections::HashSet;
 pub mod event;
 pub mod query;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum WorldKind {
+    Main,
+    Sub,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct WorldId(ulid::Ulid);
+
+impl WorldId {
+    pub fn new() -> Self {
+        Self(ulid::Ulid::new())
+    }
+}
+
 pub struct World {
+    id: WorldId,
+    kind: WorldKind,
     systems: Option<Systems>,
     infos: SystemsInfo,
     resources: Resources,
@@ -40,6 +57,8 @@ impl World {
         let (resources, events) = Self::init();
 
         Self {
+            id: WorldId::new(),
+            kind: WorldKind::Main,
             resources,
             events,
             systems: Some(Systems::new(RunMode::Parallel)),
@@ -53,29 +72,31 @@ impl World {
         }
     }
 
-    pub fn with_run_mode(mode: RunMode) -> Self {
+    pub fn sub(&self) -> World {
         let (resources, events) = Self::init();
 
-        Self {
+        World {
+            id: WorldId::new(),
+            kind: WorldKind::Sub,
             resources,
             events,
-            systems: Some(Systems::new(mode)),
+            systems: Some(Systems::new(RunMode::Sequential)),
             infos: SystemsInfo::new(),
             local_resources: LocalResources::new(),
             components: Components::new(),
             entities: Entities::new(),
             archetypes: Archetypes::new(),
             observers: EventObservers::new(),
-            tasks: TaskPool::new(max_thread_count().min(3)),
+            tasks: self.tasks.clone(),
         }
     }
 
-    pub fn init_sub_world(&self, sub_world: &mut World) {
-        sub_world
-            .events
-            .metas_mut()
-            .append_copies(&self.events.metas());
-        sub_world.tasks = self.tasks.clone();
+    pub fn id(&self) -> WorldId {
+        self.id
+    }
+
+    pub fn kind(&self) -> WorldKind {
+        self.kind
     }
 
     pub fn resource<R: Resource>(&self) -> &R {

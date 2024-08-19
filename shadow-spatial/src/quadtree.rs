@@ -35,7 +35,7 @@ impl<N: Entity2D> QuadTreeNode<N> {
         } else {
             let index = self
                 .children
-                .iter()
+                .items()
                 .position(|child| child.contains(object.bounds()));
 
             match index {
@@ -82,7 +82,7 @@ impl<N: Entity2D> QuadTreeNode<N> {
 
         for object in objects {
             let index = children
-                .iter()
+                .items()
                 .position(|child| child.bounds.contains(object.bounds()));
 
             match index {
@@ -100,8 +100,20 @@ impl<N: Entity2D> QuadTreeNode<N> {
 
     pub fn iter(&self) -> impl Iterator<Item = &N> {
         self.objects
-            .iter()
-            .chain(self.children.iter().flat_map(|child| child.objects.iter()))
+            .items()
+            .chain(self.children.items().flat_map(|child| child.objects.items()))
+    }
+
+    pub fn drain(&mut self) -> Vec<N> {
+        let mut objects = vec![];
+
+        for child in &mut self.children {
+            objects.extend(child.drain());
+        }
+
+        objects.extend(self.objects.drain(..));
+
+        objects
     }
 
     pub fn query(&self, bounds: &BoundingRect, filter: impl Fn(&N) -> bool) -> Vec<&N> {
@@ -161,7 +173,7 @@ impl<N: Entity2D> Partition for QuadTree<N> {
         self.root.insert(item);
     }
 
-    fn iter(&self) -> impl Iterator<Item = &Self::Item> {
+    fn items(&self) -> impl Iterator<Item = &Self::Item> {
         self.root.iter()
     }
 
@@ -169,7 +181,17 @@ impl<N: Entity2D> Partition for QuadTree<N> {
         self.root.query(&query.bounds, &query.filter)
     }
 
+    fn drain(&mut self) -> Vec<Self::Item> {
+        self.root.drain()
+    }
+
     fn clear(&mut self) {
         self.root = QuadTreeNode::new(self.root.bounds, self.max_objects, 0, self.max_depth);
+    }
+}
+
+impl<E: Entity2D> Default for QuadTree<E> {
+    fn default() -> Self {
+        Self::new(BoundingRect::new(Vec2::zero(), Vec2::new(1.0, 1.0)), 4, 4)
     }
 }

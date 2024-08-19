@@ -46,8 +46,6 @@ impl<'a> App<'a> {
     fn run(&mut self, event_loop: EventLoop<()>) {
         event_loop.set_control_flow(ControlFlow::Poll);
 
-        self.start();
-
         if let Err(e) = event_loop.run_app(self) {
             self.run_event(AppRunError::new(e));
         }
@@ -69,11 +67,21 @@ impl<'a> App<'a> {
 impl ApplicationHandler for App<'_> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let world = self.game.world_mut();
-        if let Some(config) = world.remove_resource::<WindowConfig>() {
-            let window = Window::new(config, event_loop);
-            world.add_resource(window);
-            world.flush_events::<WindowCreated>();
+        let has_window = world.try_resource::<Window>().is_some();
+        match (has_window, world.remove_resource::<WindowConfig>()) {
+            (false, Some(config)) => {
+                let window = Window::new(config, event_loop);
+                let id = window.id();
+                world.add_resource(window);
+                self.run_event(WindowCreated::new(id));
+                self.start();
+            }
+            _ => (),
         }
+    }
+
+    fn about_to_wait(&mut self, _: &ActiveEventLoop) {
+        self.update();
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, window: WindowId, event: WindowEvent) {
@@ -82,7 +90,6 @@ impl ApplicationHandler for App<'_> {
                 self.run_event(CloseRequested::new(window));
                 event_loop.exit();
             }
-            WindowEvent::RedrawRequested => self.update(),
             WindowEvent::AxisMotion {
                 device_id,
                 axis,

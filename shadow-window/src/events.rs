@@ -55,6 +55,7 @@ impl Event for AxisMotion {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct Resized {
     pub width: u32,
     pub height: u32,
@@ -537,6 +538,7 @@ impl Event for Occluded {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
 pub struct WindowCreated {
     id: WindowId,
 }
