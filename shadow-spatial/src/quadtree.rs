@@ -59,7 +59,7 @@ impl<N: Entity2D> QuadTreeNode<N> {
             self.max_depth,
         ));
         children.push(QuadTreeNode::new(
-            BoundingRect::new(Vec2::new(mid.x(), min.y()), Vec2::new(max.x(), mid.y())),
+            BoundingRect::new(Vec2::new(mid.x, min.y), Vec2::new(max.x, mid.y)),
             self.max_objects,
             self.depth + 1,
             self.max_depth,
@@ -71,7 +71,7 @@ impl<N: Entity2D> QuadTreeNode<N> {
             self.max_depth,
         ));
         children.push(QuadTreeNode::new(
-            BoundingRect::new(Vec2::new(min.x(), mid.y()), Vec2::new(mid.x(), max.y())),
+            BoundingRect::new(Vec2::new(min.x, mid.y), Vec2::new(mid.x, max.y)),
             self.max_objects,
             self.depth + 1,
             self.max_depth,
@@ -99,9 +99,11 @@ impl<N: Entity2D> QuadTreeNode<N> {
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &N> {
-        self.objects
-            .items()
-            .chain(self.children.items().flat_map(|child| child.objects.items()))
+        self.objects.items().chain(
+            self.children
+                .items()
+                .flat_map(|child| child.objects.items()),
+        )
     }
 
     pub fn drain(&mut self) -> Vec<N> {
@@ -192,6 +194,6 @@ impl<N: Entity2D> Partition for QuadTree<N> {
 
 impl<E: Entity2D> Default for QuadTree<E> {
     fn default() -> Self {
-        Self::new(BoundingRect::new(Vec2::zero(), Vec2::new(1.0, 1.0)), 4, 4)
+        Self::new(BoundingRect::new(Vec2::ZERO, Vec2::new(1.0, 1.0)), 4, 4)
     }
 }

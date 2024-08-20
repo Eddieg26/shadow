@@ -59,8 +59,8 @@ impl<N: Entity3D> OctreeNode<N> {
         ));
         children.push(OctreeNode::new(
             BoundingBox::new(
-                Vec3::new(mid.x(), min.y(), min.z()),
-                Vec3::new(max.x(), mid.y(), mid.z()),
+                Vec3::new(mid.x, min.y, min.z),
+                Vec3::new(max.x, mid.y, mid.z),
             ),
             self.max_objects,
             self.depth + 1,
@@ -68,8 +68,8 @@ impl<N: Entity3D> OctreeNode<N> {
         ));
         children.push(OctreeNode::new(
             BoundingBox::new(
-                Vec3::new(mid.x(), min.y(), mid.z()),
-                Vec3::new(max.x(), mid.y(), max.z()),
+                Vec3::new(mid.x, min.y, mid.z),
+                Vec3::new(max.x, mid.y, max.z),
             ),
             self.max_objects,
             self.depth + 1,
@@ -77,8 +77,8 @@ impl<N: Entity3D> OctreeNode<N> {
         ));
         children.push(OctreeNode::new(
             BoundingBox::new(
-                Vec3::new(min.x(), min.y(), mid.z()),
-                Vec3::new(mid.x(), mid.y(), max.z()),
+                Vec3::new(min.x, min.y, mid.z),
+                Vec3::new(mid.x, mid.y, max.z),
             ),
             self.max_objects,
             self.depth + 1,
@@ -86,8 +86,8 @@ impl<N: Entity3D> OctreeNode<N> {
         ));
         children.push(OctreeNode::new(
             BoundingBox::new(
-                Vec3::new(min.x(), mid.y(), min.z()),
-                Vec3::new(mid.x(), max.y(), mid.z()),
+                Vec3::new(min.x, mid.y, min.z),
+                Vec3::new(mid.x, max.y, mid.z),
             ),
             self.max_objects,
             self.depth + 1,
@@ -95,8 +95,8 @@ impl<N: Entity3D> OctreeNode<N> {
         ));
         children.push(OctreeNode::new(
             BoundingBox::new(
-                Vec3::new(mid.x(), mid.y(), min.z()),
-                Vec3::new(max.x(), max.y(), mid.z()),
+                Vec3::new(mid.x, mid.y, min.z),
+                Vec3::new(max.x, max.y, mid.z),
             ),
             self.max_objects,
             self.depth + 1,
@@ -131,9 +131,11 @@ impl<N: Entity3D> OctreeNode<N> {
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &N> {
-        self.objects
-            .items()
-            .chain(self.children.items().flat_map(|child| child.objects.items()))
+        self.objects.items().chain(
+            self.children
+                .items()
+                .flat_map(|child| child.objects.items()),
+        )
     }
 
     pub fn drain(&mut self) -> Vec<N> {
@@ -224,6 +226,6 @@ impl<N: Entity3D> Partition for Octree<N> {
 
 impl<N: Entity3D> Default for Octree<N> {
     fn default() -> Self {
-        Self::new(BoundingBox::new(Vec3::zero(), Vec3::zero()), 8, 8)
+        Self::new(BoundingBox::new(Vec3::ZERO, Vec3::ZERO), 8, 8)
     }
 }

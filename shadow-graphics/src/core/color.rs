@@ -1,6 +1,16 @@
 use shadow_asset::bytes::IntoBytes;
 
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    serde::Serialize,
+    serde::Deserialize,
+    bytemuck::Pod,
+    bytemuck::Zeroable,
+)]
+#[repr(C)]
 pub struct Color {
     pub r: f64,
     pub g: f64,

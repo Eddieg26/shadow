@@ -16,12 +16,12 @@ impl BoundingBox {
     }
 
     pub fn contains_point(&self, point: Vec3) -> bool {
-        point.x() >= self.min.x()
-            && point.y() >= self.min.y()
-            && point.z() >= self.min.z()
-            && point.x() <= self.max.x()
-            && point.y() <= self.max.y()
-            && point.z() <= self.max.z()
+        point.x >= self.min.x
+            && point.y >= self.min.y
+            && point.z >= self.min.z
+            && point.x <= self.max.x
+            && point.y <= self.max.y
+            && point.z <= self.max.z
     }
 
     pub fn contains(&self, other: &BoundingBox) -> bool {
@@ -29,12 +29,12 @@ impl BoundingBox {
     }
 
     pub fn intersects(&self, other: &BoundingBox) -> bool {
-        self.min.x() <= other.max.x()
-            && self.max.x() >= other.min.x()
-            && self.min.y() <= other.max.y()
-            && self.max.y() >= other.min.y()
-            && self.min.z() <= other.max.z()
-            && self.max.z() >= other.min.z()
+        self.min.x <= other.max.x
+            && self.max.x >= other.min.x
+            && self.min.y <= other.max.y
+            && self.max.y >= other.min.y
+            && self.min.z <= other.max.z
+            && self.max.z >= other.min.z
     }
 
     pub fn size(&self) -> Vec3 {
@@ -58,10 +58,10 @@ impl BoundingRect {
     }
 
     pub fn contains_point(&self, point: Vec2) -> bool {
-        point.x() >= self.min.x()
-            && point.y() >= self.min.y()
-            && point.x() <= self.max.x()
-            && point.y() <= self.max.y()
+        point.x >= self.min.x
+            && point.y >= self.min.y
+            && point.x <= self.max.x
+            && point.y <= self.max.y
     }
 
     pub fn contains(&self, other: &BoundingRect) -> bool {
@@ -69,10 +69,10 @@ impl BoundingRect {
     }
 
     pub fn intersects(&self, other: &BoundingRect) -> bool {
-        self.min.x() <= other.max.x()
-            && self.max.x() >= other.min.x()
-            && self.min.y() <= other.max.y()
-            && self.max.y() >= other.min.y()
+        self.min.x <= other.max.x
+            && self.max.x >= other.min.x
+            && self.min.y <= other.max.y
+            && self.max.y >= other.min.y
     }
 
     pub fn size(&self) -> Vec2 {

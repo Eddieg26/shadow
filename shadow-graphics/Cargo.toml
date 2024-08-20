@@ -17,4 +17,6 @@ serde = { workspace = true }
 pollster = { workspace = true }
 crc32fast = { workspace = true }
 glam = { workspace = true }
+bytemuck = { workspace = true }
+bitflags = { workspace = true }
 downcast-rs = "1.2.1"

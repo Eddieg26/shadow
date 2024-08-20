@@ -18,5 +18,7 @@ toml = "0.8.13"
 crc32fast = "1.0.3"
 either = "1.13.0"
 pollster = "0.2.4"
-glam = "0.8.5"
+bitflags = { version = "2.6.0" }
+bytemuck = { version = "1.17.0", features = ["derive"] }
+glam = { version = "0.28", features = ["serde", "bytemuck"] }
 wgpu = { version = "22.1.0", features = ["serde"] }
