@@ -6,6 +6,7 @@ pub mod material;
 pub mod pipeline;
 pub mod shader;
 pub mod texture;
+pub mod mesh;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ResourceId(u64);
