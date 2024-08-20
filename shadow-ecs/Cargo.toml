@@ -8,4 +8,5 @@ edition = "2021"
 [dependencies]
 ulid = { workspace = true }
 crc32fast = { workspace = true }
+downcast-rs = { workspace = true }
 ahash = "0.8.11"

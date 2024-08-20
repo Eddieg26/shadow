@@ -19,4 +19,5 @@ crc32fast = { workspace = true }
 glam = { workspace = true }
 bytemuck = { workspace = true }
 bitflags = { workspace = true }
-downcast-rs = "1.2.1"
+downcast-rs = { workspace = true }
+encase = "0.9.0"

@@ -1,7 +1,8 @@
-use std::hash::{Hash, Hasher};
 use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 
 pub mod buffer;
+pub mod material;
 pub mod pipeline;
 pub mod shader;
 pub mod texture;
@@ -11,7 +12,6 @@ pub struct ResourceId(u64);
 
 impl ResourceId {
     pub fn gen() -> Self {
-
         let mut hasher = DefaultHasher::new();
         hasher.write_u64(0);
         Self(hasher.finish())
