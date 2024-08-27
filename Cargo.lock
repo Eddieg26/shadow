@@ -1495,6 +1495,7 @@ dependencies = [
  "shadow-game",
  "shadow-spatial",
  "shadow-window",
+ "slab",
  "ulid",
  "wgpu",
 ]

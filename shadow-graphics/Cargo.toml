@@ -21,4 +21,5 @@ bytemuck = { workspace = true }
 bitflags = { workspace = true }
 downcast-rs = { workspace = true }
 either = { workspace = true }
+slab = { workspace = true }
 encase = "0.9.0"

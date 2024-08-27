@@ -13,6 +13,10 @@ use shadow_graphics::{
         graph::RenderGraphBuilder,
         nodes::render::{Attachment, RenderCommands, RenderPass, StoreOp, Subpass},
     },
+    resources::material::shader::{
+        nodes::{attribute::ShaderAttribute, SampleTexture2D, ShaderInput, ShaderNode},
+        MaterialShader,
+    },
 };
 use shadow_window::{events::WindowCreated, plugin::WindowPlugin};
 
@@ -62,8 +66,35 @@ impl Plugin for BasicPlugin {
 }
 
 fn main() {
-    Game::new()
-        .add_plugin(BasicPlugin)
-        .add_system(Init, || println!("Init"))
-        .run();
+    // Game::new()
+    //     .add_plugin(BasicPlugin)
+    //     .add_system(Init, || println!("Init"))
+    //     .run();
+
+    // let mut shader = MaterialShader::new();
+
+    // let sampler = shader.add_node(SampleTexture2D);
+    // shader.add_input("main_texture", ShaderAttribute::Texture2D);
+    // shader.add_output("color", ShaderAttribute::Color);
+    // shader.add_edge(("main_texture", (sampler, SampleTexture2D::TEXTURE)));
+    // shader.add_edge(((sampler, SampleTexture2D::RGBA), ("color", ())));
+
+    // let output = shader.build();
+
+    // std::fs::write("node_output.wgsl", output.unwrap()).unwrap();
+
+    let mut shader = MaterialShader::new();
+    let sampler = shader.add_node(SampleTexture2D);
+    shader.add_input("uv", ShaderAttribute::Vec2);
+    shader.add_input("main_texture", ShaderAttribute::Texture2D);
+    shader.add_input("main_sampler", ShaderAttribute::Sampler);
+    shader.add_output("color", ShaderAttribute::Color);
+    shader.add_edge(("main_texture", (sampler, SampleTexture2D::TEXTURE)));
+    shader.add_edge(("main_sampler", (sampler, SampleTexture2D::SAMPLER)));
+    shader.add_edge(("uv", (sampler, SampleTexture2D::UV)));
+    shader.add_edge(((sampler, SampleTexture2D::RGBA), ("color", ())));
+
+    let output = shader.build();
+
+    std::fs::write("node_output.wgsl", output.unwrap()).unwrap();
 }

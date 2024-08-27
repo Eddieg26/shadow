@@ -1,5 +1,5 @@
 use super::buffer::{BufferFlags, IndexBuffer, Indices, VertexBuffer};
-use crate::core::{VertexAttribute, VertexAttributeKind, VertexAttributes, VertexLayout};
+use crate::core::{VertexAttributeValues, VertexAttribute, VertexAttributes, VertexLayout};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Default)]
 pub enum MeshTopology {
@@ -66,18 +66,18 @@ impl Mesh {
         &self.attributes
     }
 
-    pub fn attribute(&self, kind: VertexAttributeKind) -> Option<&VertexAttribute> {
+    pub fn attribute(&self, kind: VertexAttribute) -> Option<&VertexAttributeValues> {
         self.attributes
             .iter()
-            .find(|a| a.kind() == kind)
-            .map(|a| a.data())
+            .find(|a| a.attribute() == kind)
+            .map(|a| a.values())
     }
 
-    pub fn attribute_mut(&mut self, kind: VertexAttributeKind) -> Option<&mut VertexAttribute> {
+    pub fn attribute_mut(&mut self, kind: VertexAttribute) -> Option<&mut VertexAttributeValues> {
         self.attributes
             .iter_mut()
-            .find(|a| a.kind() == kind)
-            .map(|a| a.data_mut())
+            .find(|a| a.attribute() == kind)
+            .map(|a| a.values_mut())
     }
 
     pub fn indices(&self) -> Option<&Indices> {
@@ -95,25 +95,25 @@ impl Mesh {
     pub fn layout(&self) -> VertexLayout {
         let mut layout = VertexLayout::new();
         for attribute in &self.attributes {
-            layout.add(attribute.kind());
+            layout.add(attribute.attribute());
         }
         layout
     }
 
-    pub fn insert_attribute(&mut self, attributes: VertexAttribute) -> Option<VertexAttribute> {
+    pub fn insert_attribute(&mut self, attributes: VertexAttributeValues) -> Option<VertexAttributeValues> {
         let position = self
             .attributes
             .iter()
-            .position(|a| a.kind() == attributes.kind());
+            .position(|a| a.attribute() == attributes.kind());
 
         match position {
             Some(position) => {
                 let attribute = self.attributes.get_mut(position)?;
-                Some(std::mem::replace(attribute.data_mut(), attributes))
+                Some(std::mem::replace(attribute.values_mut(), attributes))
             }
             None => {
                 self.attributes.push(VertexAttributes::new(attributes));
-                self.attributes.sort_by(|a, b| a.kind().cmp(&b.kind()));
+                self.attributes.sort_by(|a, b| a.attribute().cmp(&b.attribute()));
                 None
             }
         }
@@ -123,8 +123,8 @@ impl Mesh {
         self.indices = Some(indices);
     }
 
-    pub fn remove_attribute(&mut self, kind: VertexAttributeKind) -> Option<VertexAttributes> {
-        let position = self.attributes.iter().position(|a| a.kind() == kind)?;
+    pub fn remove_attribute(&mut self, kind: VertexAttribute) -> Option<VertexAttributes> {
+        let position = self.attributes.iter().position(|a| a.attribute() == kind)?;
         Some(self.attributes.remove(position))
     }
 
@@ -145,7 +145,7 @@ impl Mesh {
     }
 
     pub fn vertex_size(&self) -> usize {
-        self.attributes.iter().map(|a| a.kind().size()).sum()
+        self.attributes.iter().map(|a| a.attribute().size()).sum()
     }
 
     pub fn vertex_data(&self) -> Vec<u8> {

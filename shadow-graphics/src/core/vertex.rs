@@ -2,23 +2,8 @@ use super::Color;
 use glam::{Vec2, Vec3, Vec4};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum VertexPositionKind {
-    Vec2,
-    Vec3,
-}
-
-impl VertexPositionKind {
-    pub fn size(&self) -> usize {
-        match self {
-            VertexPositionKind::Vec2 => std::mem::size_of::<Vec2>(),
-            VertexPositionKind::Vec3 => std::mem::size_of::<Vec3>(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum VertexAttributeKind {
-    Position(VertexPositionKind),
+pub enum VertexAttribute {
+    Position,
     Normal,
     Tangent,
     TexCoord0,
@@ -26,51 +11,33 @@ pub enum VertexAttributeKind {
     Color,
 }
 
-impl VertexAttributeKind {
+impl VertexAttribute {
     pub fn size(&self) -> usize {
         match self {
-            VertexAttributeKind::Position(kind) => kind.size(),
-            VertexAttributeKind::Normal => std::mem::size_of::<Vec3>(),
-            VertexAttributeKind::Tangent => std::mem::size_of::<Vec4>(),
-            VertexAttributeKind::TexCoord0 => std::mem::size_of::<Vec2>(),
-            VertexAttributeKind::TexCoord1 => std::mem::size_of::<Vec2>(),
-            VertexAttributeKind::Color => std::mem::size_of::<Color>(),
+            VertexAttribute::Position => std::mem::size_of::<Vec3>(),
+            VertexAttribute::Normal => std::mem::size_of::<Vec3>(),
+            VertexAttribute::Tangent => std::mem::size_of::<Vec4>(),
+            VertexAttribute::TexCoord0 => std::mem::size_of::<Vec2>(),
+            VertexAttribute::TexCoord1 => std::mem::size_of::<Vec2>(),
+            VertexAttribute::Color => std::mem::size_of::<Color>(),
+        }
+    }
+
+    pub fn location(&self) -> u32 {
+        match self {
+            VertexAttribute::Position => 0,
+            VertexAttribute::Normal => 1,
+            VertexAttribute::TexCoord0 => 2,
+            VertexAttribute::TexCoord1 => 3,
+            VertexAttribute::Color => 4,
+            VertexAttribute::Tangent => 5,
         }
     }
 }
 
 #[derive(Debug, Clone)]
-pub enum VertexPositions {
-    Vec2(Vec<Vec2>),
-    Vec3(Vec<Vec3>),
-}
-
-impl VertexPositions {
-    pub fn kind(&self) -> VertexAttributeKind {
-        match self {
-            VertexPositions::Vec2(_) => VertexAttributeKind::Position(VertexPositionKind::Vec2),
-            VertexPositions::Vec3(_) => VertexAttributeKind::Position(VertexPositionKind::Vec3),
-        }
-    }
-
-    pub fn len(&self) -> usize {
-        match self {
-            VertexPositions::Vec2(v) => v.len(),
-            VertexPositions::Vec3(v) => v.len(),
-        }
-    }
-
-    pub fn data(&self, index: usize) -> Vec<u8> {
-        match self {
-            VertexPositions::Vec2(v) => bytemuck::bytes_of(&v[index]).to_vec(),
-            VertexPositions::Vec3(v) => bytemuck::bytes_of(&v[index]).to_vec(),
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum VertexAttribute {
-    Position(VertexPositions),
+pub enum VertexAttributeValues {
+    Position(Vec<Vec3>),
     Normal(Vec<Vec3>),
     Tangent(Vec<Vec4>),
     TexCoord0(Vec<Vec2>),
@@ -78,80 +45,74 @@ pub enum VertexAttribute {
     Color(Vec<Color>),
 }
 
-impl VertexAttribute {
-    pub fn kind(&self) -> VertexAttributeKind {
+impl VertexAttributeValues {
+    pub fn kind(&self) -> VertexAttribute {
         match self {
-            VertexAttribute::Position(pos) => match pos {
-                VertexPositions::Vec2(_) => VertexAttributeKind::Position(VertexPositionKind::Vec2),
-                VertexPositions::Vec3(_) => VertexAttributeKind::Position(VertexPositionKind::Vec3),
-            },
-            VertexAttribute::Normal(_) => VertexAttributeKind::Normal,
-            VertexAttribute::Tangent(_) => VertexAttributeKind::Tangent,
-            VertexAttribute::TexCoord0(_) => VertexAttributeKind::TexCoord0,
-            VertexAttribute::TexCoord1(_) => VertexAttributeKind::TexCoord1,
-            VertexAttribute::Color(_) => VertexAttributeKind::Color,
+            VertexAttributeValues::Position(_) => VertexAttribute::Position,
+            VertexAttributeValues::Normal(_) => VertexAttribute::Normal,
+            VertexAttributeValues::Tangent(_) => VertexAttribute::Tangent,
+            VertexAttributeValues::TexCoord0(_) => VertexAttribute::TexCoord0,
+            VertexAttributeValues::TexCoord1(_) => VertexAttribute::TexCoord1,
+            VertexAttributeValues::Color(_) => VertexAttribute::Color,
         }
     }
 
     pub fn len(&self) -> usize {
         match self {
-            VertexAttribute::Position(pos) => pos.len(),
-            VertexAttribute::Normal(v) => v.len(),
-            VertexAttribute::Tangent(v) => v.len(),
-            VertexAttribute::TexCoord0(v) => v.len(),
-            VertexAttribute::TexCoord1(v) => v.len(),
-            VertexAttribute::Color(v) => v.len(),
+            VertexAttributeValues::Position(pos) => pos.len(),
+            VertexAttributeValues::Normal(v) => v.len(),
+            VertexAttributeValues::Tangent(v) => v.len(),
+            VertexAttributeValues::TexCoord0(v) => v.len(),
+            VertexAttributeValues::TexCoord1(v) => v.len(),
+            VertexAttributeValues::Color(v) => v.len(),
         }
     }
 
     pub fn data(&self, index: usize) -> Vec<u8> {
         match self {
-            VertexAttribute::Position(pos) => pos.data(index),
-            VertexAttribute::Normal(v) => bytemuck::bytes_of(&v[index]).to_vec(),
-            VertexAttribute::Tangent(v) => bytemuck::bytes_of(&v[index]).to_vec(),
-            VertexAttribute::TexCoord0(v) => bytemuck::bytes_of(&v[index]).to_vec(),
-            VertexAttribute::TexCoord1(v) => bytemuck::bytes_of(&v[index]).to_vec(),
-            VertexAttribute::Color(v) => bytemuck::bytes_of(&v[index]).to_vec(),
+            VertexAttributeValues::Position(v) => bytemuck::bytes_of(&v[index]).to_vec(),
+            VertexAttributeValues::Normal(v) => bytemuck::bytes_of(&v[index]).to_vec(),
+            VertexAttributeValues::Tangent(v) => bytemuck::bytes_of(&v[index]).to_vec(),
+            VertexAttributeValues::TexCoord0(v) => bytemuck::bytes_of(&v[index]).to_vec(),
+            VertexAttributeValues::TexCoord1(v) => bytemuck::bytes_of(&v[index]).to_vec(),
+            VertexAttributeValues::Color(v) => bytemuck::bytes_of(&v[index]).to_vec(),
         }
     }
 
     pub fn clear(&mut self) {
         match self {
-            VertexAttribute::Position(pos) => match pos {
-                VertexPositions::Vec2(v) => v.clear(),
-                VertexPositions::Vec3(v) => v.clear(),
-            },
-            VertexAttribute::Normal(v) => v.clear(),
-            VertexAttribute::Tangent(v) => v.clear(),
-            VertexAttribute::TexCoord0(v) => v.clear(),
-            VertexAttribute::TexCoord1(v) => v.clear(),
-            VertexAttribute::Color(v) => v.clear(),
+            VertexAttributeValues::Position(v) => v.clear(),
+            VertexAttributeValues::Normal(v) => v.clear(),
+            VertexAttributeValues::Tangent(v) => v.clear(),
+            VertexAttributeValues::TexCoord0(v) => v.clear(),
+            VertexAttributeValues::TexCoord1(v) => v.clear(),
+            VertexAttributeValues::Color(v) => v.clear(),
         }
     }
 }
 
 pub struct VertexAttributes {
-    kind: VertexAttributeKind,
-    data: VertexAttribute,
+    attribute: VertexAttribute,
+    data: VertexAttributeValues,
 }
 
 impl VertexAttributes {
-    pub fn new(data: VertexAttribute) -> Self {
+    pub fn new(data: VertexAttributeValues) -> Self {
         Self {
-            kind: data.kind(),
+            attribute: data.kind(),
             data,
         }
     }
 
-    pub fn kind(&self) -> VertexAttributeKind {
-        self.kind
+    pub fn attribute(&self) -> VertexAttribute {
+        self.attribute
     }
 
-    pub fn data(&self) -> &VertexAttribute {
+    pub fn values(&self) -> &VertexAttributeValues {
         &self.data
     }
 
-    pub fn data_mut(&mut self) -> &mut VertexAttribute {
+    pub fn values_mut(&mut self) -> &mut VertexAttributeValues {
         &mut self.data
     }
 
@@ -170,7 +131,7 @@ impl VertexAttributes {
 
 #[derive(Debug, Clone)]
 pub struct VertexLayout {
-    attributes: Vec<VertexAttributeKind>,
+    attributes: Vec<VertexAttribute>,
 }
 
 impl VertexLayout {
@@ -180,7 +141,7 @@ impl VertexLayout {
         }
     }
 
-    pub fn add(&mut self, kind: VertexAttributeKind) {
+    pub fn add(&mut self, kind: VertexAttribute) {
         self.attributes.push(kind);
     }
 
@@ -188,7 +149,7 @@ impl VertexLayout {
         self.attributes.len()
     }
 
-    pub fn attributes(&self) -> &[VertexAttributeKind] {
+    pub fn attributes(&self) -> &[VertexAttribute] {
         &self.attributes
     }
 
@@ -197,8 +158,8 @@ impl VertexLayout {
     }
 }
 
-impl From<Vec<VertexAttributeKind>> for VertexLayout {
-    fn from(attributes: Vec<VertexAttributeKind>) -> Self {
+impl From<Vec<VertexAttribute>> for VertexLayout {
+    fn from(attributes: Vec<VertexAttribute>) -> Self {
         Self { attributes }
     }
 }
