@@ -1,13 +1,7 @@
 [workspace]
 members = [
-    "examples/basic",
-    "shadow-ecs",
-    "shadow-game",
-    "shadow-asset",
-    "shadow-graphics",
-    "shadow-window",
-    "shadow-spatial",
     "examples/*",
+    "crates/*",
 ]
 
 

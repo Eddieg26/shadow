@@ -1,11 +1,11 @@
 use std::hash::{Hash, Hasher};
 
-use shadow_game::{
+use game::{
     game::Game,
     phases::{Init, Update},
     plugin::{Plugin, Plugins},
 };
-use shadow_graphics::{
+use graphics::{
     core::Color,
     plugin::GraphicsPlugin,
     renderer::{
@@ -18,7 +18,7 @@ use shadow_graphics::{
         MaterialShader,
     },
 };
-use shadow_window::{events::WindowCreated, plugin::WindowPlugin};
+use window::{events::WindowCreated, plugin::WindowPlugin};
 
 pub struct ClearScreen {
     color: Color,
@@ -31,7 +31,7 @@ impl ClearScreen {
 }
 
 impl Render for ClearScreen {
-    fn texture(&self) -> Option<shadow_graphics::resources::ResourceId> {
+    fn texture(&self) -> Option<graphics::resources::ResourceId> {
         None
     }
 
@@ -43,7 +43,7 @@ impl Render for ClearScreen {
 pub struct BasicPlugin;
 
 impl Plugin for BasicPlugin {
-    fn dependencies(&self) -> shadow_game::plugin::Plugins {
+    fn dependencies(&self) -> Plugins {
         let mut plugins = Plugins::new();
         plugins.add_plugin(GraphicsPlugin);
         plugins

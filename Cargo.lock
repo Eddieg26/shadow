@@ -104,6 +104,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "asset"
+version = "0.0.0"
+dependencies = [
+ "crc32fast",
+ "ecs",
+ "either",
+ "game",
+ "serde",
+ "toml",
+ "ulid",
+]
+
+[[package]]
 name = "atomic-waker"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -119,12 +132,12 @@ checksum = "0c4b4d0bd25bd0b74681c0ad21497610ce1b7c91b1022cd21c80c6fbdd9476b0"
 name = "basic"
 version = "0.1.0"
 dependencies = [
- "shadow-asset",
- "shadow-ecs",
- "shadow-game",
- "shadow-graphics",
- "shadow-window",
+ "asset",
+ "ecs",
+ "game",
+ "graphics",
  "toml",
+ "window",
 ]
 
 [[package]]
@@ -443,6 +456,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f25c0e292a7ca6d6498557ff1df68f32c99850012b6ea401cf8daf771f22ff53"
 
 [[package]]
+name = "ecs"
+version = "0.0.0"
+dependencies = [
+ "ahash",
+ "crc32fast",
+ "downcast-rs",
+ "ulid",
+]
+
+[[package]]
 name = "either"
 version = "1.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -521,6 +544,13 @@ name = "foreign-types-shared"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aa9a19cbb55df58761df49b23516a86d432839add4af60fc256da840f66ed35b"
+
+[[package]]
+name = "game"
+version = "0.0.0"
+dependencies = [
+ "ecs",
+]
 
 [[package]]
 name = "gethostname"
@@ -637,6 +667,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fdf242682df893b86f33a73828fb09ca4b2d3bb6cc95249707fc684d27484b91"
 dependencies = [
  "bitflags 2.6.0",
+]
+
+[[package]]
+name = "graphics"
+version = "0.0.0"
+dependencies = [
+ "asset",
+ "bitflags 2.6.0",
+ "bytemuck",
+ "crc32fast",
+ "downcast-rs",
+ "ecs",
+ "either",
+ "encase",
+ "game",
+ "glam",
+ "pollster",
+ "serde",
+ "slab",
+ "spatial",
+ "ulid",
+ "wgpu",
+ "window",
 ]
 
 [[package]]
@@ -1448,76 +1501,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "shadow-asset"
-version = "0.1.0"
-dependencies = [
- "crc32fast",
- "either",
- "serde",
- "shadow-ecs",
- "shadow-game",
- "toml",
- "ulid",
-]
-
-[[package]]
-name = "shadow-ecs"
-version = "0.1.0"
-dependencies = [
- "ahash",
- "crc32fast",
- "downcast-rs",
- "ulid",
-]
-
-[[package]]
-name = "shadow-game"
-version = "0.1.0"
-dependencies = [
- "shadow-ecs",
-]
-
-[[package]]
-name = "shadow-graphics"
-version = "0.1.0"
-dependencies = [
- "bitflags 2.6.0",
- "bytemuck",
- "crc32fast",
- "downcast-rs",
- "either",
- "encase",
- "glam",
- "pollster",
- "serde",
- "shadow-asset",
- "shadow-ecs",
- "shadow-game",
- "shadow-spatial",
- "shadow-window",
- "slab",
- "ulid",
- "wgpu",
-]
-
-[[package]]
-name = "shadow-spatial"
-version = "0.1.0"
-dependencies = [
- "glam",
- "shadow-ecs",
-]
-
-[[package]]
-name = "shadow-window"
-version = "0.1.0"
-dependencies = [
- "shadow-ecs",
- "shadow-game",
- "winit",
-]
-
-[[package]]
 name = "shlex"
 version = "1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1579,6 +1562,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dd538fb6910ac1099850255cf94a94df6551fbdd602454387d0adb2d1ca6dead"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "spatial"
+version = "0.0.0"
+dependencies = [
+ "ecs",
+ "glam",
 ]
 
 [[package]]
@@ -2143,6 +2134,15 @@ name = "winapi-x86_64-pc-windows-gnu"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
+
+[[package]]
+name = "window"
+version = "0.0.0"
+dependencies = [
+ "ecs",
+ "game",
+ "winit",
+]
 
 [[package]]
 name = "windows"
