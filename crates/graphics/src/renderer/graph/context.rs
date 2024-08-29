@@ -1,5 +1,6 @@
 use super::resources::{RenderGraphResources, RenderTarget};
 use crate::{
+    camera::RenderFrame,
     core::device::{RenderDevice, RenderQueue},
     resources::ResourceId,
 };
@@ -16,6 +17,7 @@ pub enum RenderNodeAction {
 
 pub struct RenderContext<'a> {
     surface_id: ResourceId,
+    frame: &'a RenderFrame,
     device: &'a RenderDevice,
     queue: &'a RenderQueue,
     resources: &'a RenderGraphResources,
@@ -26,6 +28,7 @@ pub struct RenderContext<'a> {
 impl<'a> RenderContext<'a> {
     pub fn new(
         surface_id: ResourceId,
+        frame: &'a RenderFrame,
         device: &'a RenderDevice,
         queue: &'a RenderQueue,
         resources: &'a RenderGraphResources,
@@ -33,6 +36,7 @@ impl<'a> RenderContext<'a> {
     ) -> Self {
         Self {
             surface_id,
+            frame,
             device,
             queue,
             resources,
@@ -45,6 +49,10 @@ impl<'a> RenderContext<'a> {
         self.surface_id
     }
 
+    pub fn frame(&self) -> &RenderFrame {
+        self.frame
+    }
+
     pub fn device(&self) -> &RenderDevice {
         self.device
     }
@@ -53,8 +61,8 @@ impl<'a> RenderContext<'a> {
         self.queue
     }
 
-    pub fn render_target(&self, id: ResourceId) -> Option<&RenderTarget> {
-        self.resources.target(id)
+    pub fn render_target(&self, id: impl Into<ResourceId>) -> Option<&RenderTarget> {
+        self.resources.target(id.into())
     }
 
     pub fn texture(&self, texture: ResourceId) -> Option<&wgpu::TextureView> {
@@ -112,6 +120,7 @@ impl<'a> Clone for RenderContext<'a> {
     fn clone(&self) -> Self {
         Self {
             surface_id: self.surface_id,
+            frame: self.frame,
             device: self.device,
             queue: self.queue,
             resources: self.resources,

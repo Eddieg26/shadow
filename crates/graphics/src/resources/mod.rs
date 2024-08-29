@@ -1,12 +1,14 @@
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
+use asset::AssetId;
+
 pub mod buffer;
 pub mod material;
+pub mod mesh;
 pub mod pipeline;
 pub mod shader;
 pub mod texture;
-pub mod mesh;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ResourceId(u64);
@@ -32,5 +34,11 @@ impl From<String> for ResourceId {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         name.hash(&mut hasher);
         Self(hasher.finish())
+    }
+}
+
+impl From<AssetId> for ResourceId {
+    fn from(id: AssetId) -> Self {
+        Self(u64::from(id))
     }
 }

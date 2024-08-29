@@ -1,4 +1,5 @@
 use crate::{
+    camera::RenderFrames,
     core::{
         device::{RenderDevice, RenderQueue},
         surface::RenderSurface,
@@ -6,11 +7,11 @@ use crate::{
     resources::ResourceId,
 };
 use context::{RenderContext, RenderNodeAction};
-use resources::{BufferDesc, RenderGraphResources, RenderTarget, RenderTargetDesc, TextureDesc};
 use ecs::{
     core::{DenseMap, Resource},
     world::World,
 };
+use resources::{BufferDesc, RenderGraphResources, RenderTarget, RenderTargetDesc, TextureDesc};
 use std::collections::{HashMap, HashSet};
 
 pub mod context;
@@ -203,6 +204,7 @@ impl RenderGraph {
         let device = world.resource::<RenderDevice>();
         let queue = world.resource::<RenderQueue>();
         let surface = world.resource::<RenderSurface>();
+        let frames = world.resource_mut::<RenderFrames>();
 
         let texture = match surface.surface_texture() {
             Ok(texture) => texture,
@@ -215,16 +217,20 @@ impl RenderGraph {
         self.resources.set_target_color(surface.id(), Some(view));
 
         let mut actions = vec![];
-        for indexes in &self.order {
-            let ctx = RenderContext::new(surface.id(), device, queue, &self.resources, world);
-            for index in indexes {
-                self.nodes[*index].execute(&ctx);
+        for frame in frames.drain() {
+            for indexes in &self.order {
+                let ctx =
+                    RenderContext::new(surface.id(), &frame, device, queue, &self.resources, world);
+                    
+                for index in indexes {
+                    self.nodes[*index].execute(&ctx);
+                }
+
+                let mut local = ctx.finish();
+                local.push(RenderNodeAction::Flush);
+
+                actions.extend(local);
             }
-
-            let mut local = ctx.finish();
-            local.push(RenderNodeAction::Flush);
-
-            actions.extend(local);
         }
 
         let mut buffers = vec![];

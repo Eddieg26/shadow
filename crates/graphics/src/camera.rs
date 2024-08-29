@@ -1,7 +1,7 @@
 use crate::core::Color;
-use glam::{UVec2, Vec2};
 use asset::AssetId;
-use ecs::core::Component;
+use ecs::core::{Component, Resource};
+use glam::{UVec2, Vec2, Vec3};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ClearFlag {
@@ -80,11 +80,10 @@ pub struct RenderFrame {
 
 impl RenderFrame {
     pub fn new(camera: Camera, world: glam::Mat4) -> Self {
-        let view = glam::Mat4::look_at_rh(
-            glam::Vec3::new(0.0, 0.0, 0.0),
-            glam::Vec3::new(0.0, 0.0, -1.0),
-            glam::Vec3::new(0.0, 1.0, 0.0),
-        );
+        let (_, rotation, translation) = world.to_scale_rotation_translation();
+        let view =
+            glam::Mat4::from_scale_rotation_translation(Vec3::ONE, rotation, translation).inverse();
+
         let projection = match camera.projection {
             Projection::Orthographic {
                 left,
@@ -109,3 +108,42 @@ impl RenderFrame {
         }
     }
 }
+
+impl Default for RenderFrame {
+    fn default() -> Self {
+        Self {
+            camera: Camera::default(),
+            world: glam::Mat4::IDENTITY,
+            view: glam::Mat4::IDENTITY,
+            projection: glam::Mat4::IDENTITY,
+        }
+    }
+}
+
+pub struct RenderFrames {
+    frames: Vec<RenderFrame>,
+}
+
+impl RenderFrames {
+    pub fn new() -> Self {
+        Self { frames: Vec::new() }
+    }
+
+    pub fn add(&mut self, frame: RenderFrame) {
+        self.frames.push(frame);
+    }
+
+    pub fn clear(&mut self) {
+        self.frames.clear();
+    }
+
+    pub fn extract(&mut self, other: &mut Self) {
+        self.frames.append(&mut other.frames);
+    }
+
+    pub fn drain(&mut self) -> std::vec::Drain<RenderFrame> {
+        self.frames.drain(..)
+    }
+}
+
+impl Resource for RenderFrames {}

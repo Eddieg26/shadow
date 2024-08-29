@@ -6,10 +6,11 @@ use game::{
     plugin::{Plugin, Plugins},
 };
 use graphics::{
+    camera::{RenderFrame, RenderFrames},
     core::Color,
     plugin::GraphicsPlugin,
     renderer::{
-        draw::{DrawCalls, Render, RenderCalls},
+        draw::DrawCalls,
         graph::RenderGraphBuilder,
         nodes::render::{Attachment, RenderCommands, RenderPass, StoreOp, Subpass},
     },
@@ -19,26 +20,6 @@ use graphics::{
     },
 };
 use window::{events::WindowCreated, plugin::WindowPlugin};
-
-pub struct ClearScreen {
-    color: Color,
-}
-
-impl ClearScreen {
-    pub fn new(color: Color) -> Self {
-        Self { color }
-    }
-}
-
-impl Render for ClearScreen {
-    fn texture(&self) -> Option<graphics::resources::ResourceId> {
-        None
-    }
-
-    fn clear_color(&self) -> Option<Color> {
-        Some(self.color)
-    }
-}
 
 pub struct BasicPlugin;
 
@@ -57,8 +38,8 @@ impl Plugin for BasicPlugin {
     }
 
     fn run(&mut self, game: &mut Game) {
-        game.add_system(Update, |renders: &mut RenderCalls| {
-            renders.add(ClearScreen::new(Color::blue()))
+        game.add_system(Update, |renders: &mut RenderFrames| {
+            renders.add(RenderFrame::default())
         });
     }
 

@@ -1,6 +1,6 @@
 use crate::bytes::IntoBytes;
-use serde::ser::SerializeStruct;
 use ecs::core::{DenseMap, Resource};
+use serde::ser::SerializeStruct;
 use std::{
     any::TypeId,
     hash::{Hash, Hasher},
@@ -22,6 +22,12 @@ impl AssetId {
 
     pub fn raw(id: u64) -> Self {
         Self(id)
+    }
+}
+
+impl From<AssetId> for u64 {
+    fn from(value: AssetId) -> Self {
+        value.0
     }
 }
 

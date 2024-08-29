@@ -1,10 +1,11 @@
 use crate::{
+    camera::RenderFrames,
     core::{
         device::{RenderDevice, RenderInstance, RenderQueue},
         surface::RenderSurface,
     },
     renderer::{
-        draw::{Draw, DrawCalls, RenderCalls},
+        draw::{Draw, DrawCalls},
         graph::{resources::RenderTargetDesc, RenderGraph, RenderGraphBuilder},
     },
 };
@@ -36,7 +37,7 @@ impl Plugin for GraphicsPlugin {
     fn start(&self, game: &mut Game) {
         // game.add_sub_app::<RenderApp>();
         game.add_draw_calls::<()>(|| vec![]);
-        game.add_resource(RenderCalls::new());
+        game.add_resource(RenderFrames::new());
         game.add_resource(RenderGraphBuilder::new());
         game.register_event::<SurfaceCreated>();
         // game.observe::<Resized, _>(|resized: &[Resized], events: &SubEvents<RenderApp>| {
@@ -44,10 +45,8 @@ impl Plugin for GraphicsPlugin {
         // });
 
         // let app = game.sub_app_mut::<RenderApp>().unwrap();
-        game.add_system(Extract, extract_render_calls);
+        game.add_system(Extract, extract_render_frames);
         game.add_system(Update, update_render_graph);
-        game.add_system(PostUpdate, clear_render_calls);
-        game.add_resource(RenderCalls::new());
     }
 
     fn run(&mut self, game: &mut Game) {
@@ -120,13 +119,9 @@ fn clear_draw_calls<D: Draw>(calls: &mut DrawCalls<D>) {
     calls.clear();
 }
 
-fn extract_render_calls(main_world: &MainWorld, calls: &mut RenderCalls) {
-    let main = main_world.resource_mut::<RenderCalls>();
-    calls.extract(main);
-}
-
-fn clear_render_calls(calls: &mut RenderCalls) {
-    calls.clear();
+fn extract_render_frames(main_world: &MainWorld, frames: &mut RenderFrames) {
+    let main = main_world.resource_mut::<RenderFrames>();
+    frames.extract(main);
 }
 
 fn update_render_graph(world: &World, graph: &mut RenderGraph) {
