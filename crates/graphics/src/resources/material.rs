@@ -1,19 +1,6 @@
+use super::shader::{BlendMode, ShaderModel};
 use crate::core::Color;
 use asset::{Asset, AssetId};
-
-pub mod shader;
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-pub enum ShaderModel {
-    Unlit = 0,
-    Lit = 1,
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-pub enum BlendMode {
-    Opaque = 0,
-    Translucent = 1,
-}
 
 pub trait Material: Asset + Clone + Sized {
     fn info(&self) -> MaterialInfo;

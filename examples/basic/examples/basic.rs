@@ -6,17 +6,12 @@ use game::{
     plugin::{Plugin, Plugins},
 };
 use graphics::{
-    camera::{RenderFrame, RenderFrames},
+    camera::{ClearFlag, RenderFrame, RenderFrames},
     core::Color,
     plugin::GraphicsPlugin,
     renderer::{
-        draw::DrawCalls,
         graph::RenderGraphBuilder,
-        nodes::render::{Attachment, RenderCommands, RenderPass, StoreOp, Subpass},
-    },
-    resources::material::shader::{
-        nodes::{attribute::ShaderAttribute, SampleTexture2D, ShaderInput, ShaderNode},
-        MaterialShader,
+        nodes::render::{Attachment, RenderPass, StoreOp},
     },
 };
 use window::{events::WindowCreated, plugin::WindowPlugin};
@@ -39,7 +34,9 @@ impl Plugin for BasicPlugin {
 
     fn run(&mut self, game: &mut Game) {
         game.add_system(Update, |renders: &mut RenderFrames| {
-            renders.add(RenderFrame::default())
+            let mut frame = RenderFrame::default();
+            frame.camera.clear = Some(ClearFlag::Color(Color::green()));
+            renders.add(frame)
         });
     }
 
@@ -47,10 +44,10 @@ impl Plugin for BasicPlugin {
 }
 
 fn main() {
-    // Game::new()
-    //     .add_plugin(BasicPlugin)
-    //     .add_system(Init, || println!("Init"))
-    //     .run();
+    Game::new()
+        .add_plugin(BasicPlugin)
+        .add_system(Init, || println!("Init"))
+        .run();
 
     // let mut shader = MaterialShader::new();
 
@@ -64,18 +61,18 @@ fn main() {
 
     // std::fs::write("node_output.wgsl", output.unwrap()).unwrap();
 
-    let mut shader = MaterialShader::new();
-    let sampler = shader.add_node(SampleTexture2D);
-    shader.add_input("uv", ShaderAttribute::Vec2);
-    shader.add_input("main_texture", ShaderAttribute::Texture2D);
-    shader.add_input("main_sampler", ShaderAttribute::Sampler);
-    shader.add_output("color", ShaderAttribute::Color);
-    shader.add_edge(("main_texture", (sampler, SampleTexture2D::TEXTURE)));
-    shader.add_edge(("main_sampler", (sampler, SampleTexture2D::SAMPLER)));
-    shader.add_edge(("uv", (sampler, SampleTexture2D::UV)));
-    shader.add_edge(((sampler, SampleTexture2D::RGBA), ("color", ())));
+    // let mut shader = MaterialShader::new();
+    // let sampler = shader.add_node(SampleTexture2D);
+    // shader.add_input("uv", ShaderAttribute::Vec2);
+    // shader.add_input("main_texture", ShaderAttribute::Texture2D);
+    // shader.add_input("main_sampler", ShaderAttribute::Sampler);
+    // shader.add_output("color", ShaderAttribute::Color);
+    // shader.add_edge(("main_texture", (sampler, SampleTexture2D::TEXTURE)));
+    // shader.add_edge(("main_sampler", (sampler, SampleTexture2D::SAMPLER)));
+    // shader.add_edge(("uv", (sampler, SampleTexture2D::UV)));
+    // shader.add_edge(((sampler, SampleTexture2D::RGBA), ("color", ())));
 
-    let output = shader.build();
+    // let output = shader.build();
 
-    std::fs::write("node_output.wgsl", output.unwrap()).unwrap();
+    // std::fs::write("node_output.wgsl", output.unwrap()).unwrap();
 }

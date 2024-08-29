@@ -1,13 +1,12 @@
-use super::BlendMode;
-use nodes::{
-    attribute::ShaderAttribute, NodeId, SampleTexture2D, ShaderEdge, ShaderInput, ShaderInputNode,
-    ShaderNode, ShaderOutput, Slot, SlotType,
-};
 use ecs::core::DenseMap;
 use slab::Slab;
 use std::collections::{HashMap, HashSet};
 
-pub mod nodes;
+use super::{
+    attribute::ShaderAttribute,
+    nodes::{NodeId, ShaderEdge, ShaderInputNode, ShaderNode, Slot, SlotType},
+    BlendMode, ShaderInput, ShaderOutput,
+};
 
 pub struct MaterialShader {
     mode: BlendMode,
@@ -211,18 +210,18 @@ impl MaterialShader {
     }
 }
 
-fn ex() {
-    let mut shader = MaterialShader::new();
+// fn ex() {
+//     let mut shader = MaterialShader::new();
 
-    let sampler = shader.add_node(SampleTexture2D);
-    shader.add_input("main_texture", ShaderAttribute::Texture2D);
-    shader.add_output("color", ShaderAttribute::Color);
-    shader.add_edge(ShaderEdge::new(
-        SlotType::input("main_texture"),
-        SlotType::node(sampler, SampleTexture2D::TEXTURE),
-    ));
-    shader.add_edge(ShaderEdge::new(
-        SlotType::node(sampler, SampleTexture2D::RGBA),
-        SlotType::output("color"),
-    ));
-}
+//     let sampler = shader.add_node(SampleTexture2D);
+//     shader.add_input("main_texture", ShaderAttribute::Texture2D);
+//     shader.add_output("color", ShaderAttribute::Color);
+//     shader.add_edge(ShaderEdge::new(
+//         SlotType::input("main_texture"),
+//         SlotType::node(sampler, SampleTexture2D::TEXTURE),
+//     ));
+//     shader.add_edge(ShaderEdge::new(
+//         SlotType::node(sampler, SampleTexture2D::RGBA),
+//         SlotType::output("color"),
+//     ));
+// }
