@@ -11,7 +11,7 @@ use std::collections::HashSet;
 use super::World;
 
 pub trait BaseQuery {
-    type Item<'a>;
+    type Item<'a>: Send + Sync;
 
     fn init(_: &World, _: &mut QueryState) {}
     fn fetch(archetype: &Archetype, entity: Entity) -> Self::Item<'_>;
@@ -156,6 +156,22 @@ impl<'a, Q: BaseQuery, F: FilterQuery> Query<'a, Q, F> {
             _marker: std::marker::PhantomData,
         }
     }
+
+    pub unsafe fn get<C: Component>(&self, entity: Entity) -> Option<&C> {
+        let archetypes = self.world.archetypes();
+        archetypes
+            .entity_archetype(&entity)
+            .and_then(|id| archetypes.get(&id))
+            .and_then(|archetype| archetype.component::<C>(&entity))
+    }
+
+    pub unsafe fn get_mut<C: Component>(&self, entity: Entity) -> Option<&mut C> {
+        let archetypes = self.world.archetypes();
+        archetypes
+            .entity_archetype(&entity)
+            .and_then(|id| archetypes.get(&id))
+            .and_then(|archetype| archetype.component_mut::<C>(&entity))
+    }
 }
 
 #[derive(Clone)]
@@ -284,7 +300,6 @@ impl_base_query_for_tuples!((A, B, C, D, E, F, G, H, I, J, K, L, M, N));
 impl_base_query_for_tuples!((A, B, C, D, E, F, G, H, I, J, K, L, M, N, O));
 impl_base_query_for_tuples!((A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P));
 impl_base_query_for_tuples!((A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q));
-
 
 #[cfg(test)]
 mod tests {

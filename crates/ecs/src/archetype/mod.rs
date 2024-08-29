@@ -211,6 +211,10 @@ impl Archetypes {
         self.archetypes.get(id)
     }
 
+    pub fn entity_archetype(&self, entity: &Entity) -> Option<ArchetypeId> {
+        self.entities.get(entity).copied()
+    }
+
     pub fn query(&self, ids: &[ComponentId], exclude: &HashSet<ComponentId>) -> Vec<ArchetypeId> {
         let mut archetypes = DenseMap::new();
         for id in ids {
