@@ -39,7 +39,7 @@ impl VertexAttribute {
 pub enum VertexAttributeValues {
     Position(Vec<Vec3>),
     Normal(Vec<Vec3>),
-    Tangent(Vec<Vec4>),
+    Tangent(Vec<Vec3>),
     TexCoord0(Vec<Vec2>),
     TexCoord1(Vec<Vec2>),
     Color(Vec<Color>),

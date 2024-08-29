@@ -4,7 +4,6 @@ use std::hash::{Hash, Hasher};
 use asset::AssetId;
 
 pub mod buffer;
-pub mod material;
 pub mod mesh;
 pub mod pipeline;
 pub mod shader;
