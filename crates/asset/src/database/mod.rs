@@ -1,16 +1,15 @@
 use crate::{
     artifact::{Artifact, ArtifactHeader, ArtifactMeta},
     asset::{Asset, AssetId, AssetSettings, Settings},
-    bytes::IntoBytes,
     io::{
         local::LocalFileSystem, AssetFileSystem, AssetIoError, AssetReader, AssetWriter, PathExt,
     },
-    loader::{AssetSerializer, AssetLoader, AssetProcessor},
+    loader::{AssetLoader, AssetProcessor},
 };
+use ecs::{core::Resource, system::RunMode};
 use events::{AssetEvent, AssetEvents};
 use library::AssetLibrary;
 use registry::AssetRegistry;
-use ecs::{core::Resource, system::RunMode};
 use state::AssetStates;
 use std::{
     path::{Path, PathBuf},
@@ -158,15 +157,11 @@ impl AssetConfig {
     }
 
     pub fn set_loader<L: AssetLoader>(&mut self) {
-        self.registry.set_loader::<L>();
+        self.registry.add_loader::<L>();
     }
 
     pub fn set_processor<P: AssetProcessor>(&mut self) {
         self.registry.set_processor::<P>();
-    }
-
-    pub fn set_cacher<C: AssetSerializer>(&mut self) {
-        self.registry.set_serializer::<C>();
     }
 }
 
@@ -251,16 +246,25 @@ impl AssetConfig {
         let mut reader = self.reader(path);
         reader.read(ArtifactHeader::SIZE)?;
 
-        let header = ArtifactHeader::from_bytes(reader.bytes())
-            .ok_or(AssetIoError::from(std::io::ErrorKind::InvalidData))?;
+        let header =
+            bincode::deserialize::<ArtifactHeader>(&reader.bytes()[..ArtifactHeader::SIZE])
+                .map_err(|e| AssetIoError::Other(e))?;
 
         reader.read(header.meta())?;
 
         let meta_bytes =
             &reader.bytes()[ArtifactHeader::SIZE..ArtifactHeader::SIZE + header.meta()];
 
-        ArtifactMeta::from_bytes(meta_bytes)
-            .ok_or(AssetIoError::from(std::io::ErrorKind::InvalidData))
+        bincode::deserialize::<ArtifactMeta>(meta_bytes).map_err(|e| AssetIoError::Other(e))
+    }
+
+    pub fn save_artifact(&self, artifact: &Artifact) -> Result<Vec<u8>, AssetIoError> {
+        let id = artifact.meta().id();
+        let mut writer = self.writer(self.artifact(id));
+        let artifact = bincode::serialize(artifact).map_err(|e| AssetIoError::Other(e))?;
+
+        writer.write(&artifact)?;
+        writer.flush()
     }
 
     pub fn load_artifact(&self, id: AssetId) -> Result<Artifact, AssetIoError> {
@@ -272,8 +276,7 @@ impl AssetConfig {
         let mut reader = self.reader(path);
         reader.read_to_end()?;
 
-        Artifact::from_bytes(&reader.flush()?)
-            .ok_or(AssetIoError::from(std::io::ErrorKind::InvalidData))
+        bincode::deserialize::<Artifact>(&reader.flush()?).map_err(|e| AssetIoError::Other(e))
     }
 }
 

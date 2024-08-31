@@ -164,42 +164,28 @@ mod tests {
             AssetConfig, AssetDatabase,
         },
         io::{vfs::VirtualFileSystem, AssetIoError, AssetReader},
-        loader::{AssetError, AssetLoader, AssetSerializer, LoadContext},
+        loader::{AssetError, AssetLoader, LoadContext},
     };
 
     use super::{AssetImported, ImportAssets, RemoveAssets};
 
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
     struct PlainText(String);
     impl Asset for PlainText {}
-
-    impl AssetSerializer for PlainText {
-        type Asset = Self;
-        type Error = AssetIoError;
-
-        fn serialize(asset: &Self::Asset) -> Result<Vec<u8>, Self::Error> {
-            Ok(asset.0.as_bytes().to_vec())
-        }
-
-        fn deserialize(data: &[u8]) -> Result<Self::Asset, Self::Error> {
-            let content = String::from_utf8(data.to_vec())
-                .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidData))?;
-
-            Ok(Self(content))
-        }
-    }
 
     impl AssetLoader for PlainText {
         type Asset = Self;
         type Settings = DefaultSettings;
         type Error = AssetIoError;
-        type Serializer = Self;
 
         fn load(
             _: &mut LoadContext<Self::Settings>,
             reader: &mut dyn AssetReader,
         ) -> Result<Self::Asset, Self::Error> {
             reader.read_to_end()?;
-            <Self::Serializer as AssetSerializer>::deserialize(&reader.flush()?)
+            Ok(PlainText(
+                String::from_utf8_lossy(reader.bytes()).to_string(),
+            ))
         }
 
         fn extensions() -> &'static [&'static str] {

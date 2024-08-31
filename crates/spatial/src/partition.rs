@@ -1,4 +1,4 @@
-use crate::bounds::{BoundingBox, BoundingRect};
+use crate::bounds::{BoundingBox, Rect};
 use glam::{Mat3, Mat4};
 use ecs::core::Entity;
 
@@ -22,7 +22,7 @@ pub trait Entity3D: 'static {
 pub trait Entity2D: 'static {
     fn entity(&self) -> Entity;
     fn transform(&self) -> Mat3;
-    fn bounds(&self) -> &BoundingRect;
+    fn bounds(&self) -> &Rect;
 }
 
 impl<V: 'static> Partition for Vec<V> {

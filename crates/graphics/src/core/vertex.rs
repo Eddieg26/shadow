@@ -1,7 +1,9 @@
 use super::Color;
 use glam::{Vec2, Vec3, Vec4};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub enum VertexAttribute {
     Position,
     Normal,
@@ -35,7 +37,7 @@ impl VertexAttribute {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum VertexAttributeValues {
     Position(Vec<Vec3>),
     Normal(Vec<Vec3>),
@@ -91,6 +93,7 @@ impl VertexAttributeValues {
     }
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct VertexAttributes {
     attribute: VertexAttribute,
     data: VertexAttributeValues,

@@ -13,3 +13,4 @@ ulid = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 toml = { workspace = true }
 either = { workspace = true }
+bincode = { workspace = true }

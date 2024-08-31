@@ -1,5 +1,3 @@
-use asset::bytes::IntoBytes;
-
 #[derive(
     Debug,
     Clone,
@@ -97,26 +95,5 @@ impl From<(f64, f64, f64, f64)> for Color {
 impl From<Color> for (f64, f64, f64, f64) {
     fn from(color: Color) -> (f64, f64, f64, f64) {
         (color.r, color.g, color.b, color.a)
-    }
-}
-
-impl IntoBytes for Color {
-    fn into_bytes(&self) -> Vec<u8> {
-        let mut bytes = Vec::new();
-        bytes.extend_from_slice(&self.r.into_bytes());
-        bytes.extend_from_slice(&self.g.into_bytes());
-        bytes.extend_from_slice(&self.b.into_bytes());
-        bytes.extend_from_slice(&self.a.into_bytes());
-
-        bytes
-    }
-
-    fn from_bytes(bytes: &[u8]) -> Option<Self> {
-        let r = f64::from_bytes(&bytes[0..8])?;
-        let g = f64::from_bytes(&bytes[8..16])?;
-        let b = f64::from_bytes(&bytes[16..24])?;
-        let a = f64::from_bytes(&bytes[24..32])?;
-
-        Some(Self::new(r, g, b, a))
     }
 }

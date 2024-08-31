@@ -131,7 +131,7 @@ impl AssetEvent for LoadAssets {
             let loader = match registry.get_metadata(meta.ty()) {
                 Some(loader) => loader,
                 None => {
-                    errors.push(AssetError::load(id, LoadErrorKind::NoLoader));
+                    errors.push(AssetError::load(id, LoadErrorKind::NoImporter));
                     continue;
                 }
             };

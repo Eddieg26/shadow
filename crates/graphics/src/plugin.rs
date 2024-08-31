@@ -9,18 +9,20 @@ use crate::{
         graph::{resources::RenderTargetDesc, RenderGraph, RenderGraphBuilder},
     },
     resources::{
-        mesh::MeshBuffers,
+        mesh::{Mesh, MeshBuffers},
         shader::{ShaderSource, Shaders},
         texture::GraphicsTextures,
-        ExtractArg, RenderAsset, RenderAssetUsage, RenderResource,
+        RenderAsset, RenderAssetUsage, RenderResource,
     },
 };
 use asset::{
-    database::events::{AssetLoaded, AssetUnloaded}, plugin::AssetExt, Asset, AssetId, Assets
+    database::events::{AssetLoaded, AssetUnloaded},
+    plugin::AssetExt,
+    AssetId, Assets,
 };
 use ecs::{
     core::Resource,
-    system::{ArgItem, SystemArg},
+    system::SystemArg,
     world::{
         event::{Event, Events},
         World,
@@ -56,8 +58,10 @@ impl Plugin for GraphicsPlugin {
         game.add_render_resource(MeshBuffers::new());
         game.add_render_resource(Shaders::new());
 
+        //TODO: Register Texture, Mesh, Material Loaders
+        game.register_asset::<Mesh>();
         game.register_loader::<ShaderSource>();
-
+        game.register_render_asset::<ShaderSource>();
         game.register_event::<SurfaceCreated>();
 
         game.add_system(Extract, extract_render_frames);

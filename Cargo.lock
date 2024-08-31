@@ -107,6 +107,7 @@ dependencies = [
 name = "asset"
 version = "0.0.0"
 dependencies = [
+ "bincode",
  "crc32fast",
  "ecs",
  "either",
@@ -139,6 +140,15 @@ dependencies = [
  "toml",
  "wgpu",
  "window",
+]
+
+[[package]]
+name = "bincode"
+version = "1.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1f45e9417d87227c7a56d22e471c6206462cba514c7590c09aff4cf6d1ddcad"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -463,6 +473,7 @@ dependencies = [
  "ahash",
  "crc32fast",
  "downcast-rs",
+ "serde",
  "ulid",
 ]
 
@@ -1599,6 +1610,7 @@ version = "0.0.0"
 dependencies = [
  "ecs",
  "glam",
+ "serde",
 ]
 
 [[package]]

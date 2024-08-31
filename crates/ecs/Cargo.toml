@@ -9,4 +9,5 @@ edition = "2021"
 ulid = { workspace = true }
 crc32fast = { workspace = true }
 downcast-rs = { workspace = true }
+serde = { workspace = true }
 ahash = "0.8.11"

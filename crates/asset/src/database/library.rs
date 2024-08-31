@@ -1,6 +1,5 @@
 use crate::{
     asset::{AssetId, AssetKind},
-    bytes::IntoBytes,
     io::{AssetIoError, AssetWriter},
 };
 use ecs::core::{DenseMap, DenseSet};
@@ -8,7 +7,7 @@ use std::path::PathBuf;
 
 use super::AssetConfig;
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, serde::Serialize, serde::Deserialize)]
 pub struct AssetLibrary {
     ids: DenseMap<AssetId, PathBuf>,
     paths: DenseMap<PathBuf, AssetId>,
@@ -64,25 +63,22 @@ impl AssetLibrary {
     }
 
     pub fn save(&self, mut writer: impl AssetWriter) -> Result<Vec<u8>, AssetIoError> {
-        let ids = self.ids.into_bytes();
-        let paths = self.paths.into_bytes();
+        let bytes = bincode::serialize(self).map_err(|e| AssetIoError::Other(e))?;
 
-        writer.write(&ids.len().into_bytes())?;
-        writer.write(&ids)?;
-        writer.write(&paths)?;
+        writer.write(&bytes)?;
         writer.flush()
     }
 
     pub fn load(&mut self, bytes: &[u8]) -> Option<&Self> {
-        let ids_len = usize::from_bytes(&bytes)?;
-
-        self.ids = DenseMap::from_bytes(&bytes[8..8 + ids_len])?;
-        self.paths = DenseMap::from_bytes(&bytes[16 + ids_len..])?;
+        let library = bincode::deserialize::<Self>(bytes).ok()?;
+        self.ids = library.ids;
+        self.paths = library.paths;
 
         Some(self)
     }
 }
 
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct DependentUpdates {
     added: Vec<AssetId>,
     removed: Vec<AssetId>,
@@ -118,7 +114,7 @@ impl DependentUpdates {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
 pub struct DependentLibrary {
     dependents: DenseMap<AssetId, DenseSet<AssetId>>,
     updates: DenseMap<AssetId, DependentUpdates>,
@@ -188,7 +184,9 @@ impl DependentLibrary {
             dependents.retain(|id| !update.removed.contains(id));
         }
 
-        writer.write(&self.dependents.into_bytes())?;
+        let bytes = bincode::serialize(&self.dependents).map_err(|e| AssetIoError::Other(e))?;
+
+        writer.write(&bytes)?;
         writer.flush()
     }
 
@@ -201,8 +199,8 @@ impl DependentLibrary {
 
         let reader = config.reader(Self::path(config));
         let bytes = reader.bytes();
-        let dependents = DenseMap::from_bytes(&bytes)
-            .ok_or(AssetIoError::from(std::io::ErrorKind::InvalidData))?;
+        let dependents = bincode::deserialize::<DenseMap<AssetId, DenseSet<AssetId>>>(&bytes)
+            .map_err(|e| AssetIoError::Other(e))?;
 
         Ok(Self {
             dependents,

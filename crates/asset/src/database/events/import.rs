@@ -21,6 +21,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+
+#[derive(Default, serde::Serialize, serde::Deserialize)]
 pub struct Folder;
 impl Asset for Folder {}
 
@@ -117,7 +119,7 @@ impl ImportFolder {
         let library = database.library();
         let loader = match registry.get_metadata_by_ext(ext) {
             Some(loader) => loader,
-            None => return Some(ImportScan::error(path, LoadErrorKind::NoLoader)),
+            None => return Some(ImportScan::error(path, LoadErrorKind::NoImporter)),
         };
 
         let metadata = match loader.load_metadata(path, config) {
@@ -284,7 +286,7 @@ impl AssetEvent for ImportAssets {
                 let loader = match path.ext().and_then(|ext| registry.get_metadata_by_ext(ext)) {
                     Some(loader) => loader,
                     None => {
-                        errors.push(AssetError::import(path, LoadErrorKind::NoLoader));
+                        errors.push(AssetError::import(path, LoadErrorKind::NoImporter));
                         continue;
                     }
                 };

@@ -1,4 +1,3 @@
-use crate::bytes::IntoBytes;
 use ecs::core::{DenseMap, Resource};
 use serde::ser::SerializeStruct;
 use std::{
@@ -39,16 +38,6 @@ impl std::ops::Deref for AssetId {
     }
 }
 
-impl IntoBytes for AssetId {
-    fn into_bytes(&self) -> Vec<u8> {
-        self.0.into_bytes()
-    }
-
-    fn from_bytes(bytes: &[u8]) -> Option<Self> {
-        u64::from_bytes(bytes).map(Self::raw)
-    }
-}
-
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
 )]
@@ -72,16 +61,6 @@ impl std::ops::Deref for AssetType {
 
     fn deref(&self) -> &Self::Target {
         &self.0
-    }
-}
-
-impl IntoBytes for AssetType {
-    fn into_bytes(&self) -> Vec<u8> {
-        self.0.into_bytes()
-    }
-
-    fn from_bytes(bytes: &[u8]) -> Option<Self> {
-        u32::from_bytes(bytes).map(Self::raw)
     }
 }
 
@@ -115,7 +94,7 @@ impl<A: AsRef<Path>> From<A> for AssetPath {
     }
 }
 
-pub trait Asset: Send + Sync + 'static {}
+pub trait Asset: Send + Sync + serde::Serialize + for<'a> serde::Deserialize<'a> + 'static {}
 pub trait Settings: Default + serde::Serialize + for<'a> serde::Deserialize<'a> + 'static {}
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]

@@ -87,6 +87,7 @@ pub trait Texture: Asset + 'static {
     fn pixels(&self) -> &[u8];
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Texture2d {
     width: u32,
     height: u32,
@@ -141,6 +142,7 @@ impl Texture for Texture2d {
 
 impl Asset for Texture2d {}
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RenderTexture {
     format: TextureFormat,
     width: u32,

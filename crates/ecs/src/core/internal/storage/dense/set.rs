@@ -161,6 +161,26 @@ impl<K: Hash + Eq> DenseSet<K> {
     }
 }
 
+impl<K: Hash + Eq + serde::Serialize> serde::Serialize for DenseSet<K> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.keys.serialize(serializer)
+    }
+}
+
+impl<'de, K: Hash + Eq + serde::Deserialize<'de>> serde::Deserialize<'de> for DenseSet<K> {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let keys = Vec::<K>::deserialize(deserializer)?;
+        let mut map = HashMap::new();
+
+        for (index, value) in keys.iter().enumerate() {
+            let key = hash_value(value);
+            map.insert(key, index);
+        }
+
+        Ok(Self { keys, map })
+    }
+}
+
 impl<K: Hash + Eq + Debug> Debug for DenseSet<K> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_list().entries(self.keys.iter()).finish()
@@ -293,5 +313,25 @@ impl<K: Hash + Eq> Default for ImmutableDenseSet<K> {
             keys: vec![],
             map: HashMap::new(),
         }
+    }
+}
+
+impl<K: Hash + Eq + serde::Serialize> serde::Serialize for ImmutableDenseSet<K> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.keys.serialize(serializer)
+    }
+}
+
+impl<'de, K: Hash + Eq + serde::Deserialize<'de>> serde::Deserialize<'de> for ImmutableDenseSet<K> {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let keys = Vec::<K>::deserialize(deserializer)?;
+        let mut map = HashMap::new();
+
+        for (index, value) in keys.iter().enumerate() {
+            let key = hash_value(value);
+            map.insert(key, index);
+        }
+
+        Ok(Self { keys, map })
     }
 }

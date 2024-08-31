@@ -9,9 +9,10 @@ use spatial::bounds::BoundingBox;
 use std::hash::Hash;
 
 pub mod draw;
-pub mod model;
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Default)]
+#[derive(
+    Copy, Clone, Debug, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize,
+)]
 pub enum MeshTopology {
     PointList = 0,
     LineList = 1,
@@ -55,12 +56,15 @@ bitflags::bitflags! {
     }
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct Mesh {
     topology: MeshTopology,
     attributes: Vec<VertexAttributes>,
     indices: Option<Indices>,
     bounds: BoundingBox,
     read_write: ReadWrite,
+
+    #[serde(skip)]
     dirty: MeshDirty,
 }
 

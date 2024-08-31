@@ -1,7 +1,6 @@
 use asset::{
-    bytes::IntoBytes,
     io::{AssetIoError, AssetReader, PathExt},
-    loader::{AssetLoader, AssetSerializer, LoadContext},
+    loader::{AssetLoader, LoadContext},
     Asset, AssetId, DefaultSettings,
 };
 use ecs::core::{DenseMap, Resource};
@@ -11,7 +10,7 @@ use crate::core::RenderDevice;
 
 use super::{RenderAsset, RenderAssetUsage, RenderResource};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum ShaderStage {
     Vertex,
     Fragment,
@@ -28,27 +27,7 @@ impl Into<naga::ShaderStage> for ShaderStage {
     }
 }
 
-impl IntoBytes for ShaderStage {
-    fn into_bytes(&self) -> Vec<u8> {
-        match self {
-            Self::Vertex => 0,
-            Self::Fragment => 1,
-            Self::Compute => 2,
-        }
-        .into_bytes()
-    }
-
-    fn from_bytes(bytes: &[u8]) -> Option<Self> {
-        match i32::from_bytes(bytes)? {
-            0 => Some(Self::Vertex),
-            1 => Some(Self::Fragment),
-            2 => Some(Self::Compute),
-            _ => None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ShaderSource {
     Spirv(Cow<'static, [u32]>),
     Glsl {
@@ -87,7 +66,6 @@ impl AssetLoader for ShaderSource {
     type Asset = Self;
     type Settings = DefaultSettings;
     type Error = ShaderLoadError;
-    type Serializer = Self;
 
     fn load(
         _: &mut LoadContext<Self::Settings>,
@@ -137,56 +115,6 @@ impl AssetLoader for ShaderSource {
 
     fn extensions() -> &'static [&'static str] {
         &["spv", "wgsl", "vert", "frag", "comp"]
-    }
-}
-
-impl AssetSerializer for ShaderSource {
-    type Asset = ShaderSource;
-    type Error = ShaderLoadError;
-
-    fn serialize(asset: &Self::Asset) -> Result<Vec<u8>, Self::Error> {
-        let (ty, stage, data) = match asset {
-            ShaderSource::Spirv(data) => {
-                (0, ShaderStage::Vertex, data.as_ref().to_vec().into_bytes())
-            }
-            ShaderSource::Glsl {
-                shader: source,
-                stage,
-            } => (1, *stage, source.as_ref().as_bytes().to_vec()),
-            ShaderSource::Wgsl(data) => (2, ShaderStage::Vertex, data.as_ref().as_bytes().to_vec()),
-        };
-
-        let mut bytes = ty.into_bytes();
-        bytes.extend(stage.into_bytes());
-        bytes.extend(data);
-
-        Ok(bytes)
-    }
-
-    fn deserialize(data: &[u8]) -> Result<Self::Asset, Self::Error> {
-        let ty = i32::from_bytes(&data[..4])
-            .ok_or(ShaderLoadError::Parse("Invalid type".to_string()))?;
-        let stage = ShaderStage::from_bytes(&data[4..8])
-            .ok_or(ShaderLoadError::Parse("Invalid stage".to_string()))?;
-        let data = &data[8..];
-
-        match ty {
-            0 => Ok(ShaderSource::Spirv(Cow::Owned(
-                data.iter().map(|b| *b as u32).collect(),
-            ))),
-            1 => Ok(ShaderSource::Glsl {
-                shader: Cow::Owned(
-                    String::from_utf8(data.to_vec())
-                        .map_err(|e| ShaderLoadError::Parse(format!("Invalid UTF-8: {}", e)))?,
-                ),
-                stage,
-            }),
-            2 => Ok(ShaderSource::Wgsl(Cow::Owned(
-                String::from_utf8(data.to_vec())
-                    .map_err(|e| ShaderLoadError::Parse(format!("Invalid UTF-8: {}", e)))?,
-            ))),
-            _ => Err(ShaderLoadError::Parse(format!("Invalid type: {}", ty))),
-        }
     }
 }
 

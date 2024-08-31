@@ -237,6 +237,28 @@ impl<K: Hash + Eq, V> DenseMap<K, V> {
     }
 }
 
+impl<K: Hash + Eq + serde::Serialize, V: serde::Serialize> serde::Serialize for DenseMap<K, V> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let keys = self.keys.iter().collect::<Vec<_>>();
+        let values = self.values.iter().collect::<Vec<_>>();
+        (keys, values).serialize(serializer)
+    }
+}
+
+impl<'de, K: Hash + Eq + serde::Deserialize<'de>, V: serde::Deserialize<'de>>
+    serde::Deserialize<'de> for DenseMap<K, V>
+{
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let (keys, values) = <(Vec<K>, Vec<V>)>::deserialize(deserializer)?;
+        let mut map = HashMap::new();
+        for (index, key) in keys.iter().enumerate() {
+            map.insert(hash_value(key), index);
+        }
+
+        Ok(Self { keys, values, map })
+    }
+}
+
 impl<K: Hash + Eq, V> Into<Vec<V>> for DenseMap<K, V> {
     fn into(self) -> Vec<V> {
         self.values
@@ -444,5 +466,29 @@ impl<K: Hash + Eq, V> From<DenseMap<K, V>> for ImmutableDenseMap<K, V> {
             values: map.values,
             map: map.map,
         }
+    }
+}
+
+impl<K: Hash + Eq + serde::Serialize, V: serde::Serialize> serde::Serialize
+    for ImmutableDenseMap<K, V>
+{
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let keys = self.keys.iter().collect::<Vec<_>>();
+        let values = self.values.iter().collect::<Vec<_>>();
+        (keys, values).serialize(serializer)
+    }
+}
+
+impl<'de, K: Hash + Eq + serde::Deserialize<'de>, V: serde::Deserialize<'de>>
+    serde::Deserialize<'de> for ImmutableDenseMap<K, V>
+{
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let (keys, values) = <(Vec<K>, Vec<V>)>::deserialize(deserializer)?;
+        let mut map = HashMap::new();
+        for (index, key) in keys.iter().enumerate() {
+            map.insert(hash_value(key), index);
+        }
+
+        Ok(Self { keys, values, map })
     }
 }

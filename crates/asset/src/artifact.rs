@@ -1,10 +1,7 @@
-use crate::{
-    asset::{Asset, AssetId, AssetType},
-    bytes::IntoBytes,
-};
+use crate::asset::{Asset, AssetId, AssetType};
 use std::collections::HashSet;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ArtifactMeta {
     pub id: AssetId,
     pub ty: AssetType,
@@ -53,32 +50,7 @@ impl ArtifactMeta {
     }
 }
 
-impl IntoBytes for ArtifactMeta {
-    fn into_bytes(&self) -> Vec<u8> {
-        let mut bytes = Vec::new();
-        bytes.extend_from_slice(&self.id.into_bytes());
-        bytes.extend_from_slice(&self.ty.into_bytes());
-        bytes.extend_from_slice(&self.checksum.into_bytes());
-
-        let deps = self.dependencies.into_bytes();
-        bytes.extend_from_slice(&deps.len().into_bytes());
-        bytes.extend_from_slice(&deps);
-
-        bytes
-    }
-
-    fn from_bytes(bytes: &[u8]) -> Option<Self> {
-        let id = AssetId::from_bytes(&bytes[..8])?;
-        let ty = AssetType::from_bytes(&bytes[8..12])?;
-        let checksum = u32::from_bytes(&bytes[12..16])?;
-        let dependencies_len = usize::from_bytes(&bytes[16..24])?;
-        let dependencies = HashSet::from_bytes(&bytes[24..24 + dependencies_len])?;
-
-        Some(Self::with_type(id, ty, checksum, dependencies))
-    }
-}
-
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ArtifactHeader {
     meta: usize,
     asset: usize,
@@ -100,22 +72,7 @@ impl ArtifactHeader {
     }
 }
 
-impl IntoBytes for ArtifactHeader {
-    fn into_bytes(&self) -> Vec<u8> {
-        let mut bytes = Vec::new();
-        bytes.extend_from_slice(&self.meta.into_bytes());
-        bytes.extend_from_slice(&self.asset.into_bytes());
-        bytes
-    }
-
-    fn from_bytes(bytes: &[u8]) -> Option<Self> {
-        let meta = usize::from_bytes(&bytes[..8])?;
-        let asset = usize::from_bytes(&bytes[8..16])?;
-
-        Some(Self::new(meta, asset))
-    }
-}
-
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Artifact {
     pub header: ArtifactHeader,
     pub meta: ArtifactMeta,
@@ -125,25 +82,14 @@ pub struct Artifact {
 impl Artifact {
     pub fn new(asset: &[u8], meta: ArtifactMeta) -> Self {
         let mut data = Vec::new();
-        let meta_bytes = meta.into_bytes();
-        data.extend_from_slice(&meta.into_bytes());
+        let meta_bytes = bincode::serialize(&meta).unwrap();
+        data.extend(meta_bytes);
         data.extend_from_slice(asset);
 
-        let header = ArtifactHeader::new(meta_bytes.len(), asset.len());
+        let meta_len = data.len() - asset.len();
+        let header = ArtifactHeader::new(meta_len, asset.len());
 
         Self { header, meta, data }
-    }
-
-    pub fn bytes(asset: &[u8], meta: &ArtifactMeta) -> Vec<u8> {
-        let mut data = Vec::new();
-        let meta_bytes = meta.into_bytes();
-        data.extend_from_slice(&meta_bytes);
-        data.extend_from_slice(asset);
-
-        let header = ArtifactHeader::new(meta_bytes.len(), asset.len());
-        let mut bytes = header.into_bytes();
-        bytes.extend(data);
-        bytes
     }
 
     pub fn header(&self) -> &ArtifactHeader {
@@ -164,20 +110,5 @@ impl Artifact {
 
     pub fn dependencies(&self) -> &HashSet<AssetId> {
         &self.meta.dependencies()
-    }
-}
-
-impl IntoBytes for Artifact {
-    fn into_bytes(&self) -> Vec<u8> {
-        Self::bytes(self.asset(), &self.meta)
-    }
-
-    fn from_bytes(bytes: &[u8]) -> Option<Self> {
-        const HEADER_SIZE: usize = std::mem::size_of::<ArtifactHeader>();
-        let header = ArtifactHeader::from_bytes(&bytes[..HEADER_SIZE])?;
-        let meta = ArtifactMeta::from_bytes(&bytes[HEADER_SIZE..HEADER_SIZE + header.meta()])?;
-        let data = bytes[HEADER_SIZE..].to_vec();
-
-        Some(Self { header, meta, data })
     }
 }

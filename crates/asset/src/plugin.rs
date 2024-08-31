@@ -7,7 +7,7 @@ use crate::{
         },
         AssetConfig, AssetDatabase,
     },
-    loader::{AssetError, AssetLoader, AssetProcessor, AssetSerializer},
+    loader::{AssetError, AssetLoader, AssetProcessor},
 };
 use game::{Game, phases::Init, plugin::Plugin};
 
@@ -43,7 +43,6 @@ pub trait AssetExt: Sized {
     fn register_asset<A: Asset>(&mut self) -> &mut Self;
     fn register_loader<L: AssetLoader>(&mut self) -> &mut Self;
     fn register_processor<P: AssetProcessor>(&mut self) -> &mut Self;
-    fn register_serializer<C: AssetSerializer>(&mut self) -> &mut Self;
 }
 
 impl AssetExt for Game {
@@ -71,13 +70,6 @@ impl AssetExt for Game {
     fn register_processor<P: AssetProcessor>(&mut self) -> &mut Self {
         self.register_loader::<P::Loader>();
         self.resource_mut::<AssetConfig>().set_processor::<P>();
-
-        self
-    }
-
-    fn register_serializer<S: AssetSerializer>(&mut self) -> &mut Self {
-        self.register_asset::<S::Asset>();
-        self.resource_mut::<AssetConfig>().set_cacher::<S>();
 
         self
     }

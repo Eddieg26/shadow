@@ -1,21 +1,21 @@
 use glam::Vec2;
 
 use crate::{
-    bounds::BoundingRect,
+    bounds::Rect,
     partition::{Entity2D, Partition},
 };
 
 pub struct QuadTreeNode<N: Entity2D> {
     children: Vec<QuadTreeNode<N>>,
     objects: Vec<N>,
-    bounds: BoundingRect,
+    bounds: Rect,
     depth: usize,
     max_objects: usize,
     max_depth: usize,
 }
 
 impl<N: Entity2D> QuadTreeNode<N> {
-    pub fn new(bounds: BoundingRect, max_objects: usize, depth: usize, max_depth: usize) -> Self {
+    pub fn new(bounds: Rect, max_objects: usize, depth: usize, max_depth: usize) -> Self {
         Self {
             children: vec![],
             objects: vec![],
@@ -53,25 +53,25 @@ impl<N: Entity2D> QuadTreeNode<N> {
         let mut children = Vec::with_capacity(4);
 
         children.push(QuadTreeNode::new(
-            BoundingRect::new(min, mid),
+            Rect::new(min, mid),
             self.max_objects,
             self.depth + 1,
             self.max_depth,
         ));
         children.push(QuadTreeNode::new(
-            BoundingRect::new(Vec2::new(mid.x, min.y), Vec2::new(max.x, mid.y)),
+            Rect::new(Vec2::new(mid.x, min.y), Vec2::new(max.x, mid.y)),
             self.max_objects,
             self.depth + 1,
             self.max_depth,
         ));
         children.push(QuadTreeNode::new(
-            BoundingRect::new(mid, max),
+            Rect::new(mid, max),
             self.max_objects,
             self.depth + 1,
             self.max_depth,
         ));
         children.push(QuadTreeNode::new(
-            BoundingRect::new(Vec2::new(min.x, mid.y), Vec2::new(mid.x, max.y)),
+            Rect::new(Vec2::new(min.x, mid.y), Vec2::new(mid.x, max.y)),
             self.max_objects,
             self.depth + 1,
             self.max_depth,
@@ -94,7 +94,7 @@ impl<N: Entity2D> QuadTreeNode<N> {
         self.children = children;
     }
 
-    pub fn contains(&self, bounds: &BoundingRect) -> bool {
+    pub fn contains(&self, bounds: &Rect) -> bool {
         self.bounds.contains(bounds)
     }
 
@@ -118,7 +118,7 @@ impl<N: Entity2D> QuadTreeNode<N> {
         objects
     }
 
-    pub fn query(&self, bounds: &BoundingRect, filter: impl Fn(&N) -> bool) -> Vec<&N> {
+    pub fn query(&self, bounds: &Rect, filter: impl Fn(&N) -> bool) -> Vec<&N> {
         let mut results = vec![];
 
         if self.bounds.intersects(bounds) {
@@ -144,7 +144,7 @@ pub struct QuadTree<N: Entity2D> {
 }
 
 impl<N: Entity2D> QuadTree<N> {
-    pub fn new(bounds: BoundingRect, max_objects: usize, max_depth: usize) -> Self {
+    pub fn new(bounds: Rect, max_objects: usize, max_depth: usize) -> Self {
         Self {
             root: QuadTreeNode::new(bounds, max_objects, 0, max_depth),
             max_objects,
@@ -154,12 +154,12 @@ impl<N: Entity2D> QuadTree<N> {
 }
 
 pub struct QuadTreeQuery<N: Entity2D> {
-    bounds: BoundingRect,
+    bounds: Rect,
     filter: Box<dyn Fn(&N) -> bool>,
 }
 
 impl<N: Entity2D> QuadTreeQuery<N> {
-    pub fn new(bounds: BoundingRect, filter: impl Fn(&N) -> bool + 'static) -> Self {
+    pub fn new(bounds: Rect, filter: impl Fn(&N) -> bool + 'static) -> Self {
         Self {
             bounds,
             filter: Box::new(filter),
@@ -194,6 +194,6 @@ impl<N: Entity2D> Partition for QuadTree<N> {
 
 impl<E: Entity2D> Default for QuadTree<E> {
     fn default() -> Self {
-        Self::new(BoundingRect::new(Vec2::ZERO, Vec2::new(1.0, 1.0)), 4, 4)
+        Self::new(Rect::new(Vec2::ZERO, Vec2::new(1.0, 1.0)), 4, 4)
     }
 }

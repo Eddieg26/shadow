@@ -2,7 +2,7 @@ use crate::core::{RenderDevice, RenderQueue, VertexLayout};
 use encase::ShaderType;
 use wgpu::util::DeviceExt;
 
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub enum Indices {
     U16(Vec<u16>),
     U32(Vec<u32>),

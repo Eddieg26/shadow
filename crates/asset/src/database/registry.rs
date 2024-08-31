@@ -1,5 +1,3 @@
-use std::{collections::HashSet, path::Path};
-
 use super::{
     events::{AssetLoaded, AssetUnloaded},
     state::AssetState,
@@ -8,37 +6,44 @@ use super::{
 use crate::{
     artifact::{Artifact, ArtifactMeta},
     asset::{Asset, AssetId, AssetSettings, AssetType, Assets, Settings},
-    io::AssetIoError,
+    io::{AssetIoError, PathExt},
     loader::{
-        AssetError, AssetLoader, AssetProcessor, AssetSerializer, LoadContext, LoadErrorKind,
-        LoadedAsset, LoadedAssets, LoadedMetadata,
+        AssetError, AssetLoader, AssetProcessor, LoadContext, LoadErrorKind, LoadedAsset,
+        LoadedAssets, LoadedMetadata,
     },
 };
 use ecs::{
     core::{internal::blob::BlobCell, DenseMap},
     world::{event::ErasedEvent, World},
 };
+use std::{collections::HashSet, path::Path};
+
+pub type AssetImportFn = fn(
+    &AssetMetadata,
+    &Path,
+    &AssetRegistry,
+    &AssetConfig,
+    &mut LoadedAssets,
+) -> Result<ImportedAsset, AssetError>;
+
+pub type AssetLoadFn = fn(
+    &AssetMetadata,
+    AssetId,
+    &AssetRegistry,
+    &AssetConfig,
+    &mut LoadedAssets,
+    bool,
+) -> Result<LoadedAsset, AssetError>;
+
+pub type AssetSaveFn = fn(&Path, &ImportedAsset, &AssetConfig) -> Result<Vec<u8>, AssetError>;
 
 pub struct AssetMetadata {
     loaded: fn(LoadedAsset) -> ErasedEvent,
     unloaded: fn(AssetId, AssetState, &World) -> Option<ErasedEvent>,
-    import: fn(
-        &Self,
-        &Path,
-        &AssetRegistry,
-        &AssetConfig,
-        &mut LoadedAssets,
-    ) -> Result<ImportedAsset, AssetError>,
-    load: fn(
-        &Self,
-        AssetId,
-        &AssetRegistry,
-        &AssetConfig,
-        &mut LoadedAssets,
-        bool,
-    ) -> Result<LoadedAsset, AssetError>,
+    save: AssetSaveFn,
+    load: AssetLoadFn,
+    importers: DenseMap<&'static str, AssetImportFn>,
     process: Option<fn(&mut ImportedAsset, &LoadedAssets) -> Result<(), AssetError>>,
-    serialize: fn(&Path, &ImportedAsset, &AssetConfig) -> Result<Vec<u8>, AssetError>,
     load_metadata: Option<fn(&Path, &AssetConfig) -> Result<LoadedMetadata, AssetError>>,
 }
 
@@ -57,18 +62,38 @@ impl AssetMetadata {
 
                 Some(AssetUnloaded::new(id, asset, state).into())
             },
-            import: |_self, path, _, _, _| Err(AssetError::import(path, LoadErrorKind::NoLoader)),
-            load: |_self, id, _, _, _, _| Err(AssetError::load(id, LoadErrorKind::NoLoader)),
+            importers: DenseMap::new(),
             process: None,
-            serialize: |path, _imported, _config| {
-                Err(AssetError::import(path, LoadErrorKind::NoSerializer))
+            save: |path, imported, config| {
+                let asset = bincode::serialize::<A>(imported.asset())
+                    .map_err(|e| AssetError::import(path, e))?;
+
+                let artifact = Artifact::new(&asset, imported.meta().clone());
+                
+                config
+                    .save_artifact(&artifact)
+                    .map_err(|e| AssetError::import(path, e))
+            },
+            load: |_self, id, registry, config, assets, load_deps| {
+                let artifact = config
+                    .load_artifact(id)
+                    .map_err(|e: AssetIoError| AssetError::load(id, e))?;
+
+                let asset = bincode::deserialize::<A>(artifact.asset())
+                    .map_err(|e| AssetError::load(id, e))?;
+
+                if load_deps {
+                    registry.load_dependencies(artifact.dependencies(), config, assets, true);
+                }
+
+                Ok(LoadedAsset::new(asset, artifact.meta))
             },
             load_metadata: None,
         }
     }
 
-    pub fn set_loader<L: AssetLoader>(&mut self) {
-        self.import = |_self, path, registry, config, assets| {
+    pub fn add_loader<L: AssetLoader>(&mut self) {
+        let import: AssetImportFn = |_self, path, registry, config, assets| {
             let path = config.asset(path);
             let mut reader = config.reader(&path);
             let settings = match config.load_metadata::<L::Settings>(&path) {
@@ -103,42 +128,14 @@ impl AssetMetadata {
             }
 
             _self
-                .serialize(&path, &asset, config)
+                .save(&path, &asset, config)
                 .map_err(|e| AssetError::import(path, e))?;
 
             Ok(asset)
         };
 
-        self.set_serializer::<L::Serializer>();
-    }
-
-    pub fn set_serializer<C: AssetSerializer>(&mut self) {
-        self.serialize = |path, imported, config| match C::serialize(imported.asset()) {
-            Ok(bytes) => {
-                let id = imported.meta().id();
-                let mut writer = config.writer(config.artifact(id));
-                let artifact = Artifact::bytes(&bytes, imported.meta());
-
-                writer
-                    .write(&artifact)
-                    .map_err(|e| AssetError::import(path, e))?;
-                writer.flush().map_err(|e| AssetError::import(path, e))
-            }
-            Err(e) => Err(AssetError::import(path, e)),
-        };
-
-        self.load = |_self, id, registry, config, assets, load_deps| {
-            let artifact = config
-                .load_artifact(id)
-                .map_err(|e: AssetIoError| AssetError::load(id, e))?;
-
-            let asset = C::deserialize(artifact.asset()).map_err(|e| AssetError::load(id, e))?;
-
-            if load_deps {
-                registry.load_dependencies(artifact.dependencies(), config, assets, true);
-            }
-
-            Ok(LoadedAsset::new(asset, artifact.meta))
+        for ext in L::extensions() {
+            self.importers.insert(ext, import);
         }
     }
 
@@ -161,7 +158,15 @@ impl AssetMetadata {
         config: &AssetConfig,
         assets: &mut LoadedAssets,
     ) -> Result<ImportedAsset, AssetError> {
-        (self.import)(self, path, registry, config, assets)
+        let ext = path
+            .ext()
+            .ok_or_else(|| AssetError::import(path, LoadErrorKind::NoExtension))?;
+        let import = self
+            .importers
+            .get(&ext)
+            .ok_or_else(|| AssetError::import(path, LoadErrorKind::NoImporter))?;
+
+        import(self, path, registry, config, assets)
     }
 
     pub fn load(
@@ -183,13 +188,13 @@ impl AssetMetadata {
         self.process.map(|process| process(asset, assets))
     }
 
-    pub fn serialize(
+    pub fn save(
         &self,
         path: &Path,
         asset: &ImportedAsset,
         config: &AssetConfig,
     ) -> Result<Vec<u8>, AssetError> {
-        (self.serialize)(path, asset, config)
+        (self.save)(path, asset, config)
     }
 
     pub fn load_metadata(
@@ -223,7 +228,7 @@ impl AssetRegistry {
         self.metadata.insert(asset_type, AssetMetadata::new::<A>());
     }
 
-    pub fn set_loader<L: AssetLoader>(&mut self) {
+    pub fn add_loader<L: AssetLoader>(&mut self) {
         let asset_type = AssetType::of::<L::Asset>();
         let metadata = match self.metadata.get_mut(&asset_type) {
             Some(metadata) => metadata,
@@ -237,7 +242,7 @@ impl AssetRegistry {
             self.ext_map.insert(ext, asset_type);
         }
 
-        metadata.set_loader::<L>();
+        metadata.add_loader::<L>();
     }
 
     pub fn set_processor<P: AssetProcessor>(&mut self) {
@@ -245,25 +250,12 @@ impl AssetRegistry {
         let metadata = match self.metadata.get_mut(&asset_type) {
             Some(metadata) => metadata,
             None => {
-                self.set_loader::<P::Loader>();
+                self.add_loader::<P::Loader>();
                 self.metadata.get_mut(&asset_type).unwrap()
             }
         };
 
         metadata.set_processor::<P>();
-    }
-
-    pub fn set_serializer<S: AssetSerializer>(&mut self) {
-        let asset_type = AssetType::of::<S::Asset>();
-        let metadata = match self.metadata.get_mut(&asset_type) {
-            Some(metadata) => metadata,
-            None => {
-                self.register::<S::Asset>();
-                self.metadata.get_mut(&asset_type).unwrap()
-            }
-        };
-
-        metadata.set_serializer::<S>();
     }
 
     pub fn get_metadata(&self, asset_type: AssetType) -> Option<&AssetMetadata> {
