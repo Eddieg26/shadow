@@ -9,6 +9,7 @@ use spatial::bounds::BoundingBox;
 use std::hash::Hash;
 
 pub mod draw;
+pub mod model;
 
 #[derive(
     Copy, Clone, Debug, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize,

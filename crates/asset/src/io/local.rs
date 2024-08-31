@@ -12,9 +12,9 @@ pub struct LocalAsset {
 }
 
 impl LocalAsset {
-    pub fn new(path: &Path) -> Self {
+    pub fn new(path: impl AsRef<Path>) -> Self {
         Self {
-            path: path.to_path_buf(),
+            path: path.as_ref().to_path_buf(),
             file: File::open(path).ok(),
             buffer: Vec::new(),
         }

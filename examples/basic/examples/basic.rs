@@ -1,5 +1,13 @@
-use std::hash::{Hash, Hasher};
+use std::{
+    hash::{Hash, Hasher},
+    u32,
+};
 
+use asset::{
+    io::local::LocalAsset,
+    loader::{AssetLoader, LoadContext},
+    AssetSettings,
+};
 use game::{
     game::Game,
     phases::{Init, Update},
@@ -13,6 +21,7 @@ use graphics::{
         graph::RenderGraphBuilder,
         nodes::render::{Attachment, RenderPass, StoreOp},
     },
+    resources::texture::{Texture, Texture2d, Texture2dSettings},
 };
 use window::{events::WindowCreated, plugin::WindowPlugin};
 

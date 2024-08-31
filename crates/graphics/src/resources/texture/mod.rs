@@ -1,8 +1,14 @@
-use crate::core::{RenderDevice, RenderQueue, TextureFormat};
+use super::{RenderResource, ResourceId};
+use crate::core::{RenderDevice, RenderQueue};
 use asset::Asset;
 use ecs::core::{DenseMap, Resource};
 
-use super::{RenderResource, ResourceId};
+pub mod format;
+pub mod render;
+pub mod texture_2d;
+
+pub use format::*;
+pub use texture_2d::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum TextureDimension {
@@ -86,154 +92,6 @@ pub trait Texture: Asset + 'static {
     fn usage(&self) -> wgpu::TextureUsages;
     fn pixels(&self) -> &[u8];
 }
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct Texture2d {
-    width: u32,
-    height: u32,
-    format: TextureFormat,
-    filter_mode: FilterMode,
-    wrap_mode: WrapMode,
-    mipmaps: bool,
-    pixels: Vec<u8>,
-}
-
-impl Texture for Texture2d {
-    fn width(&self) -> u32 {
-        self.width
-    }
-
-    fn height(&self) -> u32 {
-        self.height
-    }
-
-    fn depth(&self) -> u32 {
-        1
-    }
-
-    fn format(&self) -> TextureFormat {
-        self.format
-    }
-
-    fn dimension(&self) -> TextureDimension {
-        TextureDimension::D2
-    }
-
-    fn filter_mode(&self) -> FilterMode {
-        self.filter_mode
-    }
-
-    fn wrap_mode(&self) -> WrapMode {
-        self.wrap_mode
-    }
-
-    fn mipmaps(&self) -> bool {
-        self.mipmaps
-    }
-
-    fn usage(&self) -> wgpu::TextureUsages {
-        wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST
-    }
-
-    fn pixels(&self) -> &[u8] {
-        &self.pixels
-    }
-}
-
-impl Asset for Texture2d {}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct RenderTexture {
-    format: TextureFormat,
-    width: u32,
-    height: u32,
-    filter_mode: FilterMode,
-    wrap_mode: WrapMode,
-    depth_format: Option<TextureFormat>,
-    mipmaps: bool,
-    pixels: Vec<u8>,
-}
-
-impl RenderTexture {
-    pub fn new(width: u32, height: u32, format: TextureFormat, mipmaps: bool) -> Self {
-        let size = format.size();
-        let pixels = vec![0; (width * height * size) as usize];
-
-        Self {
-            format,
-            width,
-            height,
-            filter_mode: FilterMode::Nearest,
-            wrap_mode: WrapMode::ClampToEdge,
-            depth_format: None,
-            mipmaps,
-            pixels,
-        }
-    }
-
-    pub fn with_filter_mode(mut self, filter_mode: FilterMode) -> Self {
-        self.filter_mode = filter_mode;
-        self
-    }
-
-    pub fn with_wrap_mode(mut self, wrap_mode: WrapMode) -> Self {
-        self.wrap_mode = wrap_mode;
-        self
-    }
-
-    pub fn with_depth(mut self, format: TextureFormat) -> Self {
-        self.depth_format = Some(format);
-        self
-    }
-
-    pub fn depth_format(&self) -> Option<TextureFormat> {
-        self.depth_format
-    }
-}
-
-impl Texture for RenderTexture {
-    fn width(&self) -> u32 {
-        self.width
-    }
-
-    fn height(&self) -> u32 {
-        self.height
-    }
-
-    fn depth(&self) -> u32 {
-        1
-    }
-
-    fn format(&self) -> TextureFormat {
-        self.format
-    }
-
-    fn dimension(&self) -> TextureDimension {
-        TextureDimension::D2
-    }
-
-    fn filter_mode(&self) -> FilterMode {
-        self.filter_mode
-    }
-
-    fn wrap_mode(&self) -> WrapMode {
-        self.wrap_mode
-    }
-
-    fn mipmaps(&self) -> bool {
-        self.mipmaps
-    }
-
-    fn usage(&self) -> wgpu::TextureUsages {
-        wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC
-    }
-
-    fn pixels(&self) -> &[u8] {
-        &self.pixels
-    }
-}
-
-impl Asset for RenderTexture {}
 
 pub struct GraphicsTexture {
     texture: wgpu::Texture,
