@@ -53,7 +53,7 @@ impl AssetMetadata {
             },
             unloaded: |id, state, world| {
                 let assets = world.resource_mut::<Assets<A>>();
-                let asset = assets.remove(&id)?;
+                let asset = assets.remove(&id);
 
                 Some(AssetUnloaded::new(id, asset, state).into())
             },

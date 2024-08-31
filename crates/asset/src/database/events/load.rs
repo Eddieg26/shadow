@@ -181,7 +181,7 @@ impl UnloadAsset {
 }
 
 impl Event for UnloadAsset {
-    type Output = ();
+    type Output = AssetId;
 
     fn invoke(self, world: &mut World) -> Option<Self::Output> {
         let database = world.resource::<AssetDatabase>();
@@ -194,21 +194,22 @@ impl Event for UnloadAsset {
         let state = database.states_mut().unload(&id)?;
         let registry = database.registry();
         let metadata = registry.get_metadata(state.ty())?;
-        let event = metadata.unloaded(id, state, world)?;
-        world.events().add(event);
+        if let Some(event) = metadata.unloaded(id, state, world) {
+            world.events().add(event)
+        }
 
-        None
+        Some(id)
     }
 }
 
 pub struct AssetUnloaded<A: Asset> {
     id: AssetId,
-    asset: A,
+    asset: Option<A>,
     state: AssetState,
 }
 
 impl<A: Asset> AssetUnloaded<A> {
-    pub fn new(id: AssetId, asset: A, state: AssetState) -> Self {
+    pub fn new(id: AssetId, asset: Option<A>, state: AssetState) -> Self {
         Self { id, asset, state }
     }
 
@@ -216,8 +217,8 @@ impl<A: Asset> AssetUnloaded<A> {
         self.id
     }
 
-    pub fn asset(&self) -> &A {
-        &self.asset
+    pub fn asset(&self) -> Option<&A> {
+        self.asset.as_ref()
     }
 
     pub fn state(&self) -> &AssetState {

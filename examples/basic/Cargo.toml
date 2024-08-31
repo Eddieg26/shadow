@@ -12,3 +12,4 @@ asset = { path = "../../crates/asset" }
 window = { path = "../../crates/window" }
 graphics = { path = "../../crates/graphics" }
 toml = { workspace = true }
+wgpu = { workspace = true }

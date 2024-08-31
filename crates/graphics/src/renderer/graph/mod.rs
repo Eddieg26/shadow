@@ -4,7 +4,7 @@ use crate::{
         device::{RenderDevice, RenderQueue},
         surface::RenderSurface,
     },
-    resources::ResourceId,
+    resources::{RenderResource, ResourceId},
 };
 use context::{RenderContext, RenderNodeAction};
 use ecs::{
@@ -221,7 +221,7 @@ impl RenderGraph {
             for indexes in &self.order {
                 let ctx =
                     RenderContext::new(surface.id(), &frame, device, queue, &self.resources, world);
-                    
+
                 for index in indexes {
                     self.nodes[*index].execute(&ctx);
                 }
@@ -252,6 +252,7 @@ impl RenderGraph {
 }
 
 impl Resource for RenderGraph {}
+impl RenderResource for RenderGraph {}
 
 pub trait RenderGraphNode: downcast_rs::Downcast + 'static {
     fn execute(&self, ctx: &RenderContext);

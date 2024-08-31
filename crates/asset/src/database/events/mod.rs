@@ -4,7 +4,10 @@ use super::AssetDatabase;
 use ecs::{
     system::RunMode,
     task::TaskPool,
-    world::{event::{Event, Events}, World},
+    world::{
+        event::{Event, Events},
+        World,
+    },
 };
 use std::collections::VecDeque;
 
@@ -161,7 +164,7 @@ mod tests {
             AssetConfig, AssetDatabase,
         },
         io::{vfs::VirtualFileSystem, AssetIoError, AssetReader},
-        loader::{AssetSerializer, AssetError, AssetLoader, LoadContext},
+        loader::{AssetError, AssetLoader, AssetSerializer, LoadContext},
     };
 
     use super::{AssetImported, ImportAssets, RemoveAssets};
@@ -291,7 +294,10 @@ mod tests {
         let mut world = create_world();
         world.observe::<AssetUnloaded<PlainText>, _>(
             |unloads: &[AssetUnloaded<PlainText>], tracker: &mut Tracker| {
-                tracker.unloaded = unloads[0].asset().0 == "Hello, world!";
+                tracker.unloaded = match unloads[0].asset() {
+                    Some(asset) => asset.0 == "Hello, world!",
+                    None => false,
+                }
             },
         );
         world.build();

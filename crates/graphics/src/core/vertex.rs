@@ -153,6 +153,14 @@ impl VertexLayout {
         &self.attributes
     }
 
+    pub fn contains(&self, attribute: VertexAttribute) -> bool {
+        self.attributes.contains(&attribute)
+    }
+
+    pub fn location(&self, attribute: VertexAttribute) -> Option<usize> {
+        self.attributes.iter().position(|a| *a == attribute)
+    }
+
     pub fn size(&self) -> usize {
         self.attributes.iter().map(|a| a.size()).sum()
     }

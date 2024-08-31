@@ -7,6 +7,11 @@ pub struct BoundingBox {
 }
 
 impl BoundingBox {
+    pub const ZERO: Self = Self {
+        min: Vec3::ZERO,
+        max: Vec3::ZERO,
+    };
+
     pub fn new(min: Vec3, max: Vec3) -> Self {
         Self { min, max }
     }
@@ -39,6 +44,30 @@ impl BoundingBox {
 
     pub fn size(&self) -> Vec3 {
         self.max - self.min
+    }
+
+    pub fn transform(&self, transform: glam::Mat4) -> Self {
+        let min = transform.transform_point3(self.min);
+        let max = transform.transform_point3(self.max);
+
+        Self {
+            min: min.min(max),
+            max: min.max(max),
+        }
+    }
+}
+
+impl From<&[Vec3]> for BoundingBox {
+    fn from(vertices: &[Vec3]) -> Self {
+        let mut min = Vec3::splat(f32::INFINITY);
+        let mut max = Vec3::splat(f32::NEG_INFINITY);
+
+        for vertex in vertices {
+            min = min.min(*vertex);
+            max = max.max(*vertex);
+        }
+
+        Self { min, max }
     }
 }
 

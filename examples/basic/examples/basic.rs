@@ -44,8 +44,8 @@ impl Plugin for BasicPlugin {
 }
 
 fn main() {
-    Game::new()
-        .add_plugin(BasicPlugin)
-        .add_system(Init, || println!("Init"))
-        .run();
+    // Game::new()
+    //     .add_plugin(BasicPlugin)
+    //     .add_system(Init, || println!("Init"))
+    //     .run();
 }

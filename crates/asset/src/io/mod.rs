@@ -83,6 +83,11 @@ pub trait AssetReader {
     fn read(&mut self, amount: usize) -> Result<usize>;
     fn read_to_end(&mut self) -> Result<usize>;
     fn read_dir(&self) -> Result<Vec<PathBuf>>;
+    fn read_to_string(&mut self) -> Result<String> {
+        self.read_to_end()?;
+        String::from_utf8(self.flush()?)
+            .map_err(|e| AssetIoError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, e)))
+    }
     fn bytes(&self) -> &[u8];
     fn flush(&mut self) -> Result<Vec<u8>>;
 }

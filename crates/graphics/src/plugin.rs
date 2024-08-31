@@ -8,10 +8,23 @@ use crate::{
         draw::{Draw, DrawCalls},
         graph::{resources::RenderTargetDesc, RenderGraph, RenderGraphBuilder},
     },
+    resources::{
+        mesh::MeshBuffers,
+        shader::{ShaderSource, Shaders},
+        texture::GraphicsTextures,
+        ExtractArg, RenderAsset, RenderAssetUsage, RenderResource,
+    },
 };
-use ecs::world::{
-    event::{Event, Events},
-    World,
+use asset::{
+    database::events::{AssetLoaded, AssetUnloaded}, plugin::AssetExt, Asset, AssetId, Assets
+};
+use ecs::{
+    core::Resource,
+    system::{ArgItem, SystemArg},
+    world::{
+        event::{Event, Events},
+        World,
+    },
 };
 use game::{
     app::{Extract, MainWorld},
@@ -19,6 +32,7 @@ use game::{
     phases::{PostUpdate, Update},
     plugin::{Plugin, Plugins},
 };
+use std::marker::PhantomData;
 use window::{
     events::{Resized, WindowCreated},
     plugin::WindowPlugin,
@@ -35,16 +49,17 @@ impl Plugin for GraphicsPlugin {
     }
 
     fn start(&self, game: &mut Game) {
-        // game.add_sub_app::<RenderApp>();
         game.add_draw_calls::<()>(|| vec![]);
         game.add_resource(RenderFrames::new());
         game.add_resource(RenderGraphBuilder::new());
-        game.register_event::<SurfaceCreated>();
-        // game.observe::<Resized, _>(|resized: &[Resized], events: &SubEvents<RenderApp>| {
-        //     resized.last().map(|resized| events.add(*resized));
-        // });
+        game.add_render_resource(GraphicsTextures::new());
+        game.add_render_resource(MeshBuffers::new());
+        game.add_render_resource(Shaders::new());
 
-        // let app = game.sub_app_mut::<RenderApp>().unwrap();
+        game.register_loader::<ShaderSource>();
+
+        game.register_event::<SurfaceCreated>();
+
         game.add_system(Extract, extract_render_frames);
         game.add_system(Update, update_render_graph);
     }
@@ -60,7 +75,6 @@ impl Plugin for GraphicsPlugin {
             None => RenderGraph::default(),
         };
 
-        // let app = game.sub_app_mut::<RenderApp>().unwrap();
         game.add_resource(render_graph);
     }
 }
@@ -156,28 +170,111 @@ impl Event for SurfaceCreated {
     }
 }
 
-// pub struct RenderApp;
+pub struct RenderAssetActions<A: RenderAsset> {
+    extract: Vec<AssetId>,
+    remove: Vec<AssetId>,
+    _phantom: PhantomData<A>,
+}
 
-// impl SubApp for RenderApp {}
+impl<A: RenderAsset> RenderAssetActions<A> {
+    pub fn new() -> Self {
+        Self {
+            extract: Vec::new(),
+            remove: Vec::new(),
+            _phantom: PhantomData,
+        }
+    }
+
+    pub fn extract(&mut self, id: AssetId) {
+        self.extract.push(id);
+    }
+
+    pub fn remove(&mut self, id: AssetId) {
+        self.remove.push(id);
+    }
+}
+
+impl<A: RenderAsset> Resource for RenderAssetActions<A> {}
+impl<A: RenderAsset> Default for RenderAssetActions<A> {
+    fn default() -> Self {
+        Self {
+            extract: Default::default(),
+            remove: Default::default(),
+            _phantom: Default::default(),
+        }
+    }
+}
+
+pub fn on_asset_unloaded<R: RenderAsset>(
+    assets: &[<AssetUnloaded<R::Asset> as Event>::Output],
+    actions: &mut RenderAssetActions<R>,
+) {
+    for asset in assets {
+        actions.remove(asset.id());
+    }
+}
+
+pub fn on_asset_loaded<R: RenderAsset>(
+    assets: &[<AssetLoaded<R::Asset> as Event>::Output],
+    actions: &mut RenderAssetActions<R>,
+) {
+    for asset in assets {
+        actions.remove(*asset);
+    }
+}
+
+pub fn extract_render_asset<R: RenderAsset>(main: &MainWorld, world: &World) {
+    let mut arg = <R::Arg<'static> as SystemArg>::get(world);
+    let actions = main.resource_mut::<RenderAssetActions<R>>();
+    let assets = main.resource_mut::<Assets<R::Asset>>();
+    for id in actions.extract.drain(..) {
+        let usage = match assets.get_mut(&id) {
+            Some(asset) => R::extract(&id, asset, &mut arg),
+            None => continue,
+        };
+
+        match usage {
+            Ok(usage) => {
+                if usage == RenderAssetUsage::Discard {
+                    assets.remove(&id);
+                }
+            }
+            Err(_) => continue,
+        }
+    }
+}
+
+pub fn remove_render_asset<'a, R: RenderAsset>(main: &MainWorld, world: &World) {
+    let mut arg = <R::Arg<'static> as SystemArg>::get(world);
+    let actions = main.resource_mut::<RenderAssetActions<R>>();
+
+    for id in actions.remove.drain(..) {
+        R::remove(id, &mut arg);
+    }
+}
 
 pub trait GraphicsExt {
     fn add_draw_calls<D: Draw>(&mut self, partition: impl Fn() -> D::Partition);
+    fn add_render_resource<R: RenderResource>(&mut self, resource: R);
+    fn register_render_asset<R: RenderAsset>(&mut self);
 }
 
 impl GraphicsExt for Game {
     fn add_draw_calls<D: Draw>(&mut self, partition: impl Fn() -> D::Partition) {
         self.add_resource(DrawCalls::<D>::new(partition()));
-
-        // let app = match self.sub_app_mut::<RenderApp>() {
-        //     Some(app) => app,
-        //     None => {
-        //         self.add_sub_app::<RenderApp>();
-        //         self.sub_app_mut::<RenderApp>().unwrap()
-        //     }
-        // };
-
         self.add_resource(DrawCalls::<D>::new(partition()));
         self.add_system(Extract, extract_draw_calls::<D>);
         self.add_system(PostUpdate, clear_draw_calls::<D>);
+    }
+
+    fn add_render_resource<R: RenderResource>(&mut self, resource: R) {
+        self.add_resource(resource);
+    }
+
+    fn register_render_asset<R: RenderAsset>(&mut self) {
+        self.register_asset::<R::Asset>();
+        self.init_resource::<RenderAssetActions<R>>();
+        self.add_system(Extract, remove_render_asset::<R>);
+        self.add_system(Extract, extract_render_asset::<R>);
     }
 }
