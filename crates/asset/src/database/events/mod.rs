@@ -1,6 +1,5 @@
-use crate::loader::{AssetError, AssetErrorKind};
-
 use super::AssetDatabase;
+use crate::loader::{AssetError, AssetErrorKind};
 use ecs::{
     system::RunMode,
     task::TaskPool,
@@ -131,17 +130,17 @@ impl AssetEventExecutor {
 
 impl AssetError {
     pub fn observer(errors: &[AssetError], events: &Events) {
-        let mut remove = Vec::new();
+        let mut removed = Vec::new();
         let mut unloads = Vec::new();
 
         for error in errors {
             match error.kind() {
-                AssetErrorKind::Import(path) => remove.push(path.clone()),
+                AssetErrorKind::Import(path) => removed.push(RemoveAsset::new(path.clone())),
                 AssetErrorKind::Load(path) => unloads.push(UnloadAsset::new(path.clone())),
             }
         }
 
-        events.add(RemoveAssets::new(remove));
+        events.add(RemoveAssets::new(removed));
         events.extend(unloads);
     }
 }
@@ -195,7 +194,6 @@ mod tests {
 
     #[derive(Default)]
     pub struct Tracker {
-        pub imported: bool,
         pub loaded: bool,
         pub unloaded: bool,
     }

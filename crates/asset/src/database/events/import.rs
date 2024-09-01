@@ -7,6 +7,7 @@ use crate::{
     database::{library::DependentLibrary, AssetDatabase},
     io::PathExt,
     loader::{AssetError, AssetErrorKind, LoadErrorKind, LoadedAssets},
+    AssetPath,
 };
 use ecs::{
     core::DenseSet,
@@ -20,7 +21,6 @@ use std::{
     error::Error,
     path::{Path, PathBuf},
 };
-
 
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 pub struct Folder;
@@ -119,7 +119,7 @@ impl ImportFolder {
         let library = database.library();
         let loader = match registry.get_metadata_by_ext(ext) {
             Some(loader) => loader,
-            None => return Some(ImportScan::error(path, LoadErrorKind::NoImporter)),
+            None => return Some(ImportScan::error(path, LoadErrorKind::NoLoader)),
         };
 
         let metadata = match loader.load_metadata(path, config) {
@@ -203,7 +203,7 @@ impl AssetEvent for ImportFolder {
         for scan in scans {
             match scan {
                 ImportScan::Added(path) | ImportScan::Modified(path) => imports.push(path),
-                ImportScan::Removed(path) => removed.push(path),
+                ImportScan::Removed(path) => removed.push(RemoveAsset::new(path)),
                 ImportScan::Error(error) => errors.push(error),
             }
         }
@@ -272,6 +272,7 @@ impl AssetEvent for ImportAssets {
         let mut paths = std::mem::take(&mut self.paths);
         let mut errors = vec![];
         let mut imports = vec![];
+        let mut removed = vec![];
         let mut dependents = DependentLibrary::load(config).unwrap_or_default();
 
         while !paths.is_empty() {
@@ -286,7 +287,7 @@ impl AssetEvent for ImportAssets {
                 let loader = match path.ext().and_then(|ext| registry.get_metadata_by_ext(ext)) {
                     Some(loader) => loader,
                     None => {
-                        errors.push(AssetError::import(path, LoadErrorKind::NoImporter));
+                        errors.push(AssetError::import(path, LoadErrorKind::NoLoader));
                         continue;
                     }
                 };
@@ -307,11 +308,19 @@ impl AssetEvent for ImportAssets {
                     for id in prev_meta.dependencies().difference(imported.dependencies()) {
                         dependents.remove_dependent(id, &imported.id());
                     }
+
+                    for child in prev_meta.children().difference(imported.meta().children()) {
+                        removed.push(RemoveAsset::new(child));
+                    }
                 }
 
-                database
-                    .library_mut()
-                    .add_asset(imported.id(), path.clone(), AssetKind::Main);
+                let mut library = database.library_mut();
+                library.add_asset(imported.id(), path.clone(), AssetKind::Main);
+
+                for child in imported.meta().children() {
+                    library.add_asset(*child, path.clone(), AssetKind::Sub);
+                }
+
                 imports.push(AssetImported::new(imported.id(), path));
                 assets.add_erased(imported.id(), imported.into());
             }
@@ -347,38 +356,47 @@ impl AssetEvent for ImportAssets {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct RemoveAsset {
-    path: PathBuf,
+    path: AssetPath,
 }
 
 impl RemoveAsset {
-    pub fn new(path: impl AsRef<Path>) -> Self {
-        Self {
-            path: path.as_ref().to_path_buf(),
-        }
+    pub fn new(path: impl Into<AssetPath>) -> Self {
+        Self { path: path.into() }
     }
 
-    pub fn observer(paths: &[PathBuf], events: &Events) {
-        events.add(RemoveAssets::new(paths.to_vec()));
+    pub fn path(&self) -> &AssetPath {
+        &self.path
+    }
+
+    pub fn observer(assets: &[Self], events: &Events) {
+        events.add(RemoveAssets::new(assets.to_vec()));
+    }
+}
+
+impl<I: Into<AssetPath>> From<I> for RemoveAsset {
+    fn from(path: I) -> Self {
+        Self::new(path)
     }
 }
 
 impl Event for RemoveAsset {
-    type Output = PathBuf;
+    type Output = Self;
 
     fn invoke(self, _: &mut World) -> Option<Self::Output> {
-        Some(self.path)
+        Some(self)
     }
 }
 
 pub struct RemoveAssets {
-    paths: Vec<PathBuf>,
+    assets: Vec<RemoveAsset>,
 }
 
 impl RemoveAssets {
-    pub fn new(paths: impl IntoIterator<Item = impl Into<PathBuf>>) -> Self {
+    pub fn new(assets: impl IntoIterator<Item = impl Into<RemoveAsset>>) -> Self {
         Self {
-            paths: paths.into_iter().map(Into::into).collect(),
+            assets: assets.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -398,16 +416,29 @@ impl AssetEvent for RemoveAssets {
         let mut dependents = DependentLibrary::load(config).unwrap_or_default();
         let mut reimports = DenseSet::new();
         let mut unloads = Vec::new();
+        let mut removed = Vec::new();
 
-        for path in &self.paths {
-            let path = path
-                .without_prefix(config.root().join(config.assets()))
-                .to_path_buf();
+        for asset in &self.assets {
+            let (id, path) = match &asset.path {
+                AssetPath::Id(id) => match database.library().path(id) {
+                    Some(path) => (*id, path.clone()),
+                    None => continue,
+                },
+                AssetPath::Path(path) => {
+                    let id = match database.library().id(&path).copied() {
+                        Some(id) => id,
+                        None => continue,
+                    };
 
-            let id = match database.library_mut().remove_path(&path) {
-                Some(id) => id,
-                None => continue,
+                    let path = path
+                        .without_prefix(config.root().join(config.assets()))
+                        .to_path_buf();
+
+                    (id, path)
+                }
             };
+
+            database.library_mut().remove_asset(&id);
 
             let artifact_meta = match config.load_artifact_meta(id) {
                 Ok(artifact_meta) => artifact_meta,
@@ -418,6 +449,10 @@ impl AssetEvent for RemoveAssets {
 
             for dep in artifact_meta.dependencies() {
                 dependents.remove_dependent(dep, &id);
+            }
+
+            for child in artifact_meta.children() {
+                removed.push(RemoveAsset::new(child));
             }
 
             let mut dependents = dependents.remove_asset(&id);
@@ -434,7 +469,13 @@ impl AssetEvent for RemoveAssets {
             events.add(AssetError::import(DependentLibrary::path(config), e));
         }
 
-        database.events().push_front(ImportAssets::new(reimports));
+        if !removed.is_empty() {
+            database.events().push_front(RemoveAssets::new(removed));
+        }
+
+        if !reimports.is_empty() {
+            database.events().push_front(ImportAssets::new(reimports));
+        }
         events.extend(unloads);
     }
 }

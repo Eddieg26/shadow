@@ -20,10 +20,10 @@ pub struct LoadAsset {
 }
 
 impl LoadAsset {
-    pub fn new(path: impl Into<AssetPath>) -> Self {
+    pub fn new(path: impl Into<AssetPath>, load_dependencies: bool) -> Self {
         Self {
             path: path.into(),
-            load_dependencies: true,
+            load_dependencies,
         }
     }
 
@@ -101,52 +101,62 @@ impl Event for LoadAssets {
 
 impl AssetEvent for LoadAssets {
     fn execute(&mut self, database: &AssetDatabase, events: &Events) {
+        let config = database.config();
+        let registry = database.registry();
+
         let mut errors = vec![];
         let mut assets = LoadedAssets::new();
         let mut loaded_ids = DenseSet::new();
-        let config = database.config();
+        let mut loads = std::mem::take(&mut self.loads);
 
-        let registry = database.registry();
-        for load in &self.loads {
-            let id = match &load.path {
-                AssetPath::Id(id) => *id,
-                AssetPath::Path(path) => match database.library().id(&path).copied() {
-                    Some(id) => id,
-                    None => continue,
-                },
-            };
+        while !loads.is_empty() {
+            for load in loads.drain(..).collect::<Vec<_>>() {
+                let id = match &load.path {
+                    AssetPath::Id(id) => *id,
+                    AssetPath::Path(path) => match database.library().id(&path).copied() {
+                        Some(id) => id,
+                        None => continue,
+                    },
+                };
 
-            if assets.contains(&id) {
-                continue;
-            }
-
-            let meta = match database.config().load_artifact_meta(id) {
-                Ok(artifact) => artifact,
-                Err(error) => {
-                    errors.push(AssetError::load(id, error));
+                if assets.contains(&id) {
                     continue;
                 }
-            };
 
-            let loader = match registry.get_metadata(meta.ty()) {
-                Some(loader) => loader,
-                None => {
-                    errors.push(AssetError::load(id, LoadErrorKind::NoImporter));
-                    continue;
-                }
-            };
-
-            let asset =
-                match loader.load(id, &registry, config, &mut assets, load.load_dependencies) {
-                    Ok(asset) => asset,
+                let meta = match database.config().load_artifact_meta(id) {
+                    Ok(artifact) => artifact,
                     Err(error) => {
-                        errors.push(error);
+                        errors.push(AssetError::load(id, error));
                         continue;
                     }
                 };
 
-            loaded_ids.insert(id);
-            assets.add_erased(id, asset);
+                let loader = match registry.get_metadata(meta.ty()) {
+                    Some(loader) => loader,
+                    None => {
+                        errors.push(AssetError::load(id, LoadErrorKind::NoLoader));
+                        continue;
+                    }
+                };
+
+                let asset =
+                    match loader.load(id, &registry, config, &mut assets, load.load_dependencies) {
+                        Ok(asset) => asset,
+                        Err(error) => {
+                            errors.push(error);
+                            continue;
+                        }
+                    };
+
+                if let Some(parent) = meta.parent() {
+                    if !database.states().is_loaded(&parent) && !assets.contains(&parent) {
+                        loads.push(LoadAsset::hard(parent));
+                    }
+                }
+
+                loaded_ids.insert(id);
+                assets.add_erased(id, asset);
+            }
         }
 
         let registry = database.registry();
@@ -228,13 +238,16 @@ impl<A: Asset> AssetUnloaded<A> {
     pub fn observer(unloaded: &[AssetUnloaded<A>], database: &AssetDatabase, events: &Events) {
         let states = database.states();
         let mut reloads = DenseSet::new();
+        let mut child_unloads = vec![];
 
         for unloaded in unloaded {
-            let dependents = states.dependents(&unloaded.id());
+            let (children, dependents) = states.children_and_dependents(&unloaded.id());
             reloads.extend(dependents);
+            child_unloads.extend(children.iter().map(UnloadAsset::new));
         }
 
         events.add(LoadAssets::soft(reloads));
+        events.extend(child_unloads);
     }
 }
 
@@ -250,14 +263,21 @@ pub struct AssetLoaded<A: Asset> {
     id: AssetId,
     asset: A,
     dependencies: HashSet<AssetId>,
+    parent: Option<AssetId>,
 }
 
 impl<A: Asset> AssetLoaded<A> {
-    pub fn new(id: AssetId, asset: A, dependencies: HashSet<AssetId>) -> Self {
+    pub fn new(
+        id: AssetId,
+        asset: A,
+        dependencies: HashSet<AssetId>,
+        parent: Option<AssetId>,
+    ) -> Self {
         Self {
             id,
             asset,
             dependencies,
+            parent,
         }
     }
 
@@ -267,6 +287,14 @@ impl<A: Asset> AssetLoaded<A> {
 
     pub fn asset(&self) -> &A {
         &self.asset
+    }
+
+    pub fn dependencies(&self) -> &HashSet<AssetId> {
+        &self.dependencies
+    }
+
+    pub fn parent(&self) -> Option<AssetId> {
+        self.parent
     }
 
     pub fn observer(loaded: &[AssetId], database: &AssetDatabase, events: &Events) {
@@ -290,10 +318,11 @@ impl<A: Asset> Event for AssetLoaded<A> {
     fn invoke(self, world: &mut World) -> Option<Self::Output> {
         let database = world.resource_mut::<AssetDatabase>();
         let assets = world.resource_mut::<Assets<A>>();
+        let state = AssetState::new::<A>(self.dependencies, self.parent);
         let mut states = database.states_mut();
 
         assets.add(self.id, self.asset);
-        states.load(self.id, AssetState::new::<A>(self.dependencies));
+        states.load(self.id, state);
 
         Some(self.id)
     }

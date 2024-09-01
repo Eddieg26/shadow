@@ -7,6 +7,8 @@ pub struct ArtifactMeta {
     pub ty: AssetType,
     pub checksum: u32,
     pub dependencies: HashSet<AssetId>,
+    pub parent: Option<AssetId>,
+    pub children: HashSet<AssetId>,
 }
 
 impl ArtifactMeta {
@@ -16,6 +18,8 @@ impl ArtifactMeta {
             ty: AssetType::of::<A>(),
             checksum,
             dependencies,
+            parent: None,
+            children: HashSet::new(),
         }
     }
 
@@ -30,7 +34,18 @@ impl ArtifactMeta {
             ty,
             checksum,
             dependencies,
+            parent: None,
+            children: HashSet::new(),
         }
+    }
+
+    pub fn with_parent(mut self, parent: AssetId) -> Self {
+        self.parent = Some(parent);
+        self
+    }
+
+    pub fn add_child(&mut self, child: AssetId) {
+        self.children.insert(child);
     }
 
     pub fn id(&self) -> AssetId {
@@ -47,6 +62,14 @@ impl ArtifactMeta {
 
     pub fn dependencies(&self) -> &HashSet<AssetId> {
         &self.dependencies
+    }
+
+    pub fn parent(&self) -> Option<AssetId> {
+        self.parent
+    }
+
+    pub fn children(&self) -> &HashSet<AssetId> {
+        &self.children
     }
 }
 

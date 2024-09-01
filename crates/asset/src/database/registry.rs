@@ -9,7 +9,7 @@ use crate::{
     io::{AssetIoError, PathExt},
     loader::{
         AssetError, AssetLoader, AssetProcessor, LoadContext, LoadErrorKind, LoadedAsset,
-        LoadedAssets, LoadedMetadata,
+        LoadedAssets, LoadedMetadata, ProcessContext,
     },
 };
 use ecs::{
@@ -43,7 +43,9 @@ pub struct AssetMetadata {
     save: AssetSaveFn,
     load: AssetLoadFn,
     importers: DenseMap<&'static str, AssetImportFn>,
-    process: Option<fn(&mut ImportedAsset, &LoadedAssets) -> Result<(), AssetError>>,
+    process: Option<
+        fn(&Path, &mut ImportedAsset, &mut LoadedAssets) -> Result<Vec<ImportedAsset>, AssetError>,
+    >,
     load_metadata: Option<fn(&Path, &AssetConfig) -> Result<LoadedMetadata, AssetError>>,
 }
 
@@ -53,8 +55,9 @@ impl AssetMetadata {
             loaded: |loaded: LoadedAsset| {
                 let id = loaded.meta.id();
                 let dependencies = loaded.meta.dependencies;
+                let parent = loaded.meta.parent;
                 let asset = loaded.asset.take::<A>();
-                ErasedEvent::new(AssetLoaded::new(id, asset, dependencies))
+                ErasedEvent::new(AssetLoaded::new(id, asset, dependencies, parent))
             },
             unloaded: |id, state, world| {
                 let assets = world.resource_mut::<Assets<A>>();
@@ -68,8 +71,9 @@ impl AssetMetadata {
                 let asset = bincode::serialize::<A>(imported.asset())
                     .map_err(|e| AssetError::import(path, e))?;
 
-                let artifact = Artifact::new(&asset, imported.meta().clone());
-                
+                let meta = imported.meta().clone();
+                let artifact = Artifact::new(&asset, meta);
+
                 config
                     .save_artifact(&artifact)
                     .map_err(|e| AssetError::import(path, e))
@@ -124,7 +128,17 @@ impl AssetMetadata {
 
             if let Some(processor) = &_self.process {
                 registry.load_dependencies(asset.dependencies(), config, assets, false);
-                processor(&mut asset, assets)?;
+                let sub_assets = processor(&path, &mut asset, assets)?;
+                for sub_asset in sub_assets {
+                    let metadata = match registry.get_metadata(sub_asset.meta().ty()) {
+                        Some(metadata) => metadata,
+                        None => continue,
+                    };
+
+                    if let Ok(_) = metadata.save(&path, &sub_asset, config) {
+                        asset.meta.add_child(sub_asset.meta().id());
+                    }
+                }
             }
 
             _self
@@ -140,7 +154,18 @@ impl AssetMetadata {
     }
 
     pub fn set_processor<P: AssetProcessor>(&mut self) {
-        self.process = Some(|_, _| todo!());
+        self.process = Some(|path, imported, assets| {
+            let id = imported.id();
+            let (asset, settings) = imported
+                .mutate::<<P::Loader as AssetLoader>::Asset, <P::Loader as AssetLoader>::Settings>(
+                );
+
+            let mut ctx = ProcessContext::new(id, settings, assets);
+            match P::process(asset, &mut ctx) {
+                Ok(_) => Ok(ctx.finish()),
+                Err(e) => Err(AssetError::import(path, e)),
+            }
+        });
     }
 
     pub fn loaded(&self, loaded: LoadedAsset) -> ErasedEvent {
@@ -164,7 +189,7 @@ impl AssetMetadata {
         let import = self
             .importers
             .get(&ext)
-            .ok_or_else(|| AssetError::import(path, LoadErrorKind::NoImporter))?;
+            .ok_or_else(|| AssetError::import(path, LoadErrorKind::NoLoader))?;
 
         import(self, path, registry, config, assets)
     }
@@ -182,10 +207,11 @@ impl AssetMetadata {
 
     pub fn process(
         &self,
+        path: &Path,
         asset: &mut ImportedAsset,
-        assets: &LoadedAssets,
-    ) -> Option<Result<(), AssetError>> {
-        self.process.map(|process| process(asset, assets))
+        assets: &mut LoadedAssets,
+    ) -> Option<Result<Vec<ImportedAsset>, AssetError>> {
+        self.process.map(|process| process(path, asset, assets))
     }
 
     pub fn save(
@@ -344,6 +370,10 @@ impl ImportedAsset {
 
     pub fn settings_mut<S: Settings>(&mut self) -> &mut S {
         self.settings.value_mut()
+    }
+
+    pub fn mutate<A: Asset, S: Settings>(&mut self) -> (&mut A, &mut S) {
+        (self.asset.value_mut(), self.settings.value_mut())
     }
 
     pub fn meta(&self) -> &ArtifactMeta {

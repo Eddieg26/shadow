@@ -5,13 +5,15 @@ use std::collections::HashSet;
 pub struct AssetState {
     ty: AssetType,
     dependencies: HashSet<AssetId>,
+    parent: Option<AssetId>,
 }
 
 impl AssetState {
-    pub fn new<A: Asset>(dependencies: HashSet<AssetId>) -> Self {
+    pub fn new<A: Asset>(dependencies: HashSet<AssetId>, parent: Option<AssetId>) -> Self {
         Self {
             ty: AssetType::of::<A>(),
             dependencies,
+            parent,
         }
     }
 
@@ -59,7 +61,7 @@ impl AssetStates {
         self.states.iter()
     }
 
-    pub fn dependents<'a>(&self, id: &AssetId) -> HashSet<AssetId> {
+    pub fn dependents(&self, id: &AssetId) -> HashSet<AssetId> {
         let mut dependents = HashSet::new();
 
         for (state_id, state) in self.states.iter() {
@@ -69,5 +71,43 @@ impl AssetStates {
         }
 
         dependents
+    }
+
+    pub fn children(&self, id: &AssetId) -> HashSet<AssetId> {
+        let mut children = HashSet::new();
+
+        for (state_id, state) in self.states.iter() {
+            if state.parent == Some(*id) {
+                children.insert(*state_id);
+            }
+        }
+
+        children
+    }
+
+    pub fn children_and_dependents(&self, id: &AssetId) -> (HashSet<AssetId>, HashSet<AssetId>) {
+        let mut children = HashSet::new();
+        let mut dependents = HashSet::new();
+
+        for (state_id, state) in self.states.iter() {
+            if state.dependencies().contains(id) {
+                dependents.insert(*state_id);
+                continue;
+            }
+
+            if state.parent == Some(*id) {
+                children.insert(*state_id);
+            }
+        }
+
+        (children, dependents)
+    }
+
+    pub fn len(&self) -> usize {
+        self.states.len()
+    }
+
+    pub fn clear(&mut self) {
+        self.states.clear();
     }
 }

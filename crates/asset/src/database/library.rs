@@ -40,11 +40,15 @@ impl AssetLibrary {
         old
     }
 
-    pub fn remove_asset(&mut self, id: &AssetId, kind: AssetKind) -> Option<PathBuf> {
+    pub fn remove_asset(&mut self, id: &AssetId) -> Option<PathBuf> {
         let path = self.ids.remove(id)?;
-        if kind == AssetKind::Main {
-            self.paths.remove(&path);
-        }
+        self.paths
+            .get(&path)
+            .copied()
+            .and_then(|id| match id == id {
+                true => self.paths.remove(&path),
+                false => None,
+            });
         Some(path)
     }
 
