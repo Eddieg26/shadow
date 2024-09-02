@@ -117,6 +117,10 @@ impl Resources {
             .map(|data| data.get_mut::<R>())
     }
 
+    pub fn has<R: Resource>(&self) -> bool {
+        self.0.resources.contains(&ResourceType::new::<R>())
+    }
+
     pub fn remove<R: Resource>(&mut self) -> Option<R> {
         let ty = ResourceType::new::<R>();
         self.0.resources.remove(&ty).map(|data| data.data.take())
@@ -154,6 +158,10 @@ impl LocalResources {
             .resources
             .get(&ResourceType::new::<R>())
             .map(|data| data.get_mut::<R>())
+    }
+
+    pub fn has<R: LocalResource>(&self) -> bool {
+        self.0.resources.contains(&ResourceType::new::<R>())
     }
 
     pub fn remove<R: LocalResource>(&mut self) -> Option<R> {

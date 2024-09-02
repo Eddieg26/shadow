@@ -1,10 +1,8 @@
 use asset::{Asset, AssetId};
-use ecs::core::Resource;
+use ecs::core::{DenseMap, Resource};
 use ecs::system::{ArgItem, SystemArg};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-
-use crate::core::{RenderDevice, RenderQueue};
 
 pub mod buffer;
 pub mod mesh;
@@ -44,6 +42,12 @@ impl From<AssetId> for ResourceId {
     }
 }
 
+impl From<&AssetId> for ResourceId {
+    fn from(id: &AssetId) -> Self {
+        Self(u64::from(*id))
+    }
+}
+
 #[derive(
     Copy, Default, Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize,
 )]
@@ -54,21 +58,10 @@ pub enum ReadWrite {
     Disabled,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum RenderAssetUsage {
-    Keep,
-    Discard,
-}
-
-pub trait RenderResource: Resource {}
-
-impl RenderResource for RenderDevice {}
-impl RenderResource for RenderQueue {}
-
 pub trait ExtractArg<'a>: SystemArg {}
 
-impl<'a, R: RenderResource> ExtractArg<'a> for &R {}
-impl<'a, R: RenderResource> ExtractArg<'a> for &mut R {}
+impl<'a, R: Resource> ExtractArg<'a> for &R {}
+impl<'a> ExtractArg<'a> for () {}
 impl<'a, A: ExtractArg<'a>, B: ExtractArg<'a>> ExtractArg<'a> for (A, B) {}
 impl<'a, A: ExtractArg<'a>, B: ExtractArg<'a>, C: ExtractArg<'a>> ExtractArg<'a> for (A, B, C) {}
 impl<'a, A: ExtractArg<'a>, B: ExtractArg<'a>, C: ExtractArg<'a>, D: ExtractArg<'a>> ExtractArg<'a>
@@ -76,15 +69,65 @@ impl<'a, A: ExtractArg<'a>, B: ExtractArg<'a>, C: ExtractArg<'a>, D: ExtractArg<
 {
 }
 
-pub trait RenderAsset: 'static {
-    type Asset: Asset;
-    type Arg<'a>: ExtractArg<'a>;
-    type Error: std::error::Error;
+pub trait RenderAsset: 'static {}
 
-    fn extract<'a>(
-        id: &AssetId,
-        asset: &mut Self::Asset,
-        arg: &mut ArgItem<Self::Arg<'a>>,
-    ) -> Result<RenderAssetUsage, Self::Error>;
-    fn remove<'a>(id: AssetId, arg: &mut ArgItem<Self::Arg<'a>>);
+pub struct RenderAssets<R: RenderAsset> {
+    assets: DenseMap<ResourceId, R>,
+}
+
+impl<R: RenderAsset> RenderAssets<R> {
+    pub fn new() -> Self {
+        Self {
+            assets: DenseMap::new(),
+        }
+    }
+
+    pub fn insert(&mut self, id: ResourceId, asset: R) {
+        self.assets.insert(id, asset);
+    }
+
+    pub fn get(&self, id: &ResourceId) -> Option<&R> {
+        self.assets.get(id)
+    }
+
+    pub fn get_mut(&mut self, id: &ResourceId) -> Option<&mut R> {
+        self.assets.get_mut(id)
+    }
+
+    pub fn remove(&mut self, id: &ResourceId) {
+        self.assets.remove(id);
+    }
+}
+
+impl<R: RenderAsset> Default for RenderAssets<R> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<R: RenderAsset> Resource for RenderAssets<R> {}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AssetUsage {
+    Keep,
+    Discard,
+}
+
+pub trait RenderAssetExtractor: 'static {
+    type Source: Asset;
+    type Target: RenderAsset;
+    type Arg<'a>: ExtractArg<'a>;
+
+    fn extract<'a>(source: &mut Self::Source, arg: &ArgItem<Self::Arg<'a>>)
+        -> Option<Self::Target>;
+    fn update<'a>(
+        _source: &mut Self::Source,
+        _asset: &mut Self::Target,
+        _arg: &ArgItem<Self::Arg<'a>>,
+    ) {
+    }
+
+    fn usage(_source: &Self::Source) -> AssetUsage {
+        AssetUsage::Keep
+    }
 }

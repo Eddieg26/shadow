@@ -201,6 +201,7 @@ dependencies = [
  "ecs",
  "game",
  "graphics",
+ "serde",
  "toml",
  "wgpu",
  "window",

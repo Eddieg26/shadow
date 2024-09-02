@@ -1,10 +1,13 @@
 use super::{
     buffer::{BufferFlags, IndexBuffer, Indices, VertexBuffer},
-    ReadWrite, RenderResource, ResourceId,
+    ReadWrite, RenderAsset, RenderAssetExtractor,
 };
-use crate::core::{VertexAttribute, VertexAttributeValues, VertexAttributes, VertexLayout};
+use crate::core::{
+    RenderDevice, RenderQueue, VertexAttribute, VertexAttributeValues, VertexAttributes,
+    VertexLayout,
+};
 use asset::Asset;
-use ecs::core::{DenseMap, Resource};
+use ecs::system::ArgItem;
 use spatial::bounds::BoundingBox;
 use std::hash::Hash;
 
@@ -230,30 +233,31 @@ impl Mesh {
         data
     }
 
-    pub fn vertex_buffer(&mut self) -> Option<VertexBuffer<u8>> {
+    pub fn vertex_buffer(&self) -> Option<VertexBuffer<u8>> {
         let data = self.vertex_data();
         let layout = self.layout();
         let flags = match self.read_write() {
             ReadWrite::Enabled => BufferFlags::COPY_DST | BufferFlags::MAP_WRITE,
-            ReadWrite::Disabled => {
-                self.attributes.clear();
-                BufferFlags::empty()
-            }
+            ReadWrite::Disabled => BufferFlags::empty(),
         };
 
-        Some(VertexBuffer::create(data, layout, flags))
+        match data.is_empty() {
+            true => None,
+            false => Some(VertexBuffer::create(data, layout, flags)),
+        }
     }
 
-    pub fn index_buffer(&mut self) -> Option<IndexBuffer> {
-        let (flags, indices) = match self.read_write() {
-            ReadWrite::Enabled => (
-                BufferFlags::COPY_DST | BufferFlags::MAP_WRITE,
-                self.indices.clone()?,
-            ),
-            ReadWrite::Disabled => (BufferFlags::empty(), self.indices.take()?),
+    pub fn index_buffer(&self) -> Option<IndexBuffer> {
+        let flags = match self.read_write() {
+            ReadWrite::Enabled => BufferFlags::COPY_DST | BufferFlags::MAP_WRITE,
+            ReadWrite::Disabled => BufferFlags::empty(),
         };
 
-        Some(IndexBuffer::create(indices, flags))
+        let indices = self.indices.as_ref()?;
+        match indices.is_empty() {
+            true => None,
+            false => Some(IndexBuffer::create(indices.clone(), flags)),
+        }
     }
 
     pub fn calculate_bounds(&mut self) {
@@ -267,60 +271,91 @@ impl Mesh {
             _ => (),
         }
     }
+
+    pub fn upload(
+        &mut self,
+        buffers: &mut MeshBuffers,
+        device: &RenderDevice,
+        queue: &RenderQueue,
+    ) {
+        if self.dirty.contains(MeshDirty::ATTRIBUTES) {
+            buffers.vertex_mut().set_vertices(self.vertex_data());
+            buffers.vertex_mut().commit(device, queue);
+            self.dirty.remove(MeshDirty::ATTRIBUTES);
+        }
+
+        if self.dirty.contains(MeshDirty::INDICES) {
+            match (buffers.index_mut(), self.indices()) {
+                (Some(index), Some(indices)) => {
+                    index.set_indices(indices.clone());
+                    index.commit(device, queue);
+                    self.dirty.remove(MeshDirty::INDICES);
+                }
+                _ => (),
+            }
+        }
+    }
 }
 
 impl Asset for Mesh {}
 
 pub struct MeshBuffers {
-    vertex: DenseMap<ResourceId, VertexBuffer<u8>>,
-    index: DenseMap<ResourceId, IndexBuffer>,
+    vertex: VertexBuffer<u8>,
+    index: Option<IndexBuffer>,
 }
 
 impl MeshBuffers {
-    pub fn new() -> Self {
-        Self {
-            vertex: DenseMap::new(),
-            index: DenseMap::new(),
-        }
+    pub fn create(mesh: &Mesh) -> Option<MeshBuffers> {
+        let vertex = mesh.vertex_buffer()?;
+        let index = mesh.index_buffer();
+
+        Some(Self { vertex, index })
     }
 
-    pub fn vertex(&self, id: ResourceId) -> Option<&VertexBuffer<u8>> {
-        self.vertex.get(&id)
+    pub fn vertex(&self) -> &VertexBuffer<u8> {
+        &self.vertex
     }
 
-    pub fn index(&self, id: ResourceId) -> Option<&IndexBuffer> {
-        self.index.get(&id)
+    pub fn index(&self) -> Option<&IndexBuffer> {
+        self.index.as_ref()
     }
 
-    pub fn vertex_mut(&mut self, id: ResourceId) -> Option<&mut VertexBuffer<u8>> {
-        self.vertex.get_mut(&id)
+    pub fn vertex_mut(&mut self) -> &mut VertexBuffer<u8> {
+        &mut self.vertex
     }
 
-    pub fn index_mut(&mut self, id: ResourceId) -> Option<&mut IndexBuffer> {
-        self.index.get_mut(&id)
-    }
-
-    pub fn insert_vertex(&mut self, id: ResourceId, buffer: VertexBuffer<u8>) {
-        self.vertex.insert(id, buffer);
-    }
-
-    pub fn insert_index(&mut self, id: ResourceId, buffer: IndexBuffer) {
-        self.index.insert(id, buffer);
-    }
-
-    pub fn remove_vertex(&mut self, id: ResourceId) -> Option<VertexBuffer<u8>> {
-        self.vertex.remove(&id)
-    }
-
-    pub fn remove_index(&mut self, id: ResourceId) -> Option<IndexBuffer> {
-        self.index.remove(&id)
-    }
-
-    pub fn clear(&mut self) {
-        self.vertex.clear();
-        self.index.clear();
+    pub fn index_mut(&mut self) -> Option<&mut IndexBuffer> {
+        self.index.as_mut()
     }
 }
 
-impl Resource for MeshBuffers {}
-impl RenderResource for MeshBuffers {}
+impl RenderAsset for MeshBuffers {}
+
+impl RenderAssetExtractor for MeshBuffers {
+    type Source = Mesh;
+    type Target = MeshBuffers;
+    type Arg<'a> = (&'a RenderDevice, &'a RenderQueue);
+
+    fn extract<'a>(
+        source: &mut Self::Source,
+        arg: &ArgItem<Self::Arg<'a>>,
+    ) -> Option<Self::Target> {
+        let (device, queue) = arg;
+
+        let mut buffers = Self::create(source)?;
+        source.upload(&mut buffers, device, queue);
+
+        Some(buffers)
+    }
+
+    fn update<'a>(
+        source: &mut Self::Source,
+        asset: &mut Self::Target,
+        arg: &ArgItem<Self::Arg<'a>>,
+    ) {
+        if source.read_write() == ReadWrite::Enabled {
+            let (device, queue) = arg;
+            source.upload(asset, device, queue);
+        }
+    }
+}

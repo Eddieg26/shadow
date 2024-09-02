@@ -47,13 +47,6 @@ impl Phase for Update {}
 pub struct PostUpdate;
 impl Phase for PostUpdate {}
 
-pub struct PreRender;
-impl Phase for PreRender {}
-pub struct Render;
-impl Phase for Render {}
-pub struct PostRender;
-impl Phase for PostRender {}
-
 pub struct Last;
 impl Phase for Last {}
 
@@ -66,9 +59,6 @@ impl Phase for Execute {
         schedule.add_schedule(Schedule::from::<PreUpdate>());
         schedule.add_schedule(Schedule::from::<Update>());
         schedule.add_schedule(Schedule::from::<PostUpdate>());
-        schedule.add_schedule(Schedule::from::<PreRender>());
-        schedule.add_schedule(Schedule::from::<Render>());
-        schedule.add_schedule(Schedule::from::<PostRender>());
         schedule.add_schedule(Schedule::from::<Last>());
         schedule
     }

@@ -1,5 +1,5 @@
 use crate::{
-    camera::{ClearFlag, RenderFrame},
+    components::{ClearFlag, RenderFrame},
     core::Color,
     renderer::{
         draw::{Draw, DrawCalls},

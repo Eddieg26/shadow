@@ -337,3 +337,74 @@ impl<A: Asset> Default for Assets<A> {
         Self::new()
     }
 }
+
+#[derive(Debug)]
+pub enum AssetAction<A: Asset> {
+    Added(AssetId),
+    Updated(AssetId),
+    Removed(AssetId),
+    None(AssetId, std::marker::PhantomData<A>),
+}
+
+impl<A: Asset> AssetAction<A> {
+    pub fn id(&self) -> &AssetId {
+        match self {
+            Self::Added(id) => id,
+            Self::Updated(id) => id,
+            Self::Removed(id) => id,
+            Self::None(id, _) => id,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct AssetActions<A: Asset> {
+    actions: Vec<AssetAction<A>>,
+    _phantom: std::marker::PhantomData<A>,
+}
+
+impl<A: Asset> AssetActions<A> {
+    pub fn new() -> Self {
+        Self {
+            actions: Vec::new(),
+            _phantom: std::marker::PhantomData,
+        }
+    }
+
+    pub fn add(&mut self, id: AssetId) {
+        self.actions.push(AssetAction::Added(id));
+    }
+
+    pub fn update(&mut self, id: AssetId) {
+        self.actions.push(AssetAction::Updated(id));
+    }
+
+    pub fn remove(&mut self, id: AssetId) {
+        self.actions.push(AssetAction::Removed(id));
+    }
+
+    pub fn iter(&self) -> std::slice::Iter<AssetAction<A>> {
+        self.actions.iter()
+    }
+
+    pub fn clear(&mut self) {
+        self.actions.clear();
+    }
+}
+
+impl<A: Asset> Resource for AssetActions<A> {}
+
+impl<A: Asset> Default for AssetActions<A> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<A: Asset> IntoIterator for AssetActions<A> {
+    type Item = AssetAction<A>;
+    type IntoIter = std::vec::IntoIter<AssetAction<A>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.actions.into_iter()
+    }
+}

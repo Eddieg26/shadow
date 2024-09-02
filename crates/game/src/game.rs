@@ -39,6 +39,10 @@ impl Game {
         }
     }
 
+    pub fn world(&self) -> &World {
+        &self.world
+    }
+
     pub fn resource<R: Resource>(&self) -> &R {
         self.world.resource::<R>()
     }
@@ -71,12 +75,12 @@ impl Game {
         self.world.try_local_resource_mut::<R>()
     }
 
-    pub fn try_init_resource<R: Resource + Default>(&mut self) -> &mut R {
-        self.world.try_init_resource::<R>()
+    pub fn has_resource<R: Resource>(&self) -> bool {
+        self.world.has_resource::<R>()
     }
 
-    pub fn try_init_local_resource<R: LocalResource + Default>(&mut self) -> &mut R {
-        self.world.try_init_local_resource::<R>()
+    pub fn has_local_resource<R: LocalResource>(&self) -> bool {
+        self.world.has_local_resource::<R>()
     }
 
     pub fn sub_app<S: SubApp>(&mut self) -> Option<&World> {

@@ -47,9 +47,9 @@ pub struct MeshLoadSettings {
 
 impl Settings for MeshLoadSettings {}
 
-pub struct ObjLoader;
+pub struct ObjImporter;
 
-impl AssetImporter for ObjLoader {
+impl AssetImporter for ObjImporter {
     type Asset = Model;
     type Settings = MeshLoadSettings;
     type Error = tobj::LoadError;
@@ -73,7 +73,6 @@ impl AssetImporter for ObjLoader {
 
         let mut meshes = vec![];
         for model in models {
-            println!("Name: {}", model.name);
             let positions = model
                 .mesh
                 .positions

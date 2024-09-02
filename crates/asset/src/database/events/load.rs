@@ -3,6 +3,7 @@ use crate::{
     asset::{Asset, AssetId, AssetPath, Assets},
     database::{state::AssetState, AssetDatabase},
     importer::{AssetError, LoadErrorKind, LoadedAssets},
+    AssetActions,
 };
 use ecs::{
     core::DenseSet,
@@ -179,6 +180,90 @@ impl AssetEvent for LoadAssets {
     }
 }
 
+pub struct AssetLoaded<A: Asset> {
+    id: AssetId,
+    asset: A,
+    dependencies: HashSet<AssetId>,
+    parent: Option<AssetId>,
+}
+
+impl<A: Asset> AssetLoaded<A> {
+    pub fn new(
+        id: AssetId,
+        asset: A,
+        dependencies: HashSet<AssetId>,
+        parent: Option<AssetId>,
+    ) -> Self {
+        Self {
+            id,
+            asset,
+            dependencies,
+            parent,
+        }
+    }
+
+    pub fn add(id: AssetId, asset: A) -> Self {
+        Self {
+            id,
+            asset,
+            dependencies: HashSet::new(),
+            parent: None,
+        }
+    }
+
+    pub fn id(&self) -> AssetId {
+        self.id
+    }
+
+    pub fn asset(&self) -> &A {
+        &self.asset
+    }
+
+    pub fn dependencies(&self) -> &HashSet<AssetId> {
+        &self.dependencies
+    }
+
+    pub fn parent(&self) -> Option<AssetId> {
+        self.parent
+    }
+
+    pub fn observer(
+        loaded: &[AssetId],
+        database: &AssetDatabase,
+        events: &Events,
+        actions: &mut AssetActions<A>,
+    ) {
+        let states = database.states();
+        let mut reloads = DenseSet::new();
+
+        for id in loaded {
+            let dependents = states.dependents(id);
+            reloads.extend(dependents);
+            actions.add(*id);
+        }
+
+        if !reloads.is_empty() {
+            events.add(LoadAssets::soft(reloads));
+        }
+    }
+}
+
+impl<A: Asset> Event for AssetLoaded<A> {
+    type Output = AssetId;
+
+    fn invoke(self, world: &mut World) -> Option<Self::Output> {
+        let database = world.resource_mut::<AssetDatabase>();
+        let assets = world.resource_mut::<Assets<A>>();
+        let state = AssetState::new::<A>(self.dependencies, self.parent);
+        let mut states = database.states_mut();
+
+        assets.add(self.id, self.asset);
+        states.load(self.id, state);
+
+        Some(self.id)
+    }
+}
+
 pub struct UnloadAsset {
     path: AssetPath,
 }
@@ -234,7 +319,12 @@ impl<A: Asset> AssetUnloaded<A> {
         &self.state
     }
 
-    pub fn observer(unloaded: &[AssetUnloaded<A>], database: &AssetDatabase, events: &Events) {
+    pub fn observer(
+        unloaded: &[AssetUnloaded<A>],
+        database: &AssetDatabase,
+        events: &Events,
+        actions: &mut AssetActions<A>,
+    ) {
         let states = database.states();
         let mut reloads = DenseSet::new();
         let mut child_unloads = vec![];
@@ -243,6 +333,7 @@ impl<A: Asset> AssetUnloaded<A> {
             let (children, dependents) = states.children_and_dependents(&unloaded.id());
             reloads.extend(dependents);
             child_unloads.extend(children.iter().map(UnloadAsset::new));
+            actions.remove(unloaded.id());
         }
 
         events.add(LoadAssets::soft(reloads));
@@ -258,25 +349,16 @@ impl<A: Asset> Event for AssetUnloaded<A> {
     }
 }
 
-pub struct AssetLoaded<A: Asset> {
+pub struct AssetUpdated<A: Asset> {
     id: AssetId,
-    asset: A,
-    dependencies: HashSet<AssetId>,
-    parent: Option<AssetId>,
+    _marker: std::marker::PhantomData<A>,
 }
 
-impl<A: Asset> AssetLoaded<A> {
-    pub fn new(
-        id: AssetId,
-        asset: A,
-        dependencies: HashSet<AssetId>,
-        parent: Option<AssetId>,
-    ) -> Self {
+impl<A: Asset> AssetUpdated<A> {
+    pub fn new(id: AssetId) -> Self {
         Self {
             id,
-            asset,
-            dependencies,
-            parent,
+            _marker: std::marker::PhantomData,
         }
     }
 
@@ -284,44 +366,19 @@ impl<A: Asset> AssetLoaded<A> {
         self.id
     }
 
-    pub fn asset(&self) -> &A {
-        &self.asset
-    }
-
-    pub fn dependencies(&self) -> &HashSet<AssetId> {
-        &self.dependencies
-    }
-
-    pub fn parent(&self) -> Option<AssetId> {
-        self.parent
-    }
-
-    pub fn observer(loaded: &[AssetId], database: &AssetDatabase, events: &Events) {
-        let states = database.states();
-        let mut reloads = DenseSet::new();
-
-        for id in loaded {
-            let dependents = states.dependents(id);
-            reloads.extend(dependents);
-        }
-
-        if !reloads.is_empty() {
-            events.add(LoadAssets::soft(reloads));
+    pub fn observer(updated: &[AssetId], actions: &mut AssetActions<A>) {
+        for id in updated {
+            actions.add(*id);
         }
     }
 }
 
-impl<A: Asset> Event for AssetLoaded<A> {
+impl<A: Asset> Event for AssetUpdated<A> {
     type Output = AssetId;
 
     fn invoke(self, world: &mut World) -> Option<Self::Output> {
-        let database = world.resource_mut::<AssetDatabase>();
-        let assets = world.resource_mut::<Assets<A>>();
-        let state = AssetState::new::<A>(self.dependencies, self.parent);
-        let mut states = database.states_mut();
-
-        assets.add(self.id, self.asset);
-        states.load(self.id, state);
+        let assets = world.resource::<Assets<A>>();
+        assets.get(&self.id)?;
 
         Some(self.id)
     }

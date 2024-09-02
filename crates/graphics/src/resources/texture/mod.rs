@@ -1,7 +1,6 @@
-use super::{RenderResource, ResourceId};
+use super::RenderAsset;
 use crate::core::{RenderDevice, RenderQueue};
 use asset::Asset;
-use ecs::core::{DenseMap, Resource};
 
 pub mod format;
 pub mod render;
@@ -224,46 +223,4 @@ impl std::ops::Deref for GraphicsTexture {
     }
 }
 
-pub struct GraphicsTextures {
-    textures: DenseMap<ResourceId, GraphicsTexture>,
-}
-
-impl GraphicsTextures {
-    pub fn new() -> Self {
-        Self {
-            textures: DenseMap::new(),
-        }
-    }
-
-    pub fn create<T: Texture>(
-        &mut self,
-        device: &RenderDevice,
-        queue: &RenderQueue,
-        id: impl Into<ResourceId>,
-        texture: &T,
-    ) {
-        let graphics_texture = GraphicsTexture::create(device, queue, texture);
-        self.textures.insert(id.into(), graphics_texture);
-    }
-
-    pub fn get(&self, id: impl Into<ResourceId>) -> Option<&GraphicsTexture> {
-        self.textures.get(&id.into())
-    }
-
-    pub fn get_mut(&mut self, id: impl Into<ResourceId>) -> Option<&mut GraphicsTexture> {
-        self.textures.get_mut(&id.into())
-    }
-
-    pub fn remove(&mut self, id: impl Into<ResourceId>) -> Option<GraphicsTexture> {
-        self.textures.remove(&id.into())
-    }
-
-    pub fn update<T: Texture>(&self, queue: &RenderQueue, id: ResourceId, texture: &T) {
-        if let Some(graphics_texture) = self.textures.get(&id) {
-            graphics_texture.update(queue, texture);
-        }
-    }
-}
-
-impl Resource for GraphicsTextures {}
-impl RenderResource for GraphicsTextures {}
+impl RenderAsset for GraphicsTexture {}

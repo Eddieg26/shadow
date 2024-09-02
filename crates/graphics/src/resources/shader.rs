@@ -1,14 +1,12 @@
-use asset::{
-    io::{AssetIoError, AssetReader, PathExt},
-    importer::{AssetImporter, ImportContext},
-    Asset, AssetId, DefaultSettings,
-};
-use ecs::core::{DenseMap, Resource};
-use std::borrow::Cow;
-
+use super::{RenderAsset, RenderAssetExtractor};
 use crate::core::RenderDevice;
-
-use super::{RenderAsset, RenderAssetUsage, RenderResource};
+use asset::{
+    importer::{AssetImporter, ImportContext},
+    io::{AssetIoError, AssetReader, PathExt},
+    Asset, DefaultSettings,
+};
+use ecs::system::ArgItem;
+use std::borrow::Cow;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum ShaderStage {
@@ -118,26 +116,6 @@ impl AssetImporter for ShaderSource {
     }
 }
 
-impl RenderAsset for ShaderSource {
-    type Asset = ShaderSource;
-    type Arg<'a> = (&'a RenderDevice, &'a mut Shaders);
-    type Error = ShaderLoadError;
-
-    fn extract<'a>(
-        id: &AssetId,
-        asset: &mut Self::Asset,
-        arg: &mut Self::Arg<'a>,
-    ) -> Result<RenderAssetUsage, Self::Error> {
-        let shader = Shader::create(arg.0, &asset);
-        arg.1.insert(*id, shader);
-        Ok(RenderAssetUsage::Discard)
-    }
-
-    fn remove<'a>(id: AssetId, arg: &mut Self::Arg<'a>) {
-        arg.1.remove(&id);
-    }
-}
-
 pub struct Shader(wgpu::ShaderModule);
 
 impl Shader {
@@ -169,6 +147,8 @@ impl Shader {
     }
 }
 
+impl RenderAsset for Shader {}
+
 impl std::ops::Deref for Shader {
     type Target = wgpu::ShaderModule;
 
@@ -177,37 +157,15 @@ impl std::ops::Deref for Shader {
     }
 }
 
-pub struct Shaders {
-    shaders: DenseMap<AssetId, Shader>,
-}
+impl RenderAssetExtractor for Shader {
+    type Source = ShaderSource;
+    type Target = Shader;
+    type Arg<'a> = &'a RenderDevice;
 
-impl Shaders {
-    pub fn new() -> Self {
-        Self {
-            shaders: DenseMap::new(),
-        }
-    }
-
-    pub fn insert(&mut self, id: impl Into<AssetId>, shader: Shader) {
-        self.shaders.insert(id.into(), shader);
-    }
-
-    pub fn get(&self, id: &AssetId) -> Option<&Shader> {
-        self.shaders.get(id)
-    }
-
-    pub fn remove(&mut self, id: &AssetId) -> Option<Shader> {
-        self.shaders.remove(id)
-    }
-
-    pub fn clear(&mut self) {
-        self.shaders.clear();
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = (&AssetId, &Shader)> {
-        self.shaders.iter()
+    fn extract<'a>(
+        source: &mut Self::Source,
+        arg: &ArgItem<Self::Arg<'a>>,
+    ) -> Option<Self::Target> {
+        Some(Self::create(&arg, source))
     }
 }
-
-impl Resource for Shaders {}
-impl RenderResource for Shaders {}

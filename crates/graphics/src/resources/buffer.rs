@@ -29,6 +29,13 @@ impl Indices {
             Indices::U32(v) => bytemuck::cast_slice(&v[0..v.len()]),
         }
     }
+
+    pub fn is_empty(&self) -> bool {
+        match self {
+            Indices::U16(v) => v.is_empty(),
+            Indices::U32(v) => v.is_empty(),
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -161,6 +168,11 @@ impl<V: bytemuck::Pod> VertexBuffer<V> {
         self.dirty = true;
     }
 
+    pub fn set_vertices(&mut self, vertices: Vec<V>) {
+        self.vertices = vertices;
+        self.dirty = true;
+    }
+
     pub fn len(&self) -> usize {
         self.vertices.len()
     }
@@ -243,6 +255,11 @@ impl IndexBuffer {
             _ => (),
         }
 
+        self.dirty = true;
+    }
+
+    pub fn set_indices(&mut self, indices: Indices) {
+        self.indices = indices;
         self.dirty = true;
     }
 

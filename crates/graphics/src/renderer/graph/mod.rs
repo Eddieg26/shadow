@@ -1,10 +1,10 @@
 use crate::{
-    camera::RenderFrames,
+    components::RenderFrames,
     core::{
         device::{RenderDevice, RenderQueue},
         surface::RenderSurface,
     },
-    resources::{RenderResource, ResourceId},
+    resources::ResourceId,
 };
 use context::{RenderContext, RenderNodeAction};
 use ecs::{
@@ -252,7 +252,6 @@ impl RenderGraph {
 }
 
 impl Resource for RenderGraph {}
-impl RenderResource for RenderGraph {}
 
 pub trait RenderGraphNode: downcast_rs::Downcast + 'static {
     fn execute(&self, ctx: &RenderContext);

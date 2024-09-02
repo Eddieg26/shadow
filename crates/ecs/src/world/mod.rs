@@ -374,30 +374,12 @@ impl World {
         self.local_resources.try_get_mut::<R>()
     }
 
-    pub fn try_init_resource<R: Resource + Default>(&mut self) -> &mut R {
-        let world_ptr: *mut World = self;
-
-        match self.resources.try_get_mut::<R>() {
-            Some(resource) => resource,
-            None => {
-                let world_mut: &mut World = unsafe { world_ptr.as_mut().unwrap() };
-                world_mut.init_resource::<R>();
-                world_mut.resources.get_mut::<R>()
-            }
-        }
+    pub fn has_resource<R: Resource>(&self) -> bool {
+        self.resources.has::<R>()
     }
 
-    pub fn try_init_local_resource<R: LocalResource + Default>(&mut self) -> &mut R {
-        let world_ptr: *mut World = self;
-
-        match self.local_resources.try_get_mut::<R>() {
-            Some(resource) => resource,
-            None => {
-                let world_mut: &mut World = unsafe { world_ptr.as_mut().unwrap() };
-                world_mut.init_local_resource::<R>();
-                world_mut.local_resources.get_mut::<R>()
-            }
-        }
+    pub fn has_local_resource<R: LocalResource>(&self) -> bool {
+        self.local_resources.has::<R>()
     }
 
     fn init() -> (Resources, Events) {

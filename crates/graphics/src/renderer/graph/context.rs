@@ -1,6 +1,6 @@
 use super::resources::{RenderGraphResources, RenderTarget};
 use crate::{
-    camera::RenderFrame,
+    components::RenderFrame,
     core::device::{RenderDevice, RenderQueue},
     resources::ResourceId,
 };

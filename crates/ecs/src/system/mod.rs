@@ -234,6 +234,16 @@ pub trait SystemArg {
     fn access() -> Vec<WorldAccess>;
 }
 
+impl SystemArg for () {
+    type Item<'a> = ();
+
+    fn get<'a>(_world: &'a World) -> Self::Item<'a> {}
+
+    fn access() -> Vec<WorldAccess> {
+        vec![]
+    }
+}
+
 impl SystemArg for &World {
     type Item<'a> = &'a World;
 

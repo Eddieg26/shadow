@@ -135,12 +135,12 @@ impl AssetError {
 
         for error in errors {
             match error.kind() {
-                AssetErrorKind::Import(path) => removed.push(RemoveAsset::new(path.clone())),
+                AssetErrorKind::Import(path) => removed.push(DeleteAsset::new(path.clone())),
                 AssetErrorKind::Load(path) => unloads.push(UnloadAsset::new(path.clone())),
             }
         }
 
-        events.add(RemoveAssets::new(removed));
+        events.add(DeleteAssets::new(removed));
         events.extend(unloads);
     }
 }
@@ -162,11 +162,11 @@ mod tests {
             },
             AssetConfig, AssetDatabase,
         },
-        io::{vfs::VirtualFileSystem, AssetIoError, AssetReader},
         importer::{AssetError, AssetImporter, ImportContext},
+        io::{vfs::VirtualFileSystem, AssetIoError, AssetReader},
     };
 
-    use super::{AssetImported, ImportAssets, RemoveAssets};
+    use super::{AssetImported, ImportAssets, DeleteAssets};
 
     #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
     struct PlainText(String);
@@ -221,7 +221,7 @@ mod tests {
             .register_event::<ImportFolder>()
             .register_event::<ImportAssets>()
             .register_event::<AssetImported>()
-            .register_event::<RemoveAssets>()
+            .register_event::<DeleteAssets>()
             .register_event::<LoadAssets>()
             .register_event::<UnloadAsset>()
             .register_event::<AssetError>()
@@ -313,7 +313,7 @@ mod tests {
                 .unwrap()
         };
 
-        world.events().add(RemoveAssets::new(vec!["test.txt"]));
+        world.events().add(DeleteAssets::new(vec!["test.txt"]));
         world.run(Root);
 
         let database = world.resource::<AssetDatabase>();

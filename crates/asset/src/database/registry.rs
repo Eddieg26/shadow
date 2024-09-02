@@ -10,7 +10,8 @@ use crate::{
         AssetError, AssetImporter, ImportContext, LoadErrorKind, LoadedAsset, LoadedAssets,
         LoadedMetadata, ProcessContext,
     },
-    io::{AssetIoError, PathExt},
+    io::{embedded::{EmbeddedAssets, EmbeddedReader}, AssetIoError, PathExt},
+    AssetKind,
 };
 use ecs::{
     core::{internal::blob::BlobCell, DenseMap},
@@ -26,10 +27,14 @@ pub type AssetLoadFn =
 
 pub type AssetSaveFn = fn(&Path, &ImportedAsset, &AssetConfig) -> Result<Vec<u8>, AssetError>;
 
+pub type AssetEmbedFn = fn(&'static str, &'static [u8], &World) -> Result<(), AssetError>;
+
 pub struct AssetMetadata {
     load: AssetLoadFn,
     save: AssetSaveFn,
     importers: DenseMap<&'static str, AssetImportFn>,
+    embeders: DenseMap<&'static str, AssetEmbedFn>,
+    add_loaded: fn(&World, LoadedAsset),
     loaded: fn(LoadedAsset) -> ErasedEvent,
     unloaded: fn(AssetId, AssetState, &World) -> Option<ErasedEvent>,
     load_metadata: Option<fn(&Path, &AssetConfig) -> Result<LoadedMetadata, AssetError>>,
@@ -39,6 +44,7 @@ impl AssetMetadata {
     pub fn new<A: Asset>() -> Self {
         Self {
             importers: DenseMap::new(),
+            embeders: DenseMap::new(),
             load: |id, config, assets, load_deps| {
                 let artifact = config
                     .load_artifact(id)
@@ -62,6 +68,12 @@ impl AssetMetadata {
                 config
                     .save_artifact(&Artifact::new(&bytes, asset.meta().clone()))
                     .map_err(|e| AssetError::import(path, e))
+            },
+            add_loaded: |world, loaded: LoadedAsset| {
+                let id = loaded.meta.id();
+                let asset = loaded.asset.take::<A>();
+                let assets = world.resource_mut::<Assets<A>>();
+                assets.add(id, asset);
             },
             loaded: |loaded: LoadedAsset| {
                 let id = loaded.meta.id();
@@ -141,8 +153,53 @@ impl AssetMetadata {
             Ok(asset)
         };
 
+        let embed: AssetEmbedFn = |path, bytes, world| {
+            let config = world.resource::<AssetConfig>();
+            let mut reader = EmbeddedReader::new(path, bytes);
+            let mut settings = AssetSettings::default();
+
+            let (mut asset, sub_assets) = {
+                let mut ctx = ImportContext::new(config, &settings);
+                match I::import(&mut ctx, &mut reader) {
+                    Err(err) => return Err(AssetError::import(&path, err)),
+                    Ok(asset) => {
+                        let (_, sub_assets) = ctx.finish();
+                        (asset, sub_assets)
+                    }
+                }
+            };
+
+            let sub_assets = {
+                let mut assets = LoadedAssets::new();
+                let mut ctx = ProcessContext::new(&mut settings, &mut assets, sub_assets);
+                I::process(&mut ctx, &mut asset).map_err(|e| AssetError::import(&path, e))?;
+                ctx.finish()
+            };
+
+            world
+                .resource_mut::<Assets<I::Asset>>()
+                .add(settings.id(), asset);
+
+            let embedded = world.resource_mut::<EmbeddedAssets>();
+            embedded.add(settings.id(), path, AssetKind::Main);
+
+            let registry = config.registry();
+            for asset in sub_assets {
+                let metadata = match registry.get_metadata(asset.meta().ty()) {
+                    Some(metadata) => metadata,
+                    None => continue,
+                };
+
+                embedded.add(asset.id(), path, AssetKind::Sub);
+                metadata.add_loaded(world, asset.into());
+            }
+
+            Ok(())
+        };
+
         for ext in I::extensions() {
             self.importers.insert(ext, import);
+            self.embeders.insert(ext, embed);
         }
     }
 
@@ -196,6 +253,27 @@ impl AssetMetadata {
         config: &AssetConfig,
     ) -> Option<Result<LoadedMetadata, AssetError>> {
         self.load_metadata.map(|load| load(path, config))
+    }
+
+    pub fn embed(
+        &self,
+        path: &'static str,
+        bytes: &'static [u8],
+        world: &World,
+    ) -> Result<(), AssetError> {
+        let ext = path
+            .ext()
+            .ok_or_else(|| AssetError::import(path, LoadErrorKind::NoExtension))?;
+        let embed = self
+            .embeders
+            .get(&ext)
+            .ok_or_else(|| AssetError::import(path, LoadErrorKind::NoImporter))?;
+
+        embed(path, bytes, world)
+    }
+
+    pub fn add_loaded(&self, world: &World, loaded: LoadedAsset) {
+        (self.add_loaded)(world, loaded)
     }
 
     pub fn load_dependencies<'a>(

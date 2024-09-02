@@ -4,6 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+pub mod embedded;
 pub mod local;
 pub mod vfs;
 

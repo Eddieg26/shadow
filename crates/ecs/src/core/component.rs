@@ -115,6 +115,10 @@ impl Components {
         meta.extension().expect("Extension not found")
     }
 
+    pub fn has<C: Component>(&self) -> bool {
+        self.metas.contains(&ComponentId::new::<C>())
+    }
+
     pub fn add_extension<T: Any + Send + Sync + 'static>(
         &mut self,
         id: &ComponentId,

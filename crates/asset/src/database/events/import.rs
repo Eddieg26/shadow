@@ -203,7 +203,7 @@ impl AssetEvent for ImportFolder {
         for scan in scans {
             match scan {
                 ImportScan::Added(path) | ImportScan::Modified(path) => imports.push(path),
-                ImportScan::Removed(path) => removed.push(RemoveAsset::new(path)),
+                ImportScan::Removed(path) => removed.push(DeleteAsset::new(path)),
                 ImportScan::Error(error) => errors.push(error),
             }
         }
@@ -212,7 +212,7 @@ impl AssetEvent for ImportFolder {
             database.events().push_front(ImportAssets::new(imports));
         }
         if !removed.is_empty() {
-            database.events().push_front(RemoveAssets::new(removed));
+            database.events().push_front(DeleteAssets::new(removed));
         }
         events.extend(errors);
     }
@@ -310,7 +310,7 @@ impl AssetEvent for ImportAssets {
                     }
 
                     for child in prev_meta.children().difference(imported.meta().children()) {
-                        removed.push(RemoveAsset::new(child));
+                        removed.push(DeleteAsset::new(child));
                     }
                 }
 
@@ -357,11 +357,11 @@ impl AssetEvent for ImportAssets {
 }
 
 #[derive(Debug, Clone)]
-pub struct RemoveAsset {
+pub struct DeleteAsset {
     path: AssetPath,
 }
 
-impl RemoveAsset {
+impl DeleteAsset {
     pub fn new(path: impl Into<AssetPath>) -> Self {
         Self { path: path.into() }
     }
@@ -371,17 +371,17 @@ impl RemoveAsset {
     }
 
     pub fn observer(assets: &[Self], events: &Events) {
-        events.add(RemoveAssets::new(assets.to_vec()));
+        events.add(DeleteAssets::new(assets.to_vec()));
     }
 }
 
-impl<I: Into<AssetPath>> From<I> for RemoveAsset {
+impl<I: Into<AssetPath>> From<I> for DeleteAsset {
     fn from(path: I) -> Self {
         Self::new(path)
     }
 }
 
-impl Event for RemoveAsset {
+impl Event for DeleteAsset {
     type Output = Self;
 
     fn invoke(self, _: &mut World) -> Option<Self::Output> {
@@ -389,19 +389,19 @@ impl Event for RemoveAsset {
     }
 }
 
-pub struct RemoveAssets {
-    assets: Vec<RemoveAsset>,
+pub struct DeleteAssets {
+    assets: Vec<DeleteAsset>,
 }
 
-impl RemoveAssets {
-    pub fn new(assets: impl IntoIterator<Item = impl Into<RemoveAsset>>) -> Self {
+impl DeleteAssets {
+    pub fn new(assets: impl IntoIterator<Item = impl Into<DeleteAsset>>) -> Self {
         Self {
             assets: assets.into_iter().map(Into::into).collect(),
         }
     }
 }
 
-impl Event for RemoveAssets {
+impl Event for DeleteAssets {
     type Output = ();
 
     fn invoke(self, world: &mut World) -> Option<Self::Output> {
@@ -410,7 +410,7 @@ impl Event for RemoveAssets {
     }
 }
 
-impl AssetEvent for RemoveAssets {
+impl AssetEvent for DeleteAssets {
     fn execute(&mut self, database: &AssetDatabase, events: &Events) {
         let config = database.config();
         let mut dependents = DependentLibrary::load(config).unwrap_or_default();
@@ -452,7 +452,7 @@ impl AssetEvent for RemoveAssets {
             }
 
             for child in artifact_meta.children() {
-                removed.push(RemoveAsset::new(child));
+                removed.push(DeleteAsset::new(child));
             }
 
             let mut dependents = dependents.remove_asset(&id);
@@ -470,7 +470,7 @@ impl AssetEvent for RemoveAssets {
         }
 
         if !removed.is_empty() {
-            database.events().push_front(RemoveAssets::new(removed));
+            database.events().push_front(DeleteAssets::new(removed));
         }
 
         if !reimports.is_empty() {
