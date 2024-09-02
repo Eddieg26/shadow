@@ -12,11 +12,12 @@ use asset::{
     plugin::AssetExt,
     Asset, AssetSettings, Assets, DefaultSettings,
 };
+use ecs::system::schedule::{Phase, Root};
 use game::{
     game::Game,
     phases::{Init, Update},
     plugin::{Plugin, Plugins},
-    PostInit,
+    Execute, GameInstance, PostInit,
 };
 use graphics::{
     components::{ClearFlag, RenderFrame, RenderFrames},
@@ -89,31 +90,6 @@ impl AssetImporter for PlainText {
 }
 
 fn main() {
-    // Game::new()
-    //     .add_plugin(BasicPlugin)
-    //     .add_system(Init, || println!("Init"))
-    //     .run();
-
-    // let config = AssetConfig::new(LocalFileSystem::new(""));
-    // let settings = AssetSettings::<MeshLoadSettings>::default();
-    // let mut ctx = ImportContext::new(&config, &settings);
-    // let mut reader = LocalAsset::new("cube.obj");
-    // match ObjLoader::import(&mut ctx, &mut reader) {
-    //     Ok(model) => println!("Mesh: {:?}", model.meshes().len()),
-    //     Err(e) => println!("Error: {:?}", e),
-    // }
-
-    // let (_, sub_assets) = ctx.finish();
-    // for imported in sub_assets {
-    //     let mesh = imported.asset::<Mesh>();
-    //     let positions = mesh.attribute(VertexAttribute::Position).unwrap();
-    //     let normals = mesh.attribute(VertexAttribute::Normal).unwrap();
-    //     let uvs = mesh.attribute(VertexAttribute::TexCoord0).unwrap();
-    //     println!("Positions: {:?}", positions.len());
-    //     println!("Normals: {:?}", normals.len());
-    //     println!("UVs: {:?}", uvs.len());
-    // }
-
     let mut game = Game::new();
     game.add_plugin(GraphicsPlugin)
         .add_importer::<ObjImporter>()

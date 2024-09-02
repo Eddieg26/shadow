@@ -69,6 +69,7 @@ impl ScheduleId {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct Schedule {
     id: ScheduleId,
     children: DenseMap<ScheduleId, Schedule>,

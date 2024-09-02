@@ -20,23 +20,30 @@ use asset::{
     AssetAction, AssetActions, Assets,
 };
 use ecs::{
-    system::SystemArg,
-    world::{
-        event::{Event, Events},
-        World,
-    },
+    system::{schedule::Phase, SystemArg},
+    world::{event::Event, World},
 };
 use game::{
     app::{Extract, MainWorld},
     game::Game,
-    phases::{First, Update},
+    phases::Update,
     plugin::{Plugin, Plugins},
+    SubApp, SubEvents,
 };
 use window::{
     events::{Resized, WindowCreated},
     plugin::WindowPlugin,
     window::Window,
 };
+
+pub struct PreRender;
+impl Phase for PreRender {}
+
+pub struct Render;
+impl Phase for Render {}
+
+pub struct PostRender;
+impl Phase for PostRender {}
 
 pub struct GraphicsPlugin;
 
@@ -48,7 +55,8 @@ impl Plugin for GraphicsPlugin {
         plugins
     }
 
-    fn start(&self, game: &mut Game) {        
+    fn start(&self, game: &mut Game) {
+        game.add_sub_app::<RenderApp>();
         game.add_resource(RenderFrames::new());
         game.add_resource(RenderGraphBuilder::new());
 
@@ -63,15 +71,27 @@ impl Plugin for GraphicsPlugin {
 
         game.register_asset::<Mesh>();
         game.register::<Camera>();
+
+        let app = game.sub_app_mut::<RenderApp>().unwrap();
+        app.add_resource(RenderFrames::new());
+        app.add_sub_phase::<Update, PreRender>();
+        app.add_sub_phase::<Update, Render>();
+        app.add_sub_phase::<Update, PostRender>();
     }
 
     fn run(&mut self, game: &mut Game) {
         game.observe::<WindowCreated, _>(on_window_created);
-        game.observe::<Resized, _>(on_window_resized);
+        game.observe::<Resized, _>(|resized: &[Resized], events: &SubEvents<RenderApp>| {
+            let resized = resized.last().unwrap();
+            events.add(*resized);
+        });
 
-        game.register_event::<SurfaceCreated>();
-        game.add_system(Extract, extract_render_frames);
-        game.add_system(Update, update_render_graph);
+        let app = game.sub_app_mut::<RenderApp>().unwrap();
+        app.register_event::<SurfaceCreated>();
+        app.observe::<SurfaceCreated, _>(on_surface_created);
+        app.observe::<Resized, _>(on_window_resized);
+        app.add_system(Extract, extract_render_frames);
+        app.add_system(Render, update_render_graph);
     }
 
     fn finish(&mut self, game: &mut Game) {
@@ -80,18 +100,16 @@ impl Plugin for GraphicsPlugin {
             None => RenderGraph::default(),
         };
 
-        game.add_resource(render_graph);
+        let app = game.sub_app_mut::<RenderApp>().unwrap();
+        app.add_resource(render_graph);
     }
 }
 
 pub struct RenderApp;
 
-fn on_window_created(
-    _: &[WindowCreated],
-    window: &Window,
-    events: &Events,
-    graph: &mut RenderGraph,
-) {
+impl SubApp for RenderApp {}
+
+fn on_window_created(_: &[WindowCreated], window: &Window, render_events: &SubEvents<RenderApp>) {
     let create = || async {
         let instance = RenderInstance::create();
 
@@ -107,28 +125,17 @@ fn on_window_created(
 
         surface.configure(&device);
 
-        let desc = RenderTargetDesc::new(
-            surface.width(),
-            surface.height(),
-            surface.format(),
-            surface.depth_format(),
-        );
-
-        let id = surface.id();
-
-        events.add(SurfaceCreated::new(surface, device.clone(), queue));
-
-        (id, desc, device)
+        (surface, device, queue)
     };
 
-    let (id, desc, device) = pollster::block_on(create());
-    graph.add_render_target(&device, id, desc);
+    let (surface, device, queue) = pollster::block_on(create());
+    render_events.add(SurfaceCreated::new(surface, device, queue));
 }
 
-fn on_window_resized(events: &[Resized], device: &RenderDevice, surface: &mut RenderSurface) {
-    if let Some(event) = events.last() {
-        surface.resize(&device, event.width, event.height);
-    }
+fn on_window_resized(resized: &[Resized], device: &RenderDevice, surface: &mut RenderSurface) {
+    let resized = resized.last().unwrap();
+
+    surface.resize(device, resized.width, resized.height);
 }
 
 fn extract_draw_calls<D: Draw>(main_world: &MainWorld, calls: &mut DrawCalls<D>) {
@@ -163,18 +170,46 @@ impl SurfaceCreated {
             queue,
         }
     }
+
+    pub fn surface(&self) -> &RenderSurface {
+        &self.surface
+    }
+
+    pub fn device(&self) -> &RenderDevice {
+        &self.device
+    }
+
+    pub fn queue(&self) -> &RenderQueue {
+        &self.queue
+    }
 }
 
 impl Event for SurfaceCreated {
-    type Output = (RenderDevice, RenderQueue);
+    type Output = ();
 
     fn invoke(self, world: &mut World) -> Option<Self::Output> {
         world.add_resource(self.surface);
-        world.add_resource(self.device.clone());
-        world.add_resource(self.queue.clone());
+        world.add_resource(self.device);
+        world.add_resource(self.queue);
 
-        Some((self.device, self.queue))
+        Some(())
     }
+}
+
+pub fn on_surface_created(
+    _: &[()],
+    surface: &RenderSurface,
+    device: &RenderDevice,
+    graph: &mut RenderGraph,
+) {
+    let desc = RenderTargetDesc::new(
+        surface.width(),
+        surface.height(),
+        surface.format(),
+        surface.depth_format(),
+    );
+
+    graph.add_render_target(device, surface.id(), desc);
 }
 
 pub fn extract_render_asset<R: RenderAssetExtractor>(
@@ -232,14 +267,17 @@ pub trait GraphicsExt {
 impl GraphicsExt for Game {
     fn add_draw_calls<D: Draw>(&mut self, partition: impl Fn() -> D::Partition) {
         self.add_resource(DrawCalls::<D>::new(partition()));
-        self.add_resource(DrawCalls::<D>::new(partition()));
-        self.add_system(Extract, extract_draw_calls::<D>);
-        self.add_system(First, clear_draw_calls::<D>);
+
+        let app = self.sub_app_mut::<RenderApp>().unwrap();
+        app.add_resource(DrawCalls::<D>::new(partition()));
+        app.add_system(Extract, extract_draw_calls::<D>);
+        app.add_system(PostRender, clear_draw_calls::<D>);
     }
 
     fn add_render_asset<R: RenderAsset>(&mut self) {
-        if !self.has_resource::<RenderAssets<R>>() {
-            self.init_resource::<RenderAssets<R>>();
+        let app = self.sub_app_mut::<RenderApp>().unwrap();
+        if !app.has_resource::<RenderAssets<R>>() {
+            app.init_resource::<RenderAssets<R>>();
         }
     }
 
@@ -247,6 +285,7 @@ impl GraphicsExt for Game {
         self.add_render_asset::<R::Target>();
         self.register_asset::<R::Source>();
 
-        self.add_system(Extract, extract_render_asset::<R>);
+        let app = self.sub_app_mut::<RenderApp>().unwrap();
+        app.add_system(Extract, extract_render_asset::<R>);
     }
 }

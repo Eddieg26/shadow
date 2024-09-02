@@ -1,6 +1,6 @@
 use super::plugin::Plugins;
 use crate::{
-    app::{SubApp, SubApps, SubEvents, SubWorlds},
+    app::{SubApp, SubAppBuilders, SubApps, SubEvents},
     phases::{Execute, Shutdown, Startup},
     plugin::Plugin,
 };
@@ -19,7 +19,7 @@ use ecs::{
 
 pub struct Game {
     world: World,
-    sub_apps: SubWorlds,
+    sub_apps: SubAppBuilders,
     plugins: Plugins,
     runner: Option<Box<dyn GameRunner>>,
 }
@@ -33,7 +33,7 @@ impl Game {
 
         Self {
             world,
-            sub_apps: SubWorlds::new(),
+            sub_apps: SubAppBuilders::new(),
             plugins: Plugins::new(),
             runner: Some(Box::new(default_runner)),
         }
@@ -123,7 +123,7 @@ impl Game {
 
     pub fn add_sub_app<S: SubApp>(&mut self) -> &mut Self {
         let events = {
-            let app = self.sub_apps.add::<S>(self.world.sub());
+            let app = self.sub_apps.add::<S>(&self.world);
             SubEvents::<S>::new(app.events().clone())
         };
 
@@ -218,26 +218,6 @@ impl Game {
         let sub_apps = std::mem::take(&mut self.sub_apps).into_apps(&world);
         let mut game = GameInstance::new(world, sub_apps);
         runner.run(&mut game);
-    }
-
-    pub fn start(&mut self) {
-        self.world.run(Startup);
-    }
-
-    pub fn update(&mut self) {
-        self.world.run(Execute);
-    }
-
-    pub fn shutdown(&mut self) {
-        self.world.run(Shutdown);
-    }
-
-    pub fn flush(&mut self) {
-        self.world.flush();
-    }
-
-    pub fn flush_events<E: Event>(&mut self) {
-        self.world.flush_events::<E>();
     }
 }
 

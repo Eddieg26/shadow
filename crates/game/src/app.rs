@@ -1,7 +1,7 @@
-use crate::phases::{PostUpdate, PreUpdate, Update};
+use crate::phases::Update;
 use ecs::{
     core::{DenseMap, Resource},
-    system::schedule::{Phase, Schedule},
+    system::schedule::Phase,
     world::{event::Events, World},
 };
 use std::{
@@ -12,19 +12,6 @@ use std::{
 pub struct Extract;
 
 impl Phase for Extract {}
-
-pub struct SubWorldUpdate;
-
-impl Phase for SubWorldUpdate {
-    fn schedule() -> Schedule {
-        let mut schedule = Schedule::from::<Self>();
-        schedule.add_schedule(Schedule::from::<PreUpdate>());
-        schedule.add_schedule(Schedule::from::<Update>());
-        schedule.add_schedule(Schedule::from::<PostUpdate>());
-
-        schedule
-    }
-}
 
 pub struct MainWorld(World);
 
@@ -77,20 +64,23 @@ impl Resource for MainEvents {}
 pub trait SubApp: 'static {}
 
 #[derive(Default)]
-pub struct SubWorlds {
+pub struct SubAppBuilders {
     worlds: DenseMap<TypeId, World>,
 }
 
-impl SubWorlds {
+impl SubAppBuilders {
     pub fn new() -> Self {
         Self {
             worlds: DenseMap::new(),
         }
     }
 
-    pub fn add<A: SubApp>(&mut self, world: World) -> &mut World {
+    pub fn add<A: SubApp>(&mut self, main: &World) -> &mut World {
         let ty = TypeId::of::<A>();
         if !self.worlds.contains(&ty) {
+            let mut world = main.sub();
+            world.add_phase::<Extract>();
+            world.add_phase::<Update>();
             self.worlds.insert(ty, world);
         }
         self.worlds.get_mut(&ty).unwrap()
@@ -107,21 +97,17 @@ impl SubWorlds {
     pub fn into_apps(self, main_world: &World) -> SubApps {
         let mut apps = SubApps::new();
         for (id, mut world) in self.worlds {
-            Self::init_sub_worlds(main_world, &mut world);
+            let metas = main_world.events().metas();
+            for (ty, meta) in metas.iter() {
+                meta.add_outputs(&mut world);
+                world.events().metas_mut().insert(*ty, *meta);
+            }
 
             let main_events = MainEvents::from(main_world.events().clone());
             world.add_resource(main_events);
             apps.apps.insert(id, SubAppWorld::new(world));
         }
         apps
-    }
-
-    fn init_sub_worlds(main: &World, sub: &mut World) {
-        let metas = main.events().metas();
-        for (ty, meta) in metas.iter() {
-            meta.add_outputs(sub);
-            sub.events().metas_mut().insert(*ty, *meta);
-        }
     }
 }
 
@@ -130,9 +116,7 @@ pub struct SubAppWorld {
 }
 
 impl SubAppWorld {
-    pub fn new(mut world: World) -> Self {
-        world.add_phase::<Extract>();
-        world.add_phase::<SubWorldUpdate>();
+    pub fn new(world: World) -> Self {
         Self {
             world: Arc::new(RwLock::new(world)),
         }
@@ -145,6 +129,7 @@ impl SubAppWorld {
         let main_world = {
             let mut world = self.world.write().unwrap();
             world.add_resource(main_world);
+            world.flush();
             world.run(Extract);
             world
                 .remove_resource::<MainWorld>()
@@ -154,7 +139,7 @@ impl SubAppWorld {
         let world = self.world.clone();
         tasks.spawn(move || {
             let mut world = world.write().unwrap();
-            world.run(SubWorldUpdate);
+            world.run(Update);
         });
 
         main_world.into()

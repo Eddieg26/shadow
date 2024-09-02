@@ -15,7 +15,7 @@ use super::{
     },
     task::{max_thread_count, TaskPool},
 };
-use crate::archetype::table::EntityRow;
+use crate::{archetype::table::EntityRow, system::schedule::Schedule};
 use event::{Event, Events};
 use std::collections::HashSet;
 
@@ -229,6 +229,10 @@ impl World {
     pub fn observe<E: Event, M>(&mut self, observer: impl IntoObserver<E, M>) -> &mut Self {
         self.observers.add_observer(observer);
         self
+    }
+
+    pub fn schedule(&self) -> Option<&Schedule> {
+        self.systems.as_ref().map(|systems| systems.schedule())
     }
 
     pub fn build(&mut self) -> &mut Self {
