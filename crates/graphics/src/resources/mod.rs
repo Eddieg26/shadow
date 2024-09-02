@@ -44,9 +44,13 @@ impl From<AssetId> for ResourceId {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Copy, Default, Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub enum ReadWrite {
     Enabled,
+
+    #[default]
     Disabled,
 }
 

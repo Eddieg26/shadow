@@ -89,6 +89,7 @@ pub trait AssetReader {
             .map_err(|e| AssetIoError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, e)))
     }
     fn bytes(&self) -> &[u8];
+    fn buf_reader(&self) -> Result<Box<dyn std::io::BufRead + '_>>;
     fn flush(&mut self) -> Result<Vec<u8>>;
 }
 
@@ -111,6 +112,10 @@ impl AssetReader for Box<dyn AssetReader> {
 
     fn bytes(&self) -> &[u8] {
         self.as_ref().bytes()
+    }
+
+    fn buf_reader(&self) -> Result<Box<dyn std::io::BufRead + '_>> {
+        self.as_ref().buf_reader()
     }
 
     fn flush(&mut self) -> Result<Vec<u8>> {

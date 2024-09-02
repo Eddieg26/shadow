@@ -1,7 +1,7 @@
 use super::{AssetFileSystem, AssetIoError, AssetReader, AssetWriter, PathExt};
 use std::{
     fs::File,
-    io::{Read, Seek, Write},
+    io::{BufRead, BufReader, Read, Seek, Write},
     path::{Path, PathBuf},
 };
 
@@ -75,6 +75,12 @@ impl AssetReader for LocalAsset {
 
     fn bytes(&self) -> &[u8] {
         &self.buffer
+    }
+
+    fn buf_reader(&self) -> Result<Box<dyn BufRead + '_>, AssetIoError> {
+        Ok(Box::new(BufReader::new(self.file.as_ref().ok_or(
+            AssetIoError::from(std::io::ErrorKind::NotFound),
+        )?)))
     }
 
     fn flush(&mut self) -> super::Result<Vec<u8>> {

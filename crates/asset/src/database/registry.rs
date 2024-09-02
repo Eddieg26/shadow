@@ -6,11 +6,11 @@ use super::{
 use crate::{
     artifact::{Artifact, ArtifactMeta},
     asset::{Asset, AssetId, AssetSettings, AssetType, Assets, Settings},
-    io::{AssetIoError, PathExt},
-    loader::{
-        AssetError, AssetLoader, AssetProcessor, LoadContext, LoadErrorKind, LoadedAsset,
-        LoadedAssets, LoadedMetadata, ProcessContext,
+    importer::{
+        AssetError, AssetImporter, ImportContext, LoadErrorKind, LoadedAsset, LoadedAssets,
+        LoadedMetadata, ProcessContext,
     },
+    io::{AssetIoError, PathExt},
 };
 use ecs::{
     core::{internal::blob::BlobCell, DenseMap},
@@ -18,40 +18,51 @@ use ecs::{
 };
 use std::{collections::HashSet, path::Path};
 
-pub type AssetImportFn = fn(
-    &AssetMetadata,
-    &Path,
-    &AssetRegistry,
-    &AssetConfig,
-    &mut LoadedAssets,
-) -> Result<ImportedAsset, AssetError>;
+pub type AssetImportFn =
+    fn(&Path, &AssetConfig, &mut LoadedAssets) -> Result<ImportedAsset, AssetError>;
 
-pub type AssetLoadFn = fn(
-    &AssetMetadata,
-    AssetId,
-    &AssetRegistry,
-    &AssetConfig,
-    &mut LoadedAssets,
-    bool,
-) -> Result<LoadedAsset, AssetError>;
+pub type AssetLoadFn =
+    fn(AssetId, &AssetConfig, &mut LoadedAssets, bool) -> Result<LoadedAsset, AssetError>;
 
 pub type AssetSaveFn = fn(&Path, &ImportedAsset, &AssetConfig) -> Result<Vec<u8>, AssetError>;
 
 pub struct AssetMetadata {
+    load: AssetLoadFn,
+    save: AssetSaveFn,
+    importers: DenseMap<&'static str, AssetImportFn>,
     loaded: fn(LoadedAsset) -> ErasedEvent,
     unloaded: fn(AssetId, AssetState, &World) -> Option<ErasedEvent>,
-    save: AssetSaveFn,
-    load: AssetLoadFn,
-    importers: DenseMap<&'static str, AssetImportFn>,
-    process: Option<
-        fn(&Path, &mut ImportedAsset, &mut LoadedAssets) -> Result<Vec<ImportedAsset>, AssetError>,
-    >,
     load_metadata: Option<fn(&Path, &AssetConfig) -> Result<LoadedMetadata, AssetError>>,
 }
 
 impl AssetMetadata {
     pub fn new<A: Asset>() -> Self {
         Self {
+            importers: DenseMap::new(),
+            load: |id, config, assets, load_deps| {
+                let artifact = config
+                    .load_artifact(id)
+                    .map_err(|e: AssetIoError| AssetError::load(id, e))?;
+
+                let asset = bincode::deserialize::<A>(artifact.asset())
+                    .map_err(|e| AssetError::load(id, e))?;
+
+                if load_deps {
+                    let registry = config.registry();
+                    let deps = artifact.dependencies();
+                    Self::load_dependencies(registry, deps, config, assets, true);
+                }
+
+                Ok(LoadedAsset::new(asset, artifact.meta))
+            },
+            save: |path, asset, config| {
+                let bytes = bincode::serialize::<A>(asset.asset())
+                    .map_err(|e| AssetError::import(path, e))?;
+
+                config
+                    .save_artifact(&Artifact::new(&bytes, asset.meta().clone()))
+                    .map_err(|e| AssetError::import(path, e))
+            },
             loaded: |loaded: LoadedAsset| {
                 let id = loaded.meta.id();
                 let dependencies = loaded.meta.dependencies;
@@ -65,107 +76,74 @@ impl AssetMetadata {
 
                 Some(AssetUnloaded::new(id, asset, state).into())
             },
-            importers: DenseMap::new(),
-            process: None,
-            save: |path, imported, config| {
-                let asset = bincode::serialize::<A>(imported.asset())
-                    .map_err(|e| AssetError::import(path, e))?;
-
-                let meta = imported.meta().clone();
-                let artifact = Artifact::new(&asset, meta);
-
-                config
-                    .save_artifact(&artifact)
-                    .map_err(|e| AssetError::import(path, e))
-            },
-            load: |_self, id, registry, config, assets, load_deps| {
-                let artifact = config
-                    .load_artifact(id)
-                    .map_err(|e: AssetIoError| AssetError::load(id, e))?;
-
-                let asset = bincode::deserialize::<A>(artifact.asset())
-                    .map_err(|e| AssetError::load(id, e))?;
-
-                if load_deps {
-                    registry.load_dependencies(artifact.dependencies(), config, assets, true);
-                }
-
-                Ok(LoadedAsset::new(asset, artifact.meta))
-            },
             load_metadata: None,
         }
     }
 
-    pub fn add_loader<L: AssetLoader>(&mut self) {
-        let import: AssetImportFn = |_self, path, registry, config, assets| {
+    pub fn add_importer<I: AssetImporter>(&mut self) {
+        let import: AssetImportFn = |path, config, assets| {
+            let registry = config.registry();
             let path = config.asset(path);
             let mut reader = config.reader(&path);
-            let settings = match config.load_metadata::<L::Settings>(&path) {
+
+            let mut settings = match config.load_metadata::<I::Settings>(&path) {
                 Ok(meta) => meta,
                 Err(_) => AssetSettings::default(),
             };
 
-            let settings_data = config
-                .save_metadata(&path, &settings)
-                .map_err(|e| AssetError::import(&path, e))?;
-
-            let prev_meta = config.load_artifact_meta(settings.id()).ok();
-
-            let (asset, dependencies) = {
-                let mut ctx = LoadContext::new(&settings);
-                let asset = match L::load(&mut ctx, reader.as_mut()) {
-                    Ok(asset) => asset,
+            let (mut asset, dependencies, sub_assets) = {
+                let mut ctx = ImportContext::new(config, &settings);
+                match I::import(&mut ctx, reader.as_mut()) {
                     Err(err) => return Err(AssetError::import(&path, err)),
-                };
-                (asset, ctx.finish())
+                    Ok(asset) => {
+                        let (dependencies, sub_assets) = ctx.finish();
+                        (asset, dependencies, sub_assets)
+                    }
+                }
             };
 
-            let checksum = config.checksum(reader.bytes(), settings_data.as_bytes());
+            let sub_assets = {
+                Self::load_dependencies(registry, &dependencies, config, assets, false);
+                let mut ctx = ProcessContext::new(&mut settings, assets, sub_assets);
+                I::process(&mut ctx, &mut asset).map_err(|e| AssetError::import(&path, e))?;
+                ctx.finish()
+            };
 
-            let (id, settings) = settings.take();
-            let meta = ArtifactMeta::new::<L::Asset>(id, checksum, dependencies);
-            let mut asset = ImportedAsset::new(asset, settings, meta).with_prev_meta(prev_meta);
+            let mut meta = {
+                let bytes = config
+                    .save_metadata(&path, &settings)
+                    .map_err(|e| AssetError::import(&path, e))?;
 
-            if let Some(processor) = &_self.process {
-                registry.load_dependencies(asset.dependencies(), config, assets, false);
-                let sub_assets = processor(&path, &mut asset, assets)?;
-                for sub_asset in sub_assets {
-                    let metadata = match registry.get_metadata(sub_asset.meta().ty()) {
-                        Some(metadata) => metadata,
-                        None => continue,
-                    };
+                let checksum = config.checksum(reader.bytes(), &bytes);
+                ArtifactMeta::new::<I::Asset>(settings.id(), checksum, dependencies)
+            };
 
-                    if let Ok(_) = metadata.save(&path, &sub_asset, config) {
-                        asset.meta.add_child(sub_asset.meta().id());
-                    }
+            for sub_asset in sub_assets {
+                let metadata = match registry.get_metadata(sub_asset.meta().ty()) {
+                    Some(metadata) => metadata,
+                    None => continue,
+                };
+
+                if let Ok(_) = metadata.save(&path, &sub_asset, config) {
+                    meta.add_child(sub_asset.meta().id());
                 }
             }
 
-            _self
-                .save(&path, &asset, config)
+            let bytes = bincode::serialize(&asset).map_err(|e| AssetError::import(&path, e))?;
+            let artifact = Artifact::new(&bytes, meta);
+            config
+                .save_artifact(&artifact)
                 .map_err(|e| AssetError::import(path, e))?;
+
+            let prev_meta = config.load_artifact_meta(settings.id()).ok();
+            let asset = ImportedAsset::new(asset, settings.take().1, artifact.meta, prev_meta);
 
             Ok(asset)
         };
 
-        for ext in L::extensions() {
+        for ext in I::extensions() {
             self.importers.insert(ext, import);
         }
-    }
-
-    pub fn set_processor<P: AssetProcessor>(&mut self) {
-        self.process = Some(|path, imported, assets| {
-            let id = imported.id();
-            let (asset, settings) = imported
-                .mutate::<<P::Loader as AssetLoader>::Asset, <P::Loader as AssetLoader>::Settings>(
-                );
-
-            let mut ctx = ProcessContext::new(id, settings, assets);
-            match P::process(asset, &mut ctx) {
-                Ok(_) => Ok(ctx.finish()),
-                Err(e) => Err(AssetError::import(path, e)),
-            }
-        });
     }
 
     pub fn loaded(&self, loaded: LoadedAsset) -> ErasedEvent {
@@ -179,7 +157,6 @@ impl AssetMetadata {
     pub fn import(
         &self,
         path: &Path,
-        registry: &AssetRegistry,
         config: &AssetConfig,
         assets: &mut LoadedAssets,
     ) -> Result<ImportedAsset, AssetError> {
@@ -189,29 +166,19 @@ impl AssetMetadata {
         let import = self
             .importers
             .get(&ext)
-            .ok_or_else(|| AssetError::import(path, LoadErrorKind::NoLoader))?;
+            .ok_or_else(|| AssetError::import(path, LoadErrorKind::NoImporter))?;
 
-        import(self, path, registry, config, assets)
+        import(path, config, assets)
     }
 
     pub fn load(
         &self,
         id: AssetId,
-        registry: &AssetRegistry,
         config: &AssetConfig,
         assets: &mut LoadedAssets,
         load_dependencies: bool,
     ) -> Result<LoadedAsset, AssetError> {
-        (self.load)(self, id, registry, config, assets, load_dependencies)
-    }
-
-    pub fn process(
-        &self,
-        path: &Path,
-        asset: &mut ImportedAsset,
-        assets: &mut LoadedAssets,
-    ) -> Option<Result<Vec<ImportedAsset>, AssetError>> {
-        self.process.map(|process| process(path, asset, assets))
+        (self.load)(id, config, assets, load_dependencies)
     }
 
     pub fn save(
@@ -229,6 +196,33 @@ impl AssetMetadata {
         config: &AssetConfig,
     ) -> Option<Result<LoadedMetadata, AssetError>> {
         self.load_metadata.map(|load| load(path, config))
+    }
+
+    pub fn load_dependencies<'a>(
+        registry: &AssetRegistry,
+        dependencies: impl IntoIterator<Item = &'a AssetId>,
+        config: &AssetConfig,
+        assets: &mut LoadedAssets,
+        recursive: bool,
+    ) {
+        for dependency in dependencies.into_iter() {
+            if !assets.contains(dependency) {
+                let meta = match config.load_artifact_meta(*dependency) {
+                    Ok(meta) => meta,
+                    Err(_) => continue,
+                };
+
+                let loaded = match registry.get_metadata(meta.ty()) {
+                    Some(loader) => loader.load(*dependency, config, assets, recursive),
+                    None => continue,
+                };
+
+                match loaded {
+                    Ok(loaded) => assets.add_erased(*dependency, loaded),
+                    Err(_) => continue,
+                };
+            }
+        }
     }
 }
 
@@ -254,34 +248,21 @@ impl AssetRegistry {
         self.metadata.insert(asset_type, AssetMetadata::new::<A>());
     }
 
-    pub fn add_loader<L: AssetLoader>(&mut self) {
-        let asset_type = AssetType::of::<L::Asset>();
+    pub fn add_importer<I: AssetImporter>(&mut self) {
+        let asset_type = AssetType::of::<I::Asset>();
         let metadata = match self.metadata.get_mut(&asset_type) {
             Some(metadata) => metadata,
             None => {
-                self.register::<L::Asset>();
+                self.register::<I::Asset>();
                 self.metadata.get_mut(&asset_type).unwrap()
             }
         };
 
-        for ext in L::extensions() {
+        for ext in I::extensions() {
             self.ext_map.insert(ext, asset_type);
         }
 
-        metadata.add_loader::<L>();
-    }
-
-    pub fn set_processor<P: AssetProcessor>(&mut self) {
-        let asset_type = AssetType::of::<<P::Loader as AssetLoader>::Asset>();
-        let metadata = match self.metadata.get_mut(&asset_type) {
-            Some(metadata) => metadata,
-            None => {
-                self.add_loader::<P::Loader>();
-                self.metadata.get_mut(&asset_type).unwrap()
-            }
-        };
-
-        metadata.set_processor::<P>();
+        metadata.add_importer::<I>();
     }
 
     pub fn get_metadata(&self, asset_type: AssetType) -> Option<&AssetMetadata> {
@@ -301,33 +282,6 @@ impl AssetRegistry {
     pub fn ext_type(&self, ext: &str) -> Option<AssetType> {
         self.ext_map.get(&ext).copied()
     }
-
-    fn load_dependencies<'a>(
-        &self,
-        dependencies: impl IntoIterator<Item = &'a AssetId>,
-        io: &AssetConfig,
-        assets: &mut LoadedAssets,
-        recursive: bool,
-    ) {
-        for dependency in dependencies.into_iter() {
-            if !assets.contains(dependency) {
-                let meta = match io.load_artifact_meta(*dependency) {
-                    Ok(meta) => meta,
-                    Err(_) => continue,
-                };
-
-                let loaded = match self.get_metadata(meta.ty()) {
-                    Some(loader) => loader.load(*dependency, self, io, assets, recursive),
-                    None => continue,
-                };
-
-                match loaded {
-                    Ok(loaded) => assets.add_erased(*dependency, loaded),
-                    Err(_) => continue,
-                };
-            }
-        }
-    }
 }
 
 pub struct ImportedAsset {
@@ -338,18 +292,18 @@ pub struct ImportedAsset {
 }
 
 impl ImportedAsset {
-    pub fn new<A: Asset, S: Settings>(asset: A, settings: S, meta: ArtifactMeta) -> Self {
+    pub fn new<A: Asset, S: Settings>(
+        asset: A,
+        settings: S,
+        meta: ArtifactMeta,
+        prev_meta: Option<ArtifactMeta>,
+    ) -> Self {
         Self {
             asset: BlobCell::new(asset),
             settings: BlobCell::new(settings),
             meta,
-            prev_meta: None,
+            prev_meta,
         }
-    }
-
-    pub fn with_prev_meta(mut self, prev_meta: Option<ArtifactMeta>) -> Self {
-        self.prev_meta = prev_meta;
-        self
     }
 
     pub fn id(&self) -> AssetId {
@@ -370,10 +324,6 @@ impl ImportedAsset {
 
     pub fn settings_mut<S: Settings>(&mut self) -> &mut S {
         self.settings.value_mut()
-    }
-
-    pub fn mutate<A: Asset, S: Settings>(&mut self) -> (&mut A, &mut S) {
-        (self.asset.value_mut(), self.settings.value_mut())
     }
 
     pub fn meta(&self) -> &ArtifactMeta {

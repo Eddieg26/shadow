@@ -60,7 +60,7 @@ impl Plugin for GraphicsPlugin {
 
         //TODO: Register Texture, Mesh, Material Loaders
         game.register_asset::<Mesh>();
-        game.register_loader::<ShaderSource>();
+        game.add_importer::<ShaderSource>();
         game.register_render_asset::<ShaderSource>();
         game.register_event::<SurfaceCreated>();
 

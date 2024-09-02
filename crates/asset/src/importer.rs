@@ -1,7 +1,7 @@
 use crate::{
     artifact::ArtifactMeta,
     asset::{Asset, AssetId, AssetPath, AssetSettings, Settings},
-    database::registry::ImportedAsset,
+    database::{registry::ImportedAsset, AssetConfig},
     io::{AssetIoError, AssetReader},
     DefaultSettings,
 };
@@ -15,17 +15,29 @@ use std::{
     path::{Path, PathBuf},
 };
 
-pub struct LoadContext<'a, S: Settings> {
+pub struct ImportContext<'a, S: Settings> {
+    config: &'a AssetConfig,
     settings: &'a AssetSettings<S>,
     dependencies: HashSet<AssetId>,
+    sub_assets: Vec<ImportedAsset>,
 }
 
-impl<'a, S: Settings> LoadContext<'a, S> {
-    pub fn new(settings: &'a AssetSettings<S>) -> Self {
+impl<'a, S: Settings> ImportContext<'a, S> {
+    pub fn new(config: &'a AssetConfig, settings: &'a AssetSettings<S>) -> Self {
         Self {
+            config,
             settings,
             dependencies: HashSet::new(),
+            sub_assets: Vec::new(),
         }
+    }
+
+    pub fn config(&self) -> &AssetConfig {
+        self.config
+    }
+
+    pub fn id(&self) -> AssetId {
+        self.settings.id()
     }
 
     pub fn settings(&self) -> &AssetSettings<S> {
@@ -40,61 +52,81 @@ impl<'a, S: Settings> LoadContext<'a, S> {
         self.dependencies.insert(id);
     }
 
-    pub fn finish(self) -> HashSet<AssetId> {
-        self.dependencies
+    pub fn add_sub_asset<A: Asset>(&mut self, name: &str, asset: A) -> AssetId {
+        let id = self.id().name(name);
+        let dependencies = HashSet::new();
+        let meta = ArtifactMeta::new::<A>(id, 0, dependencies).with_parent(self.id());
+        let asset = ImportedAsset::new(asset, DefaultSettings, meta, None);
+        self.sub_assets.push(asset);
+        id
+    }
+
+    pub fn finish(self) -> (HashSet<AssetId>, Vec<ImportedAsset>) {
+        (self.dependencies, self.sub_assets)
     }
 }
 
-pub trait AssetLoader: 'static {
+pub trait AssetImporter: 'static {
     type Asset: Asset;
     type Settings: Settings;
     type Error: Error + Send + Sync + 'static;
 
-    fn load(
-        ctx: &mut LoadContext<Self::Settings>,
+    fn import(
+        ctx: &mut ImportContext<Self::Settings>,
         reader: &mut dyn AssetReader,
     ) -> Result<Self::Asset, Self::Error>;
+    fn process(
+        _ctx: &mut ProcessContext<Self::Settings>,
+        _asset: &mut Self::Asset,
+    ) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
     fn extensions() -> &'static [&'static str];
 }
 
 pub struct ProcessContext<'a, S: Settings> {
-    id: AssetId,
-    settings: &'a mut S,
+    settings: &'a mut AssetSettings<S>,
     assets: &'a mut LoadedAssets,
     sub_assets: Vec<ImportedAsset>,
 }
 
 impl<'a, S: Settings> ProcessContext<'a, S> {
-    pub fn new(id: AssetId, settings: &'a mut S, assets: &'a mut LoadedAssets) -> Self {
+    pub fn new(
+        settings: &'a mut AssetSettings<S>,
+        assets: &'a mut LoadedAssets,
+        sub_assets: Vec<ImportedAsset>,
+    ) -> Self {
         Self {
-            id,
             settings,
             assets,
-            sub_assets: Vec::new(),
+            sub_assets,
         }
     }
 
     pub fn id(&self) -> AssetId {
-        self.id
+        self.settings.id()
     }
 
     pub fn asset<A: Asset>(&self, id: &AssetId) -> Option<&A> {
         self.assets.get::<A>(id)
     }
 
-    pub fn settings(&self) -> &S {
+    pub fn settings(&self) -> &AssetSettings<S> {
         self.settings
     }
 
-    pub fn settings_mut(&mut self) -> &mut S {
+    pub fn settings_mut(&mut self) -> &mut AssetSettings<S> {
         self.settings
     }
 
-    pub fn add_sub_asset<A: Asset>(&mut self, id: AssetId, asset: A) {
-        let dependencies = HashSet::from([self.id]);
-        let meta = ArtifactMeta::new::<A>(id, 0, dependencies).with_parent(self.id);
-        let asset = ImportedAsset::new(asset, DefaultSettings, meta);
+    pub fn add_sub_asset<A: Asset>(&mut self, asset: A) -> AssetId {
+        let id = self.id().sub(self.sub_assets.len());
+        let dependencies = HashSet::new();
+        let meta = ArtifactMeta::new::<A>(id, 0, dependencies).with_parent(self.id());
+        let asset = ImportedAsset::new(asset, DefaultSettings, meta, None);
         self.sub_assets.push(asset);
+        id
     }
 
     pub fn finish(self) -> Vec<ImportedAsset> {
@@ -103,12 +135,12 @@ impl<'a, S: Settings> ProcessContext<'a, S> {
 }
 
 pub trait AssetProcessor: 'static {
-    type Loader: AssetLoader;
+    type Importer: AssetImporter;
     type Error: Error + Send + Sync + 'static;
 
     fn process(
-        asset: &mut <Self::Loader as AssetLoader>::Asset,
-        ctx: &mut ProcessContext<<Self::Loader as AssetLoader>::Settings>,
+        asset: &mut <Self::Importer as AssetImporter>::Asset,
+        ctx: &mut ProcessContext<<Self::Importer as AssetImporter>::Settings>,
     ) -> Result<(), Self::Error>;
 }
 
@@ -175,8 +207,7 @@ pub enum AssetErrorKind {
 pub enum LoadErrorKind {
     Io(AssetIoError),
     NoExtension,
-    NoLoader,
-    NoSerializer,
+    NoImporter,
     InvalidExtension(String),
 }
 
@@ -184,10 +215,9 @@ impl std::fmt::Display for LoadErrorKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             LoadErrorKind::Io(err) => write!(f, "IO error: {}", err),
-            LoadErrorKind::NoLoader => write!(f, "No importer found"),
+            LoadErrorKind::NoImporter => write!(f, "No importer found"),
             LoadErrorKind::InvalidExtension(ext) => write!(f, "Invalid extension: {}", ext),
             LoadErrorKind::NoExtension => write!(f, "No extension found"),
-            LoadErrorKind::NoSerializer => write!(f, "No serializer found"),
         }
     }
 }

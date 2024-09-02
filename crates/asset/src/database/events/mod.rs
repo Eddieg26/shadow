@@ -1,5 +1,5 @@
 use super::AssetDatabase;
-use crate::loader::{AssetError, AssetErrorKind};
+use crate::importer::{AssetError, AssetErrorKind};
 use ecs::{
     system::RunMode,
     task::TaskPool,
@@ -163,7 +163,7 @@ mod tests {
             AssetConfig, AssetDatabase,
         },
         io::{vfs::VirtualFileSystem, AssetIoError, AssetReader},
-        loader::{AssetError, AssetLoader, LoadContext},
+        importer::{AssetError, AssetImporter, ImportContext},
     };
 
     use super::{AssetImported, ImportAssets, RemoveAssets};
@@ -172,13 +172,13 @@ mod tests {
     struct PlainText(String);
     impl Asset for PlainText {}
 
-    impl AssetLoader for PlainText {
+    impl AssetImporter for PlainText {
         type Asset = Self;
         type Settings = DefaultSettings;
         type Error = AssetIoError;
 
-        fn load(
-            _: &mut LoadContext<Self::Settings>,
+        fn import(
+            _: &mut ImportContext<Self::Settings>,
             reader: &mut dyn AssetReader,
         ) -> Result<Self::Asset, Self::Error> {
             reader.read_to_end()?;
@@ -203,7 +203,7 @@ mod tests {
     fn create_world() -> World {
         let mut config = AssetConfig::new(VirtualFileSystem::new(""));
         config.register::<PlainText>();
-        config.set_loader::<PlainText>();
+        config.add_importer::<PlainText>();
         config.set_run_mode(RunMode::Sequential);
         config.init().unwrap();
 

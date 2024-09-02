@@ -73,6 +73,10 @@ impl AssetReader for Entry {
         &self.buffer
     }
 
+    fn buf_reader(&self) -> Result<Box<dyn std::io::BufRead + '_>, AssetIoError> {
+        Ok(Box::new(std::io::Cursor::new(&self.buffer)))
+    }
+
     fn flush(&mut self) -> super::Result<Vec<u8>> {
         self.read_offset = 0;
         Ok(self.buffer.clone())

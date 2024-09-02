@@ -19,6 +19,20 @@ impl AssetId {
         AssetId(hasher.finish())
     }
 
+    pub fn sub(&self, sub: usize) -> Self {
+        let mut hasher = crc32fast::Hasher::new();
+        self.0.hash(&mut hasher);
+        sub.hash(&mut hasher);
+        AssetId(hasher.finish())
+    }
+
+    pub fn name(&self, name: &str) -> Self {
+        let mut hasher = crc32fast::Hasher::new();
+        self.0.hash(&mut hasher);
+        name.hash(&mut hasher);
+        AssetId(hasher.finish())
+    }
+
     pub fn raw(id: u64) -> Self {
         Self(id)
     }

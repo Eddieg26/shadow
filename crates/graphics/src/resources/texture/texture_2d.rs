@@ -1,5 +1,5 @@
 use super::{FilterMode, Texture, TextureDimension, TextureFormat, WrapMode};
-use asset::{loader::AssetLoader, Asset, Settings};
+use asset::{importer::AssetImporter, Asset, Settings};
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct Texture2d {
@@ -115,13 +115,13 @@ impl Default for Texture2dSettings {
 
 impl Settings for Texture2dSettings {}
 
-impl AssetLoader for Texture2d {
+impl AssetImporter for Texture2d {
     type Asset = Self;
     type Settings = Texture2dSettings;
     type Error = image::ImageError;
 
-    fn load(
-        ctx: &mut asset::loader::LoadContext<Self::Settings>,
+    fn import(
+        ctx: &mut asset::importer::ImportContext<Self::Settings>,
         reader: &mut dyn asset::io::AssetReader,
     ) -> Result<Self::Asset, Self::Error> {
         let image = image::ImageReader::open(reader.path())?.decode()?;

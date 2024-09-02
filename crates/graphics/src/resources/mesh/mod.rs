@@ -150,7 +150,7 @@ impl Mesh {
         VertexLayout::from(attributes)
     }
 
-    pub fn insert_attribute(
+    pub fn add_attribute(
         &mut self,
         attributes: VertexAttributeValues,
     ) -> Option<VertexAttributeValues> {

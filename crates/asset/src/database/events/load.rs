@@ -2,7 +2,7 @@ use super::{AssetEvent, StartAssetEvent};
 use crate::{
     asset::{Asset, AssetId, AssetPath, Assets},
     database::{state::AssetState, AssetDatabase},
-    loader::{AssetError, LoadErrorKind, LoadedAssets},
+    importer::{AssetError, LoadErrorKind, LoadedAssets},
 };
 use ecs::{
     core::DenseSet,
@@ -134,19 +134,18 @@ impl AssetEvent for LoadAssets {
                 let loader = match registry.get_metadata(meta.ty()) {
                     Some(loader) => loader,
                     None => {
-                        errors.push(AssetError::load(id, LoadErrorKind::NoLoader));
+                        errors.push(AssetError::load(id, LoadErrorKind::NoImporter));
                         continue;
                     }
                 };
 
-                let asset =
-                    match loader.load(id, &registry, config, &mut assets, load.load_dependencies) {
-                        Ok(asset) => asset,
-                        Err(error) => {
-                            errors.push(error);
-                            continue;
-                        }
-                    };
+                let asset = match loader.load(id, config, &mut assets, load.load_dependencies) {
+                    Ok(asset) => asset,
+                    Err(error) => {
+                        errors.push(error);
+                        continue;
+                    }
+                };
 
                 if let Some(parent) = meta.parent() {
                     if !database.states().is_loaded(&parent) && !assets.contains(&parent) {

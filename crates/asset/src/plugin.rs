@@ -7,9 +7,9 @@ use crate::{
         },
         AssetConfig, AssetDatabase,
     },
-    loader::{AssetError, AssetLoader, AssetProcessor},
+    importer::{AssetError, AssetImporter},
 };
-use game::{Game, phases::Init, plugin::Plugin};
+use game::{phases::Init, plugin::Plugin, Game};
 
 pub struct AssetPlugin;
 
@@ -41,8 +41,7 @@ impl Plugin for AssetPlugin {
 
 pub trait AssetExt: Sized {
     fn register_asset<A: Asset>(&mut self) -> &mut Self;
-    fn register_loader<L: AssetLoader>(&mut self) -> &mut Self;
-    fn register_processor<P: AssetProcessor>(&mut self) -> &mut Self;
+    fn add_importer<I: AssetImporter>(&mut self) -> &mut Self;
 }
 
 impl AssetExt for Game {
@@ -60,16 +59,9 @@ impl AssetExt for Game {
         self
     }
 
-    fn register_loader<L: AssetLoader>(&mut self) -> &mut Self {
-        self.register_asset::<L::Asset>();
-        self.resource_mut::<AssetConfig>().set_loader::<L>();
-
-        self
-    }
-
-    fn register_processor<P: AssetProcessor>(&mut self) -> &mut Self {
-        self.register_loader::<P::Loader>();
-        self.resource_mut::<AssetConfig>().set_processor::<P>();
+    fn add_importer<I: AssetImporter>(&mut self) -> &mut Self {
+        self.register_asset::<I::Asset>();
+        self.resource_mut::<AssetConfig>().add_importer::<I>();
 
         self
     }

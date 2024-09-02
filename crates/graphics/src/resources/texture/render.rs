@@ -1,5 +1,5 @@
 use super::{FilterMode, Texture, TextureDimension, TextureFormat, WrapMode};
-use asset::{loader::AssetLoader, Asset, Settings};
+use asset::{importer::AssetImporter, Asset, Settings};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RenderTexture {
@@ -132,13 +132,13 @@ impl std::fmt::Display for RenderTextureLoadError {
 
 impl std::error::Error for RenderTextureLoadError {}
 
-impl AssetLoader for RenderTexture {
+impl AssetImporter for RenderTexture {
     type Asset = RenderTexture;
     type Settings = RenderTextureSettings;
     type Error = RenderTextureLoadError;
 
-    fn load(
-        ctx: &mut asset::loader::LoadContext<Self::Settings>,
+    fn import(
+        ctx: &mut asset::importer::ImportContext<Self::Settings>,
         _: &mut dyn asset::io::AssetReader,
     ) -> Result<Self::Asset, Self::Error> {
         let settings = ctx.settings();

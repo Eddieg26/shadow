@@ -5,8 +5,8 @@ use super::{
 use crate::{
     asset::{Asset, AssetId, AssetKind, AssetSettings, Settings},
     database::{library::DependentLibrary, AssetDatabase},
+    importer::{AssetError, AssetErrorKind, LoadErrorKind, LoadedAssets},
     io::PathExt,
-    loader::{AssetError, AssetErrorKind, LoadErrorKind, LoadedAssets},
     AssetPath,
 };
 use ecs::{
@@ -119,7 +119,7 @@ impl ImportFolder {
         let library = database.library();
         let loader = match registry.get_metadata_by_ext(ext) {
             Some(loader) => loader,
-            None => return Some(ImportScan::error(path, LoadErrorKind::NoLoader)),
+            None => return Some(ImportScan::error(path, LoadErrorKind::NoImporter)),
         };
 
         let metadata = match loader.load_metadata(path, config) {
@@ -287,12 +287,12 @@ impl AssetEvent for ImportAssets {
                 let loader = match path.ext().and_then(|ext| registry.get_metadata_by_ext(ext)) {
                     Some(loader) => loader,
                     None => {
-                        errors.push(AssetError::import(path, LoadErrorKind::NoLoader));
+                        errors.push(AssetError::import(path, LoadErrorKind::NoImporter));
                         continue;
                     }
                 };
 
-                let imported = match loader.import(&path, &registry, config, &mut assets) {
+                let imported = match loader.import(&path, config, &mut assets) {
                     Ok(imported) => imported,
                     Err(error) => {
                         errors.push(error);

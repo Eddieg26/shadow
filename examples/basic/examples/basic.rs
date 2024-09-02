@@ -4,8 +4,9 @@ use std::{
 };
 
 use asset::{
-    io::local::LocalAsset,
-    loader::{AssetLoader, LoadContext},
+    database::AssetConfig,
+    importer::{AssetImporter, ImportContext},
+    io::local::{LocalAsset, LocalFileSystem},
     AssetSettings,
 };
 use game::{
@@ -15,13 +16,19 @@ use game::{
 };
 use graphics::{
     camera::{ClearFlag, RenderFrame, RenderFrames},
-    core::Color,
+    core::{Color, VertexAttribute},
     plugin::GraphicsPlugin,
     renderer::{
         graph::RenderGraphBuilder,
         nodes::render::{Attachment, RenderPass, StoreOp},
     },
-    resources::texture::{Texture, Texture2d, Texture2dSettings},
+    resources::{
+        mesh::{
+            model::{MeshLoadSettings, ObjLoader},
+            Mesh,
+        },
+        texture::{Texture, Texture2d, Texture2dSettings},
+    },
 };
 use window::{events::WindowCreated, plugin::WindowPlugin};
 
@@ -57,4 +64,24 @@ fn main() {
     //     .add_plugin(BasicPlugin)
     //     .add_system(Init, || println!("Init"))
     //     .run();
+
+    let config = AssetConfig::new(LocalFileSystem::new(""));
+    let settings = AssetSettings::<MeshLoadSettings>::default();
+    let mut ctx = ImportContext::new(&config, &settings);
+    let mut reader = LocalAsset::new("cube.obj");
+    match ObjLoader::import(&mut ctx, &mut reader) {
+        Ok(model) => println!("Mesh: {:?}", model.meshes().len()),
+        Err(e) => println!("Error: {:?}", e),
+    }
+
+    let (_, sub_assets) = ctx.finish();
+    for imported in sub_assets {
+        let mesh = imported.asset::<Mesh>();
+        let positions = mesh.attribute(VertexAttribute::Position).unwrap();
+        let normals = mesh.attribute(VertexAttribute::Normal).unwrap();
+        let uvs = mesh.attribute(VertexAttribute::TexCoord0).unwrap();
+        println!("Positions: {:?}", positions.len());
+        println!("Normals: {:?}", normals.len());
+        println!("UVs: {:?}", uvs.len());
+    }
 }

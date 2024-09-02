@@ -1,10 +1,10 @@
 use crate::{
     artifact::{Artifact, ArtifactHeader, ArtifactMeta},
     asset::{Asset, AssetId, AssetSettings, Settings},
+    importer::AssetImporter,
     io::{
         local::LocalFileSystem, AssetFileSystem, AssetIoError, AssetReader, AssetWriter, PathExt,
     },
-    loader::{AssetLoader, AssetProcessor},
 };
 use ecs::{core::Resource, system::RunMode};
 use events::{AssetEvent, AssetEvents};
@@ -156,12 +156,8 @@ impl AssetConfig {
         self.registry.register::<A>();
     }
 
-    pub fn set_loader<L: AssetLoader>(&mut self) {
-        self.registry.add_loader::<L>();
-    }
-
-    pub fn set_processor<P: AssetProcessor>(&mut self) {
-        self.registry.set_processor::<P>();
+    pub fn add_importer<I: AssetImporter>(&mut self) {
+        self.registry.add_importer::<I>();
     }
 }
 
@@ -228,13 +224,12 @@ impl AssetConfig {
         &self,
         path: impl AsRef<Path>,
         settings: &AssetSettings<S>,
-    ) -> Result<String, AssetIoError> {
+    ) -> Result<Vec<u8>, AssetIoError> {
         let mut writer = self.writer(path.append_ext("meta"));
         let meta = toml::to_string(settings).map_err(AssetIoError::from)?;
 
         writer.write(meta.as_bytes())?;
-        writer.flush()?;
-        Ok(meta)
+        writer.flush()
     }
 
     pub fn load_artifact_meta(&self, id: AssetId) -> Result<ArtifactMeta, AssetIoError> {

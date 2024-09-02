@@ -1,6 +1,6 @@
 use asset::{
     io::{AssetIoError, AssetReader, PathExt},
-    loader::{AssetLoader, LoadContext},
+    importer::{AssetImporter, ImportContext},
     Asset, AssetId, DefaultSettings,
 };
 use ecs::core::{DenseMap, Resource};
@@ -62,13 +62,13 @@ impl std::error::Error for ShaderLoadError {}
 
 impl Asset for ShaderSource {}
 
-impl AssetLoader for ShaderSource {
+impl AssetImporter for ShaderSource {
     type Asset = Self;
     type Settings = DefaultSettings;
     type Error = ShaderLoadError;
 
-    fn load(
-        _: &mut LoadContext<Self::Settings>,
+    fn import(
+        _: &mut ImportContext<Self::Settings>,
         reader: &mut dyn AssetReader,
     ) -> Result<Self::Asset, Self::Error> {
         let path = reader.path();
