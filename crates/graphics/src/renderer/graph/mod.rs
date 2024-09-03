@@ -263,11 +263,11 @@ impl RenderGraph {
 impl Resource for RenderGraph {}
 
 pub trait RenderGraphNode: downcast_rs::Downcast + 'static {
-    fn execute(&self, ctx: &RenderContext);
+    fn execute(&mut self, ctx: &RenderContext);
 }
 
 impl RenderGraphNode for RenderGraph {
-    fn execute(&self, ctx: &RenderContext) {
+    fn execute(&mut self, ctx: &RenderContext) {
         for indexes in &self.order {
             let local = ctx.clone();
             for index in indexes {

@@ -2,7 +2,7 @@ use ecs::core::{LocalResource, Resource};
 
 use crate::{
     camera::{ClearFlag, RenderFrame},
-    core::Color,
+    core::{Color, RenderDevice, RenderQueue},
     renderer::{
         draw::{Draw, DrawCalls},
         graph::{context::RenderContext, RenderGraphNode},
@@ -224,10 +224,10 @@ impl RenderPass {
 }
 
 impl RenderGraphNode for RenderPass {
-    fn execute(&self, ctx: &RenderContext) {
+    fn execute(&mut self, ctx: &RenderContext) {
         let mut encoder = ctx.encoder();
         if let Some(mut commands) = self.begin(ctx.frame(), ctx, &mut encoder) {
-            for pass in &self.subpasses {
+            for pass in &mut self.subpasses {
                 pass.run(ctx, &mut commands);
             }
         }
@@ -264,6 +264,14 @@ impl<'a, D: Draw> RenderPassContext<'a, D> {
         self.draws
     }
 
+    pub fn device(&self) -> &RenderDevice {
+        self.ctx.device()
+    }
+
+    pub fn queue(&self) -> &RenderQueue {
+        self.ctx.queue()
+    }
+
     pub fn resource<R: Resource>(&self) -> &R {
         self.ctx.resource()
     }
@@ -274,21 +282,21 @@ impl<'a, D: Draw> RenderPassContext<'a, D> {
 }
 
 pub trait RenderGroup<D: Draw>: 'static {
-    fn render(&self, ctx: &RenderPassContext<D>, commands: &mut RenderCommands);
+    fn render(&mut self, ctx: &RenderPassContext<D>, commands: &mut RenderCommands);
 }
 
 impl<D: Draw, F: Fn(&RenderPassContext<D>, &mut RenderCommands) + 'static> RenderGroup<D> for F {
-    fn render(&self, ctx: &RenderPassContext<D>, commands: &mut RenderCommands) {
+    fn render(&mut self, ctx: &RenderPassContext<D>, commands: &mut RenderCommands) {
         (self)(ctx, commands);
     }
 }
 
 pub struct ErasedRenderGroup {
-    render: Box<dyn Fn(&RenderContext, &mut RenderCommands)>,
+    render: Box<dyn FnMut(&RenderContext, &mut RenderCommands)>,
 }
 
 impl ErasedRenderGroup {
-    pub fn new<D: Draw>(group: impl RenderGroup<D>) -> Self {
+    pub fn new<D: Draw>(mut group: impl RenderGroup<D>) -> Self {
         Self {
             render: Box::new(move |ctx, commands| {
                 if let Some(draws) = ctx.try_resource::<DrawCalls<D>>() {
@@ -299,7 +307,7 @@ impl ErasedRenderGroup {
         }
     }
 
-    pub fn render(&self, ctx: &RenderContext, commands: &mut RenderCommands) {
+    pub fn render(&mut self, ctx: &RenderContext, commands: &mut RenderCommands) {
         (self.render)(ctx, commands);
     }
 }
@@ -322,8 +330,8 @@ impl Subpass {
         self.groups.push(ErasedRenderGroup::new(group));
     }
 
-    pub fn run(&self, ctx: &RenderContext, commands: &mut RenderCommands) {
-        for group in &self.groups {
+    pub fn run(&mut self, ctx: &RenderContext, commands: &mut RenderCommands) {
+        for group in &mut self.groups {
             group.render(ctx, commands);
         }
     }

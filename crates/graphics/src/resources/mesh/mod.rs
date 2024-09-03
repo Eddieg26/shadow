@@ -7,9 +7,9 @@ use crate::core::{
     VertexLayout,
 };
 use asset::Asset;
-use ecs::system::ArgItem;
+use ecs::{core::DenseMap, system::ArgItem};
 use spatial::bounds::BoundingBox;
-use std::hash::Hash;
+use std::{hash::Hash, ops::Range};
 
 pub mod draw;
 pub mod model;
@@ -52,11 +52,15 @@ impl From<wgpu::PrimitiveTopology> for MeshTopology {
 
 bitflags::bitflags! {
     #[derive(Default, Clone, Copy, PartialEq, Eq)]
-    pub struct MeshDirty: u8 {
-        const NONE = 0;
-        const ATTRIBUTES = 1;
-        const INDICES = 2;
-        const BOUNDS = 4;
+    pub struct MeshDirty: u32 {
+        const POSITION = 1 << 1;
+        const NORMAL = 1 << 2;
+        const TANGENT =  1 << 3;
+        const TEXCOORD0 = 1 << 4;
+        const TEXCOORD1 = 1 << 5;
+        const COLOR = 1 << 6;
+        const INDICES = 1 << 7;
+        const BOUNDS = 1 << 8;
     }
 }
 
@@ -80,7 +84,7 @@ impl Mesh {
             indices: None,
             bounds: BoundingBox::ZERO,
             read_write,
-            dirty: MeshDirty::NONE,
+            dirty: MeshDirty::empty(),
         }
     }
 
@@ -104,19 +108,13 @@ impl Mesh {
     }
 
     pub fn attribute_mut(&mut self, kind: VertexAttribute) -> Option<&mut VertexAttributeValues> {
+        self.attribute_dirty(kind);
+
         let attributes = self
             .attributes
             .iter_mut()
             .find(|a| a.attribute() == kind)
             .map(|a| a.values_mut());
-
-        if attributes.is_some() {
-            self.dirty |= MeshDirty::ATTRIBUTES;
-        }
-
-        if kind == VertexAttribute::Position {
-            self.dirty |= MeshDirty::BOUNDS;
-        }
 
         attributes
     }
@@ -162,11 +160,7 @@ impl Mesh {
             .iter()
             .position(|a| a.attribute() == attributes.kind());
 
-        self.dirty |= MeshDirty::ATTRIBUTES;
-
-        if attributes.kind() == VertexAttribute::Position {
-            self.dirty |= MeshDirty::BOUNDS;
-        }
+        self.attribute_dirty(attributes.kind());
 
         match position {
             Some(position) => {
@@ -190,9 +184,7 @@ impl Mesh {
     pub fn remove_attribute(&mut self, kind: VertexAttribute) -> Option<VertexAttributes> {
         let position = self.attributes.iter().position(|a| a.attribute() == kind)?;
 
-        if kind == VertexAttribute::Position {
-            self.dirty |= MeshDirty::BOUNDS;
-        }
+        self.attribute_dirty(kind);
 
         Some(self.attributes.remove(position))
     }
@@ -203,7 +195,7 @@ impl Mesh {
         }
 
         self.indices = None;
-        self.dirty = MeshDirty::ATTRIBUTES | MeshDirty::INDICES | MeshDirty::BOUNDS;
+        self.dirty = MeshDirty::all()
     }
 
     pub fn vertex_count(&self) -> usize {
@@ -218,46 +210,59 @@ impl Mesh {
         self.attributes.iter().map(|a| a.attribute().size()).sum()
     }
 
-    pub fn vertex_data(&self) -> Vec<u8> {
-        let vertex_size = self.vertex_size();
-        let vertex_count = self.vertex_count();
+    pub fn attribute_data(&self, attribute: VertexAttribute, range: Range<usize>) -> Vec<u8> {
+        let attribute = match self.attribute(attribute) {
+            Some(attribute) => attribute,
+            None => return Vec::new(),
+        };
 
-        let mut data = vec![0; vertex_size * vertex_count];
+        attribute.data(range)
+    }
 
-        for index in 0..vertex_count {
-            for attribute in &self.attributes {
-                data.extend(attribute.bytes(index));
+    pub fn buffers(&self) -> Option<MeshBuffers> {
+        if self.attributes.is_empty() {
+            return None;
+        }
+
+        let mut vertex_buffers = DenseMap::new();
+        let flags = match self.read_write() {
+            ReadWrite::Enabled => BufferFlags::COPY_DST | BufferFlags::MAP_WRITE,
+            ReadWrite::Disabled => BufferFlags::empty(),
+        };
+
+        let len = self.len();
+        for attribute in &self.attributes {
+            let data = self.attribute_data(attribute.attribute(), 0..len);
+            if data.is_empty() {
+                continue;
             }
+
+            let layout = VertexLayout::from(vec![attribute.attribute()]);
+            let buffer = VertexBuffer::create(data, layout, flags);
+            vertex_buffers.insert(attribute.attribute(), buffer);
         }
 
-        data
+        let index = self.indices.as_ref().map(|indices| {
+            let buffer = IndexBuffer::create(indices.clone(), flags);
+            buffer
+        });
+
+        match vertex_buffers.is_empty() {
+            true => return None,
+            false => Some(MeshBuffers {
+                vertex_buffers,
+                index,
+            }),
+        }
     }
 
-    pub fn vertex_buffer(&self) -> Option<VertexBuffer<u8>> {
-        let data = self.vertex_data();
-        let layout = self.layout();
-        let flags = match self.read_write() {
-            ReadWrite::Enabled => BufferFlags::COPY_DST | BufferFlags::MAP_WRITE,
-            ReadWrite::Disabled => BufferFlags::empty(),
-        };
-
-        match data.is_empty() {
-            true => None,
-            false => Some(VertexBuffer::create(data, layout, flags)),
+    pub fn len(&self) -> usize {
+        let mut size = usize::MAX;
+        for attribute in &self.attributes {
+            size = size.min(attribute.len());
         }
-    }
 
-    pub fn index_buffer(&self) -> Option<IndexBuffer> {
-        let flags = match self.read_write() {
-            ReadWrite::Enabled => BufferFlags::COPY_DST | BufferFlags::MAP_WRITE,
-            ReadWrite::Disabled => BufferFlags::empty(),
-        };
-
-        let indices = self.indices.as_ref()?;
-        match indices.is_empty() {
-            true => None,
-            false => Some(IndexBuffer::create(indices.clone(), flags)),
-        }
+        size
     }
 
     pub fn calculate_bounds(&mut self) {
@@ -272,16 +277,47 @@ impl Mesh {
         }
     }
 
+    pub fn attribute_dirty(&mut self, attribute: VertexAttribute) {
+        match attribute {
+            VertexAttribute::Position => self.dirty |= MeshDirty::POSITION | MeshDirty::BOUNDS,
+            VertexAttribute::Normal => self.dirty |= MeshDirty::NORMAL,
+            VertexAttribute::Tangent => self.dirty |= MeshDirty::TANGENT,
+            VertexAttribute::TexCoord0 => self.dirty |= MeshDirty::TEXCOORD0,
+            VertexAttribute::TexCoord1 => self.dirty |= MeshDirty::TEXCOORD1,
+            VertexAttribute::Color => self.dirty |= MeshDirty::COLOR,
+        }
+    }
+
+    pub fn is_attribute_dirty(&self, attribute: VertexAttribute) -> bool {
+        match attribute {
+            VertexAttribute::Position => self.dirty.contains(MeshDirty::POSITION),
+            VertexAttribute::Normal => self.dirty.contains(MeshDirty::NORMAL),
+            VertexAttribute::Tangent => self.dirty.contains(MeshDirty::TANGENT),
+            VertexAttribute::TexCoord0 => self.dirty.contains(MeshDirty::TEXCOORD0),
+            VertexAttribute::TexCoord1 => self.dirty.contains(MeshDirty::TEXCOORD1),
+            VertexAttribute::Color => self.dirty.contains(MeshDirty::COLOR),
+        }
+    }
+
     pub fn upload(
         &mut self,
         buffers: &mut MeshBuffers,
         device: &RenderDevice,
         queue: &RenderQueue,
     ) {
-        if self.dirty.contains(MeshDirty::ATTRIBUTES) {
-            buffers.vertex_mut().set_vertices(self.vertex_data());
-            buffers.vertex_mut().commit(device, queue);
-            self.dirty.remove(MeshDirty::ATTRIBUTES);
+        let len = self.len();
+        for values in self.attributes.iter() {
+            if self.is_attribute_dirty(values.attribute()) {
+                match buffers.vertex_buffer_mut(values.attribute()) {
+                    Some(buffer) => {
+                        let data = self.attribute_data(values.attribute(), 0..len);
+                        buffer.set_vertices(data);
+                        buffer.commit(device, queue);
+                        self.dirty.remove(MeshDirty::POSITION);
+                    }
+                    _ => (),
+                }
+            }
         }
 
         if self.dirty.contains(MeshDirty::INDICES) {
@@ -300,28 +336,28 @@ impl Mesh {
 impl Asset for Mesh {}
 
 pub struct MeshBuffers {
-    vertex: VertexBuffer<u8>,
+    vertex_buffers: DenseMap<VertexAttribute, VertexBuffer<u8>>,
     index: Option<IndexBuffer>,
 }
 
 impl MeshBuffers {
-    pub fn create(mesh: &Mesh) -> Option<MeshBuffers> {
-        let vertex = mesh.vertex_buffer()?;
-        let index = mesh.index_buffer();
-
-        Some(Self { vertex, index })
-    }
-
-    pub fn vertex(&self) -> &VertexBuffer<u8> {
-        &self.vertex
+    pub fn vertex_buffer(&self, attribute: VertexAttribute) -> Option<&VertexBuffer<u8>> {
+        self.vertex_buffers.get(&attribute)
     }
 
     pub fn index(&self) -> Option<&IndexBuffer> {
         self.index.as_ref()
     }
 
-    pub fn vertex_mut(&mut self) -> &mut VertexBuffer<u8> {
-        &mut self.vertex
+    pub fn vertex_buffer_mut(
+        &mut self,
+        attribute: VertexAttribute,
+    ) -> Option<&mut VertexBuffer<u8>> {
+        self.vertex_buffers.get_mut(&attribute)
+    }
+
+    pub fn attributes(&self) -> &[VertexAttribute] {
+        self.vertex_buffers.keys()
     }
 
     pub fn index_mut(&mut self) -> Option<&mut IndexBuffer> {
@@ -342,7 +378,7 @@ impl RenderAssetExtractor for MeshBuffers {
     ) -> Option<Self::Target> {
         let (device, queue) = arg;
 
-        let mut buffers = Self::create(source)?;
+        let mut buffers = source.buffers()?;
         source.upload(&mut buffers, device, queue);
 
         Some(buffers)

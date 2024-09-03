@@ -5,37 +5,92 @@ use std::{
 };
 
 use asset::{
-    database::{AssetConfig, AssetDatabase},
+    database::{events::AssetLoaded, AssetConfig, AssetDatabase},
     embed_asset,
     importer::{AssetImporter, ImportContext, StringError},
     io::local::{LocalAsset, LocalFileSystem},
     plugin::AssetExt,
-    Asset, AssetSettings, Assets, DefaultSettings,
+    Asset, AssetActions, AssetId, AssetSettings, Assets, DefaultSettings,
 };
-use ecs::system::schedule::{Phase, Root};
+use ecs::{
+    core::Resource,
+    system::schedule::{Phase, Root},
+};
 use game::{
     game::Game,
     phases::{Init, Update},
     plugin::{Plugin, Plugins},
-    Execute, GameInstance, PostInit,
+    Execute, First, GameInstance, PostInit,
 };
 use graphics::{
-    components::{ClearFlag, RenderFrame, RenderFrames},
+    camera::{ClearFlag, RenderFrame, RenderFrames},
     core::{Color, VertexAttribute},
-    plugin::GraphicsPlugin,
+    plugin::{GraphicsExt, GraphicsPlugin, RenderApp},
     renderer::{
-        graph::RenderGraphBuilder,
-        nodes::render::{Attachment, RenderPass, StoreOp},
+        draw::{Draw, DrawCalls},
+        graph::{context::RenderContext, RenderGraphBuilder},
+        nodes::render::{
+            Attachment, RenderCommands, RenderGroup, RenderPass, RenderPassContext, StoreOp,
+        },
     },
     resources::{
+        buffer::{BufferFlags, UniformBuffer},
         mesh::{
             model::{MeshLoadSettings, ObjImporter},
             Mesh,
         },
         texture::{Texture, Texture2d, Texture2dSettings},
+        RenderAsset, RenderAssetExtractor,
     },
 };
 use window::{events::WindowCreated, plugin::WindowPlugin};
+
+const TEST_ID: AssetId = AssetId::raw(100);
+const CUBE_ID: AssetId = AssetId::raw(200);
+const SHADER_ID: AssetId = AssetId::raw(300);
+
+pub struct DrawModel {
+    id: AssetId,
+    model: ModelData,
+}
+
+impl Draw for DrawModel {
+    type Partition = Vec<Self>;
+}
+
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+#[repr(C)]
+pub struct ModelData([f32; 16]);
+
+impl From<glam::Mat4> for ModelData {
+    fn from(value: glam::Mat4) -> Self {
+        Self(value.to_cols_array())
+    }
+}
+
+pub struct DrawModelNode {
+    model: UniformBuffer<ModelData>,
+}
+
+impl DrawModelNode {
+    pub fn new() -> Self {
+        Self {
+            model: UniformBuffer::create(
+                ModelData::from(glam::Mat4::IDENTITY),
+                BufferFlags::COPY_DST,
+            ),
+        }
+    }
+}
+
+impl RenderGroup<DrawModel> for DrawModelNode {
+    fn render(&mut self, ctx: &RenderPassContext<DrawModel>, commands: &mut RenderCommands) {
+        for draw in ctx.draws().iter() {
+            self.model.update(draw.model);
+            self.model.commit(ctx.device(), ctx.queue());
+        }
+    }
+}
 
 pub struct BasicPlugin;
 
@@ -48,12 +103,24 @@ impl Plugin for BasicPlugin {
 
     fn start(&self, game: &mut Game) {
         let builder = game.resource_mut::<RenderGraphBuilder>();
-        let pass = RenderPass::new().with_color(Attachment::Surface, None, StoreOp::Store, None);
+        let pass = RenderPass::new()
+            .with_color(Attachment::Surface, None, StoreOp::Store, None)
+            .add_subpass()
+            .with_render_group::<DrawModel>(
+                0,
+                |ctx: &RenderPassContext<DrawModel>, commands: &mut RenderCommands| {},
+            );
 
         builder.add_node("basic", pass);
+
+        let app = game.sub_app_mut::<RenderApp>().unwrap();
     }
 
     fn run(&mut self, game: &mut Game) {
+        embed_asset!(game, TEST_ID, "test.txt");
+        embed_asset!(game, CUBE_ID, "cube.obj");
+        embed_asset!(game, SHADER_ID, "shader.wgsl");
+
         game.add_system(Update, |renders: &mut RenderFrames| {
             let mut frame = RenderFrame::default();
             frame.camera.clear = Some(ClearFlag::Color(Color::green()));
@@ -90,23 +157,5 @@ impl AssetImporter for PlainText {
 }
 
 fn main() {
-    let mut game = Game::new();
-    game.add_plugin(GraphicsPlugin)
-        .add_importer::<ObjImporter>()
-        .add_importer::<PlainText>()
-        .add_system(PostInit, |assets: &Assets<PlainText>| {
-            for (id, asset) in assets.iter() {
-                println!("Asset: {:?} {:?}", id, asset);
-            }
-        })
-        .add_system(PostInit, |assets: &Assets<Mesh>| {
-            for (id, asset) in assets.iter() {
-                println!("Asset: {:?} {:?}", id, asset.attributes().len());
-            }
-        });
-
-    embed_asset!(&mut game, "test.txt");
-    embed_asset!(&mut game, "cube.obj");
-
-    game.run();
+    Game::new().add_plugin(BasicPlugin).run();
 }

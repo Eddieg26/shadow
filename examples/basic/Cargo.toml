@@ -13,4 +13,6 @@ window = { path = "../../crates/window" }
 graphics = { path = "../../crates/graphics" }
 toml = { workspace = true }
 wgpu = { workspace = true }
+bytemuck = { workspace = true }
 serde = { workspace = true }
+glam = { workspace = true }

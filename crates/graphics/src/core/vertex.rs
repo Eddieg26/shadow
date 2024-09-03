@@ -1,8 +1,10 @@
+use std::ops::Range;
+
 use super::Color;
 use glam::{Vec2, Vec3, Vec4};
 
 #[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+    Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
 )]
 pub enum VertexAttribute {
     Position,
@@ -70,14 +72,14 @@ impl VertexAttributeValues {
         }
     }
 
-    pub fn data(&self, index: usize) -> Vec<u8> {
+    pub fn data(&self, range: Range<usize>) -> Vec<u8> {
         match self {
-            VertexAttributeValues::Position(v) => bytemuck::bytes_of(&v[index]).to_vec(),
-            VertexAttributeValues::Normal(v) => bytemuck::bytes_of(&v[index]).to_vec(),
-            VertexAttributeValues::Tangent(v) => bytemuck::bytes_of(&v[index]).to_vec(),
-            VertexAttributeValues::TexCoord0(v) => bytemuck::bytes_of(&v[index]).to_vec(),
-            VertexAttributeValues::TexCoord1(v) => bytemuck::bytes_of(&v[index]).to_vec(),
-            VertexAttributeValues::Color(v) => bytemuck::bytes_of(&v[index]).to_vec(),
+            VertexAttributeValues::Position(v) => bytemuck::cast_slice(&v[range]).to_vec(),
+            VertexAttributeValues::Normal(v) => bytemuck::cast_slice(&v[range]).to_vec(),
+            VertexAttributeValues::Tangent(v) => bytemuck::cast_slice(&v[range]).to_vec(),
+            VertexAttributeValues::TexCoord0(v) => bytemuck::cast_slice(&v[range]).to_vec(),
+            VertexAttributeValues::TexCoord1(v) => bytemuck::cast_slice(&v[range]).to_vec(),
+            VertexAttributeValues::Color(v) => bytemuck::cast_slice(&v[range]).to_vec(),
         }
     }
 
@@ -127,8 +129,8 @@ impl VertexAttributes {
         self.data.clear();
     }
 
-    pub fn bytes(&self, index: usize) -> Vec<u8> {
-        self.data.data(index)
+    pub fn bytes(&self, range: Range<usize>) -> Vec<u8> {
+        self.data.data(range)
     }
 }
 
