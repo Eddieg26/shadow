@@ -10,14 +10,15 @@ use crate::{
     },
     importer::{AssetError, AssetImporter},
     io::{embedded::EmbeddedAssets, PathExt},
-    AssetActions,
+    AssetActions, AssetId,
 };
-use game::{phases::Init, plugin::Plugin, First, Game};
+use game::{phases::Init, plugin::Plugin, Game, PostExecute};
 
 pub struct AssetPlugin;
 
 impl Plugin for AssetPlugin {
     fn start(&self, game: &mut Game) {
+        println!("Starting asset plugin");
         game.init_resource::<AssetConfig>()
             .init_resource::<EmbeddedAssets>()
             .add_system(Init, asset_config_init);
@@ -40,7 +41,9 @@ impl Plugin for AssetPlugin {
             .observe::<DeleteAsset, _>(DeleteAsset::observer)
             .observe::<AssetError, _>(AssetError::observer)
             .observe::<StartAssetEvent, _>(StartAssetEvent::on_start);
+    }
 
+    fn finish(&mut self, game: &mut Game) {
         let config = match game.remove_resource::<AssetConfig>() {
             Some(config) => config,
             None => AssetConfig::default(),
@@ -61,7 +64,7 @@ impl Plugin for AssetPlugin {
 pub trait AssetExt: Sized {
     fn register_asset<A: Asset>(&mut self) -> &mut Self;
     fn add_importer<I: AssetImporter>(&mut self) -> &mut Self;
-    fn embed(&mut self, path: &'static str, data: &'static [u8]) -> &mut Self;
+    fn embed(&mut self, id: AssetId, path: &'static str, data: &'static [u8]) -> &mut Self;
 }
 
 impl AssetExt for Game {
@@ -75,7 +78,7 @@ impl AssetExt for Game {
                 .observe::<AssetLoaded<A>, _>(AssetLoaded::<A>::observer)
                 .observe::<AssetUnloaded<A>, _>(AssetUnloaded::<A>::observer)
                 .observe::<AssetUpdated<A>, _>(AssetUpdated::<A>::observer)
-                .add_system(First, |actions: &mut AssetActions<A>| actions.clear())
+                .add_system(PostExecute, |actions: &mut AssetActions<A>| actions.clear())
                 .init_resource::<Assets<A>>()
                 .init_resource::<AssetActions<A>>();
         }
@@ -90,7 +93,7 @@ impl AssetExt for Game {
         self
     }
 
-    fn embed(&mut self, path: &'static str, bytes: &'static [u8]) -> &mut Self {
+    fn embed(&mut self, id: AssetId, path: &'static str, bytes: &'static [u8]) -> &mut Self {
         let config = self.resource::<AssetConfig>();
         let metadata = path
             .ext()

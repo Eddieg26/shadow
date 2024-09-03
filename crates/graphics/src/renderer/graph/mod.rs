@@ -1,5 +1,5 @@
 use crate::{
-    components::RenderFrames,
+    camera::RenderFrames,
     core::{
         device::{RenderDevice, RenderQueue},
         surface::RenderSurface,
@@ -217,10 +217,19 @@ impl RenderGraph {
         self.resources.set_target_color(surface.id(), Some(view));
 
         let mut actions = vec![];
-        for frame in frames.drain() {
+        let total_frames = frames.len();
+        for (index, frame) in frames.drain().enumerate() {
             for indexes in &self.order {
-                let ctx =
-                    RenderContext::new(surface.id(), &frame, device, queue, &self.resources, world);
+                let ctx = RenderContext::new(
+                    surface.id(),
+                    &frame,
+                    index,
+                    total_frames,
+                    device,
+                    queue,
+                    &self.resources,
+                    world,
+                );
 
                 for index in indexes {
                     self.nodes[*index].execute(&ctx);

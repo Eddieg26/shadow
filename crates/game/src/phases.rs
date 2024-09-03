@@ -50,6 +50,10 @@ impl Phase for PostUpdate {}
 pub struct Last;
 impl Phase for Last {}
 
+
+pub struct PreExecute;
+impl Phase for PreExecute {}
+
 pub struct Execute;
 impl Phase for Execute {
     fn schedule() -> Schedule {
@@ -63,6 +67,10 @@ impl Phase for Execute {
         schedule
     }
 }
+
+
+pub struct PostExecute;
+impl Phase for PostExecute {}
 
 pub struct Shutdown;
 impl Phase for Shutdown {

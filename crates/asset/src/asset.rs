@@ -33,7 +33,7 @@ impl AssetId {
         AssetId(hasher.finish())
     }
 
-    pub fn raw(id: u64) -> Self {
+    pub const fn raw(id: u64) -> Self {
         Self(id)
     }
 }
@@ -49,6 +49,12 @@ impl std::ops::Deref for AssetId {
 
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl std::fmt::Display for AssetId {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        self.0.fmt(f)
     }
 }
 
@@ -338,7 +344,6 @@ impl<A: Asset> Default for Assets<A> {
     }
 }
 
-#[derive(Debug)]
 pub enum AssetAction<A: Asset> {
     Added(AssetId),
     Updated(AssetId),
@@ -357,7 +362,17 @@ impl<A: Asset> AssetAction<A> {
     }
 }
 
-#[derive(Debug)]
+impl<A: Asset> std::fmt::Debug for AssetAction<A> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Self::Added(id) => write!(f, "Added({})", id),
+            Self::Updated(id) => write!(f, "Updated({})", id),
+            Self::Removed(id) => write!(f, "Removed({})", id),
+            Self::None(id, _) => write!(f, "None({})", id),
+        }
+    }
+}
+
 pub struct AssetActions<A: Asset> {
     actions: Vec<AssetAction<A>>,
     _phantom: std::marker::PhantomData<A>,
@@ -387,8 +402,18 @@ impl<A: Asset> AssetActions<A> {
         self.actions.iter()
     }
 
-    pub fn clear(&mut self) {
+    pub fn len(&self) -> usize {
+        self.actions.len()
+    }
+
+    pub(crate) fn clear(&mut self) {
         self.actions.clear();
+    }
+}
+
+impl<A: Asset> std::fmt::Debug for AssetActions<A> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.debug_list().entries(self.actions.iter()).finish()
     }
 }
 

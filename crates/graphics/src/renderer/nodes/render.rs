@@ -1,5 +1,7 @@
+use ecs::core::{LocalResource, Resource};
+
 use crate::{
-    components::{ClearFlag, RenderFrame},
+    camera::{ClearFlag, RenderFrame},
     core::Color,
     renderer::{
         draw::{Draw, DrawCalls},
@@ -117,21 +119,25 @@ impl RenderPass {
         self
     }
 
-    pub fn with_subpass(mut self, subpass: Subpass) -> Self {
-        self.subpasses.push(subpass);
+    pub fn add_subpass(mut self) -> Self {
+        self.subpasses.push(Subpass::new());
         self
     }
 
-    pub fn add_subpass(&mut self, subpass: Subpass) {
-        self.subpasses.push(subpass);
-    }
-
-    pub fn with_render_group<R: RenderGroup>(mut self, subpass: usize, group: R) -> Self {
+    pub fn with_render_group<D: Draw>(
+        mut self,
+        subpass: usize,
+        group: impl RenderGroup<D>,
+    ) -> Self {
         self.subpasses[subpass].add_group(group);
         self
     }
 
-    pub fn add_render_group<R: RenderGroup>(&mut self, subpass: usize, group: R) -> &mut Self {
+    pub fn add_render_group<D: Draw>(
+        &mut self,
+        subpass: usize,
+        group: impl RenderGroup<D>,
+    ) -> &mut Self {
         self.subpasses[subpass].add_group(group);
         self
     }
@@ -240,14 +246,41 @@ impl<'a> RenderCommands<'a> {
     }
 }
 
-pub trait RenderGroup: 'static {
-    type Draw: Draw;
-    fn render(
-        &self,
-        frame: &RenderFrame,
-        draws: &DrawCalls<Self::Draw>,
-        commands: &mut RenderCommands,
-    );
+pub struct RenderPassContext<'a, D: Draw> {
+    ctx: &'a RenderContext<'a>,
+    draws: &'a DrawCalls<D>,
+}
+
+impl<'a, D: Draw> RenderPassContext<'a, D> {
+    pub fn new(ctx: &'a RenderContext, draws: &'a DrawCalls<D>) -> Self {
+        Self { ctx, draws }
+    }
+
+    pub fn frame(&self) -> &RenderFrame {
+        self.ctx.frame()
+    }
+
+    pub fn draws(&self) -> &'a DrawCalls<D> {
+        self.draws
+    }
+
+    pub fn resource<R: Resource>(&self) -> &R {
+        self.ctx.resource()
+    }
+
+    pub fn local_resource<R: LocalResource>(&self) -> &R {
+        self.ctx.local_resource()
+    }
+}
+
+pub trait RenderGroup<D: Draw>: 'static {
+    fn render(&self, ctx: &RenderPassContext<D>, commands: &mut RenderCommands);
+}
+
+impl<D: Draw, F: Fn(&RenderPassContext<D>, &mut RenderCommands) + 'static> RenderGroup<D> for F {
+    fn render(&self, ctx: &RenderPassContext<D>, commands: &mut RenderCommands) {
+        (self)(ctx, commands);
+    }
 }
 
 pub struct ErasedRenderGroup {
@@ -255,11 +288,12 @@ pub struct ErasedRenderGroup {
 }
 
 impl ErasedRenderGroup {
-    pub fn new<R: RenderGroup>(group: R) -> Self {
+    pub fn new<D: Draw>(group: impl RenderGroup<D>) -> Self {
         Self {
             render: Box::new(move |ctx, commands| {
-                if let Some(draws) = ctx.try_resource::<DrawCalls<R::Draw>>() {
-                    group.render(ctx.frame(), draws, commands);
+                if let Some(draws) = ctx.try_resource::<DrawCalls<D>>() {
+                    let ctx = RenderPassContext::new(ctx, draws);
+                    group.render(&ctx, commands);
                 }
             }),
         }
@@ -279,12 +313,12 @@ impl Subpass {
         Self { groups: Vec::new() }
     }
 
-    pub fn with_group<R: RenderGroup>(mut self, group: R) -> Self {
+    pub fn with_group<D: Draw>(mut self, group: impl RenderGroup<D>) -> Self {
         self.groups.push(ErasedRenderGroup::new(group));
         self
     }
 
-    pub fn add_group<R: RenderGroup>(&mut self, group: R) {
+    pub fn add_group<D: Draw>(&mut self, group: impl RenderGroup<D>) {
         self.groups.push(ErasedRenderGroup::new(group));
     }
 

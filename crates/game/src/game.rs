@@ -3,6 +3,7 @@ use crate::{
     app::{SubApp, SubAppBuilders, SubApps, SubEvents},
     phases::{Execute, Shutdown, Startup},
     plugin::Plugin,
+    PostExecute, PreExecute,
 };
 use ecs::{
     core::{Component, LocalResource, Resource},
@@ -28,7 +29,9 @@ impl Game {
     pub fn new() -> Self {
         let mut world = World::new();
         world.add_phase::<Startup>();
+        world.add_phase::<PreExecute>();
         world.add_phase::<Execute>();
+        world.add_phase::<PostExecute>();
         world.add_phase::<Shutdown>();
 
         Self {
@@ -246,8 +249,11 @@ impl GameInstance {
 
     pub fn update(&mut self) {
         if let Some(mut world) = self.world.take() {
+            world.run(PreExecute);
             world.run(Execute);
-            self.world = Some(self.sub_apps.update(world));
+            world = self.sub_apps.update(world);
+            world.run(PostExecute);
+            self.world = Some(world);
         }
     }
 

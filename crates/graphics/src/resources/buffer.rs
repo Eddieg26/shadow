@@ -1,6 +1,9 @@
 use crate::core::{RenderDevice, RenderQueue, VertexLayout};
-use encase::ShaderType;
 use wgpu::util::DeviceExt;
+
+pub trait BufferData: bytemuck::Pod {}
+
+impl<T: bytemuck::Pod> BufferData for T {}
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub enum Indices {
@@ -313,14 +316,14 @@ impl IndexBuffer {
     }
 }
 
-pub struct UniformBuffer<T: ShaderType> {
+pub struct UniformBuffer<T: BufferData> {
     value: T,
     buffer: Option<wgpu::Buffer>,
     flags: BufferFlags,
     dirty: bool,
 }
 
-impl<T: ShaderType + bytemuck::Pod> UniformBuffer<T> {
+impl<T: BufferData> UniformBuffer<T> {
     pub fn create(value: T, flags: BufferFlags) -> Self {
         Self {
             value,
@@ -380,7 +383,7 @@ impl<T: ShaderType + bytemuck::Pod> UniformBuffer<T> {
     }
 }
 
-impl<T: ShaderType> std::ops::Deref for UniformBuffer<T> {
+impl<T: BufferData> std::ops::Deref for UniformBuffer<T> {
     type Target = Option<wgpu::Buffer>;
 
     fn deref(&self) -> &Self::Target {
@@ -388,14 +391,14 @@ impl<T: ShaderType> std::ops::Deref for UniformBuffer<T> {
     }
 }
 
-pub struct UniformBufferArray<T: ShaderType> {
+pub struct UniformBufferArray<T: BufferData> {
     values: Vec<T>,
     buffer: Option<wgpu::Buffer>,
     flags: BufferFlags,
     dirty: bool,
 }
 
-impl<T: ShaderType + bytemuck::Pod> UniformBufferArray<T> {
+impl<T: BufferData> UniformBufferArray<T> {
     pub fn create(flags: BufferFlags) -> Self {
         Self {
             flags,
@@ -478,7 +481,7 @@ impl<T: ShaderType + bytemuck::Pod> UniformBufferArray<T> {
     }
 }
 
-impl<T: ShaderType> std::ops::Deref for UniformBufferArray<T> {
+impl<T: BufferData> std::ops::Deref for UniformBufferArray<T> {
     type Target = Option<wgpu::Buffer>;
 
     fn deref(&self) -> &Self::Target {
@@ -486,14 +489,14 @@ impl<T: ShaderType> std::ops::Deref for UniformBufferArray<T> {
     }
 }
 
-pub struct StorageBuffer<T: ShaderType> {
+pub struct StorageBuffer<T: BufferData> {
     value: T,
     buffer: Option<wgpu::Buffer>,
     flags: BufferFlags,
     dirty: bool,
 }
 
-impl<T: ShaderType + bytemuck::Pod> StorageBuffer<T> {
+impl<T: BufferData> StorageBuffer<T> {
     pub fn create(value: T, flags: BufferFlags) -> Self {
         Self {
             value,
@@ -553,7 +556,7 @@ impl<T: ShaderType + bytemuck::Pod> StorageBuffer<T> {
     }
 }
 
-impl<T: ShaderType> std::ops::Deref for StorageBuffer<T> {
+impl<T: BufferData> std::ops::Deref for StorageBuffer<T> {
     type Target = Option<wgpu::Buffer>;
 
     fn deref(&self) -> &Self::Target {
@@ -561,14 +564,14 @@ impl<T: ShaderType> std::ops::Deref for StorageBuffer<T> {
     }
 }
 
-pub struct StorageBufferArray<T: ShaderType> {
+pub struct StorageBufferArray<T: BufferData> {
     values: Vec<T>,
     buffer: Option<wgpu::Buffer>,
     flags: BufferFlags,
     dirty: bool,
 }
 
-impl<T: ShaderType + bytemuck::Pod> StorageBufferArray<T> {
+impl<T: BufferData> StorageBufferArray<T> {
     pub fn create(flags: BufferFlags) -> Self {
         Self {
             flags,
@@ -648,5 +651,13 @@ impl<T: ShaderType + bytemuck::Pod> StorageBufferArray<T> {
                 queue.write_buffer(buffer, 0, bytemuck::cast_slice(&self.values));
             });
         }
+    }
+}
+
+impl<T: BufferData> std::ops::Deref for StorageBufferArray<T> {
+    type Target = Option<wgpu::Buffer>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.buffer
     }
 }

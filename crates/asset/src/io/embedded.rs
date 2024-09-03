@@ -97,7 +97,7 @@ impl Resource for EmbeddedAssets {}
 
 #[macro_export]
 macro_rules! embed_asset {
-    ($game:expr, $path:expr) => {
-        $game.embed($path, include_bytes!($path))
+    ($game:expr, $id:expr, $path:expr) => {
+        $game.embed($id, $path, include_bytes!($path))
     };
 }

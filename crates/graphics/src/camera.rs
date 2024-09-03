@@ -1,4 +1,4 @@
-use crate::core::Color;
+use crate::{core::Color, resources::buffer::UniformBufferArray};
 use asset::AssetId;
 use ecs::core::{Component, Resource};
 use glam::{UVec2, Vec2, Vec3};
@@ -70,12 +70,28 @@ impl Default for Camera {
 
 impl Component for Camera {}
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, bytemuck::Pod, bytemuck::Zeroable)]
+#[repr(C)]
+pub struct CameraData {
+    pub world: [f32; 16],
+    pub view: [f32; 16],
+    pub projection: [f32; 16],
+}
+
+impl CameraData {
+    pub fn new(world: glam::Mat4, view: glam::Mat4, projection: glam::Mat4) -> Self {
+        Self {
+            world: world.to_cols_array(),
+            view: view.to_cols_array(),
+            projection: projection.to_cols_array(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct RenderFrame {
     pub camera: Camera,
-    pub world: glam::Mat4,
-    pub view: glam::Mat4,
-    pub projection: glam::Mat4,
+    pub buffer: CameraData,
 }
 
 impl RenderFrame {
@@ -100,12 +116,10 @@ impl RenderFrame {
                 far,
             } => glam::Mat4::perspective_rh(fov.to_radians(), aspect, near, far),
         };
-        Self {
-            camera,
-            world,
-            view,
-            projection,
-        }
+
+        let buffer = CameraData::new(world, view, projection);
+
+        Self { camera, buffer }
     }
 }
 
@@ -113,9 +127,7 @@ impl Default for RenderFrame {
     fn default() -> Self {
         Self {
             camera: Camera::default(),
-            world: glam::Mat4::IDENTITY,
-            view: glam::Mat4::IDENTITY,
-            projection: glam::Mat4::IDENTITY,
+            buffer: CameraData::default(),
         }
     }
 }
@@ -141,9 +153,46 @@ impl RenderFrames {
         self.frames.append(&mut other.frames);
     }
 
+    pub fn frames(&self) -> &[RenderFrame] {
+        &self.frames
+    }
+
+    pub fn len(&self) -> usize {
+        self.frames.len()
+    }
+
     pub fn drain(&mut self) -> std::vec::Drain<RenderFrame> {
         self.frames.drain(..)
     }
 }
 
+impl std::ops::Index<usize> for RenderFrames {
+    type Output = RenderFrame;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.frames[index]
+    }
+}
+
+impl IntoIterator for RenderFrames {
+    type Item = RenderFrame;
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.frames.into_iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a RenderFrames {
+    type Item = &'a RenderFrame;
+    type IntoIter = std::slice::Iter<'a, RenderFrame>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.frames.iter()
+    }
+}
+
 impl Resource for RenderFrames {}
+
+pub type CameraBuffers = UniformBufferArray<CameraData>;
+impl Resource for CameraBuffers {}

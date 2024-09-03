@@ -1,4 +1,4 @@
-pub mod components;
+pub mod camera;
 pub mod core;
 pub mod plugin;
 pub mod renderer;

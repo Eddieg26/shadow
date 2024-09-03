@@ -10,7 +10,10 @@ use crate::{
         AssetError, AssetImporter, ImportContext, LoadErrorKind, LoadedAsset, LoadedAssets,
         LoadedMetadata, ProcessContext,
     },
-    io::{embedded::{EmbeddedAssets, EmbeddedReader}, AssetIoError, PathExt},
+    io::{
+        embedded::{EmbeddedAssets, EmbeddedReader},
+        AssetIoError, PathExt,
+    },
     AssetKind,
 };
 use ecs::{
@@ -34,7 +37,6 @@ pub struct AssetMetadata {
     save: AssetSaveFn,
     importers: DenseMap<&'static str, AssetImportFn>,
     embeders: DenseMap<&'static str, AssetEmbedFn>,
-    add_loaded: fn(&World, LoadedAsset),
     loaded: fn(LoadedAsset) -> ErasedEvent,
     unloaded: fn(AssetId, AssetState, &World) -> Option<ErasedEvent>,
     load_metadata: Option<fn(&Path, &AssetConfig) -> Result<LoadedMetadata, AssetError>>,
@@ -68,12 +70,6 @@ impl AssetMetadata {
                 config
                     .save_artifact(&Artifact::new(&bytes, asset.meta().clone()))
                     .map_err(|e| AssetError::import(path, e))
-            },
-            add_loaded: |world, loaded: LoadedAsset| {
-                let id = loaded.meta.id();
-                let asset = loaded.asset.take::<A>();
-                let assets = world.resource_mut::<Assets<A>>();
-                assets.add(id, asset);
             },
             loaded: |loaded: LoadedAsset| {
                 let id = loaded.meta.id();
@@ -176,9 +172,12 @@ impl AssetMetadata {
                 ctx.finish()
             };
 
-            world
-                .resource_mut::<Assets<I::Asset>>()
-                .add(settings.id(), asset);
+            world.events().add(AssetLoaded::new(
+                settings.id(),
+                asset,
+                Default::default(),
+                None,
+            ));
 
             let embedded = world.resource_mut::<EmbeddedAssets>();
             embedded.add(settings.id(), path, AssetKind::Main);
@@ -191,7 +190,7 @@ impl AssetMetadata {
                 };
 
                 embedded.add(asset.id(), path, AssetKind::Sub);
-                metadata.add_loaded(world, asset.into());
+                world.events().add(metadata.loaded(asset.into()));
             }
 
             Ok(())
@@ -270,10 +269,6 @@ impl AssetMetadata {
             .ok_or_else(|| AssetError::import(path, LoadErrorKind::NoImporter))?;
 
         embed(path, bytes, world)
-    }
-
-    pub fn add_loaded(&self, world: &World, loaded: LoadedAsset) {
-        (self.add_loaded)(world, loaded)
     }
 
     pub fn load_dependencies<'a>(

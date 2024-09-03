@@ -1,6 +1,6 @@
 use super::resources::{RenderGraphResources, RenderTarget};
 use crate::{
-    components::RenderFrame,
+    camera::RenderFrame,
     core::device::{RenderDevice, RenderQueue},
     resources::ResourceId,
 };
@@ -18,6 +18,8 @@ pub enum RenderNodeAction {
 pub struct RenderContext<'a> {
     surface_id: ResourceId,
     frame: &'a RenderFrame,
+    frame_index: usize,
+    total_frames: usize,
     device: &'a RenderDevice,
     queue: &'a RenderQueue,
     resources: &'a RenderGraphResources,
@@ -29,6 +31,8 @@ impl<'a> RenderContext<'a> {
     pub fn new(
         surface_id: ResourceId,
         frame: &'a RenderFrame,
+        frame_index: usize,
+        total_frames: usize,
         device: &'a RenderDevice,
         queue: &'a RenderQueue,
         resources: &'a RenderGraphResources,
@@ -37,6 +41,8 @@ impl<'a> RenderContext<'a> {
         Self {
             surface_id,
             frame,
+            frame_index,
+            total_frames,
             device,
             queue,
             resources,
@@ -51,6 +57,14 @@ impl<'a> RenderContext<'a> {
 
     pub fn frame(&self) -> &RenderFrame {
         self.frame
+    }
+
+    pub fn frame_index(&self) -> usize {
+        self.frame_index
+    }
+
+    pub fn total_frames(&self) -> usize {
+        self.total_frames
     }
 
     pub fn device(&self) -> &RenderDevice {
@@ -121,6 +135,8 @@ impl<'a> Clone for RenderContext<'a> {
         Self {
             surface_id: self.surface_id,
             frame: self.frame,
+            frame_index: self.frame_index,
+            total_frames: self.total_frames,
             device: self.device,
             queue: self.queue,
             resources: self.resources,
