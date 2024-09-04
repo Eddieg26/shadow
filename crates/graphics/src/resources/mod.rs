@@ -4,8 +4,11 @@ use ecs::system::{ArgItem, SystemArg};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
+pub mod binding;
 pub mod buffer;
+pub mod material;
 pub mod mesh;
+pub mod pipeline;
 pub mod shader;
 pub mod texture;
 
@@ -69,7 +72,7 @@ impl<'a, A: ExtractArg<'a>, B: ExtractArg<'a>, C: ExtractArg<'a>, D: ExtractArg<
 {
 }
 
-pub trait RenderAsset: 'static {}
+pub trait RenderAsset: Send + Sync + 'static {}
 
 pub struct RenderAssets<R: RenderAsset> {
     assets: DenseMap<ResourceId, R>,

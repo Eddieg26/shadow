@@ -325,9 +325,30 @@ pub mod internal {
     use super::{Event, EventOutputs, World};
     use crate::{
         archetype::table::EntityRow,
-        core::{ColumnCell, Component, ComponentId, DenseSet, Entity},
+        core::{ColumnCell, Component, ComponentId, DenseSet, Entity, Resource},
         system::schedule::SystemTag,
     };
+
+    pub struct RemoveResource<R: Resource> {
+        _marker: std::marker::PhantomData<R>,
+    }
+
+    impl<R: Resource> RemoveResource<R> {
+        pub fn new() -> Self {
+            Self {
+                _marker: std::marker::PhantomData,
+            }
+        }
+    }
+
+    impl<R: Resource> Event for RemoveResource<R> {
+        type Output = R;
+
+        fn invoke(self, world: &mut World) -> Option<Self::Output> {
+            world.remove_resource::<R>()
+        }
+    }
+
     pub struct Spawn {
         parent: Option<Entity>,
         components: EntityRow,

@@ -92,13 +92,13 @@ pub trait Texture: Asset + 'static {
     fn pixels(&self) -> &[u8];
 }
 
-pub struct GraphicsTexture {
+pub struct GPUTexture {
     texture: wgpu::Texture,
     view: wgpu::TextureView,
     sampler: wgpu::Sampler,
 }
 
-impl GraphicsTexture {
+impl GPUTexture {
     pub fn create<T: Texture>(device: &RenderDevice, queue: &RenderQueue, texture: &T) -> Self {
         let size = wgpu::Extent3d {
             width: texture.width(),
@@ -215,7 +215,7 @@ impl GraphicsTexture {
     }
 }
 
-impl std::ops::Deref for GraphicsTexture {
+impl std::ops::Deref for GPUTexture {
     type Target = wgpu::TextureView;
 
     fn deref(&self) -> &Self::Target {
@@ -223,4 +223,4 @@ impl std::ops::Deref for GraphicsTexture {
     }
 }
 
-impl RenderAsset for GraphicsTexture {}
+impl RenderAsset for GPUTexture {}

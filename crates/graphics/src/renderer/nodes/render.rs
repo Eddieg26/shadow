@@ -281,18 +281,20 @@ impl<'a, D: Draw> RenderPassContext<'a, D> {
     }
 }
 
-pub trait RenderGroup<D: Draw>: 'static {
+pub trait RenderGroup<D: Draw>: Send + Sync + 'static {
     fn render(&mut self, ctx: &RenderPassContext<D>, commands: &mut RenderCommands);
 }
 
-impl<D: Draw, F: Fn(&RenderPassContext<D>, &mut RenderCommands) + 'static> RenderGroup<D> for F {
+impl<D: Draw, F: Fn(&RenderPassContext<D>, &mut RenderCommands) + Send + Sync + 'static>
+    RenderGroup<D> for F
+{
     fn render(&mut self, ctx: &RenderPassContext<D>, commands: &mut RenderCommands) {
         (self)(ctx, commands);
     }
 }
 
 pub struct ErasedRenderGroup {
-    render: Box<dyn FnMut(&RenderContext, &mut RenderCommands)>,
+    render: Box<dyn FnMut(&RenderContext, &mut RenderCommands) + Send + Sync>,
 }
 
 impl ErasedRenderGroup {

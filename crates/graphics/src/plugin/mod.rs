@@ -10,9 +10,11 @@ use crate::{
     },
     resources::{
         buffer::BufferFlags,
+        material::{MaterialInstance, MaterialRegistry},
         mesh::{model::ObjImporter, Mesh, MeshBuffers},
+        pipeline::MeshPipelineRegistry,
         shader::{Shader, ShaderSource},
-        texture::{render::RenderTexture, GraphicsTexture, Texture2d},
+        texture::{render::RenderTexture, GPUTexture, Texture2d},
         AssetUsage, RenderAsset, RenderAssetExtractor, RenderAssets,
     },
 };
@@ -51,10 +53,12 @@ impl Plugin for GraphicsPlugin {
         game.add_sub_app::<RenderApp>();
         game.add_resource(RenderFrames::new());
         game.add_resource(RenderGraphBuilder::new());
+        game.add_resource(MaterialRegistry::new());
 
-        game.add_render_asset::<GraphicsTexture>();
+        game.add_render_asset::<GPUTexture>();
         game.add_render_asset::<MeshBuffers>();
         game.add_render_asset::<Shader>();
+        game.add_render_asset::<MaterialInstance>();
 
         game.add_importer::<ShaderSource>();
         game.add_importer::<Texture2d>();
@@ -66,6 +70,7 @@ impl Plugin for GraphicsPlugin {
 
         let app = game.sub_app_mut::<RenderApp>().unwrap();
         app.add_resource(RenderFrames::new());
+        app.add_resource(MeshPipelineRegistry::new());
         app.add_sub_phase::<Update, PreRender>();
         app.add_sub_phase::<Update, Render>();
         app.add_sub_phase::<Update, PostRender>();
@@ -78,8 +83,11 @@ impl Plugin for GraphicsPlugin {
             events.add(*resized);
         });
 
+        let registry = game.resource::<MaterialRegistry>().clone();
+
         let app = game.sub_app_mut::<RenderApp>().unwrap();
         app.add_resource(CameraBuffers::create(BufferFlags::COPY_DST));
+        app.add_resource(registry);
         app.register_event::<SurfaceCreated>();
         app.observe::<SurfaceCreated, _>(SurfaceCreated::observer);
         app.observe::<Resized, _>(on_window_resized);

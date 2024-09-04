@@ -262,7 +262,7 @@ impl RenderGraph {
 
 impl Resource for RenderGraph {}
 
-pub trait RenderGraphNode: downcast_rs::Downcast + 'static {
+pub trait RenderGraphNode: downcast_rs::Downcast + Send + Sync + 'static {
     fn execute(&mut self, ctx: &RenderContext);
 }
 

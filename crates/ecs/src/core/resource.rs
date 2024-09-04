@@ -1,7 +1,7 @@
 use super::internal::{blob::BlobCell, DenseMap};
 use std::hash::Hash;
 
-pub trait Resource: 'static {}
+pub trait Resource: Send + Sync + 'static {}
 pub trait LocalResource: 'static {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

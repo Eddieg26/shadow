@@ -61,7 +61,7 @@ impl std::ops::Deref for MainEvents {
 
 impl Resource for MainEvents {}
 
-pub trait SubApp: 'static {}
+pub trait SubApp: Send + Sync + 'static {}
 
 #[derive(Default)]
 pub struct SubAppBuilders {

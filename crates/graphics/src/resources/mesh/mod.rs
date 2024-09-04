@@ -250,6 +250,7 @@ impl Mesh {
         match vertex_buffers.is_empty() {
             true => return None,
             false => Some(MeshBuffers {
+                layout: self.layout().clone(),
                 vertex_buffers,
                 index,
             }),
@@ -336,11 +337,16 @@ impl Mesh {
 impl Asset for Mesh {}
 
 pub struct MeshBuffers {
+    layout: VertexLayout,
     vertex_buffers: DenseMap<VertexAttribute, VertexBuffer<u8>>,
     index: Option<IndexBuffer>,
 }
 
 impl MeshBuffers {
+    pub fn layout(&self) -> &VertexLayout {
+        &self.layout
+    }
+
     pub fn vertex_buffer(&self, attribute: VertexAttribute) -> Option<&VertexBuffer<u8>> {
         self.vertex_buffers.get(&attribute)
     }

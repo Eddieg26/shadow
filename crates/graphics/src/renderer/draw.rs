@@ -1,8 +1,8 @@
 use ecs::core::Resource;
 use spatial::partition::Partition;
 
-pub trait Draw: 'static {
-    type Partition: Partition<Item = Self>;
+pub trait Draw: Send + Sync + 'static {
+    type Partition: Partition<Item = Self> + Send + Sync;
 }
 
 impl Draw for () {

@@ -1,17 +1,17 @@
-use std::ops::Range;
-
 use super::Color;
 use glam::{Vec2, Vec3, Vec4};
+use std::{hash::Hash, ops::Range};
+use wgpu::{BufferAddress, VertexStepMode};
 
 #[derive(
     Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
 )]
 pub enum VertexAttribute {
     Position,
-    Normal,
-    Tangent,
     TexCoord0,
     TexCoord1,
+    Normal,
+    Tangent,
     Color,
 }
 
@@ -27,14 +27,14 @@ impl VertexAttribute {
         }
     }
 
-    pub fn location(&self) -> u32 {
+    pub fn format(&self) -> wgpu::VertexFormat {
         match self {
-            VertexAttribute::Position => 0,
-            VertexAttribute::Normal => 1,
-            VertexAttribute::TexCoord0 => 2,
-            VertexAttribute::TexCoord1 => 3,
-            VertexAttribute::Color => 4,
-            VertexAttribute::Tangent => 5,
+            VertexAttribute::Position => wgpu::VertexFormat::Float32x3,
+            VertexAttribute::Normal => wgpu::VertexFormat::Float32x3,
+            VertexAttribute::Tangent => wgpu::VertexFormat::Float32x4,
+            VertexAttribute::TexCoord0 => wgpu::VertexFormat::Float32x2,
+            VertexAttribute::TexCoord1 => wgpu::VertexFormat::Float32x2,
+            VertexAttribute::Color => wgpu::VertexFormat::Float64x4,
         }
     }
 }
@@ -43,7 +43,7 @@ impl VertexAttribute {
 pub enum VertexAttributeValues {
     Position(Vec<Vec3>),
     Normal(Vec<Vec3>),
-    Tangent(Vec<Vec3>),
+    Tangent(Vec<Vec4>),
     TexCoord0(Vec<Vec2>),
     TexCoord1(Vec<Vec2>),
     Color(Vec<Color>),
@@ -134,7 +134,7 @@ impl VertexAttributes {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VertexLayout {
     attributes: Vec<VertexAttribute>,
 }
@@ -168,6 +168,62 @@ impl VertexLayout {
 
     pub fn size(&self) -> usize {
         self.attributes.iter().map(|a| a.size()).sum()
+    }
+
+    pub fn buffer_layout(&self) -> VertexBufferLayout {
+        VertexBufferLayout::new(self)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct VertexLayoutKey(u32);
+
+impl VertexLayoutKey {
+    pub fn new(attributes: &[VertexAttribute]) -> Self {
+        let mut attributes = attributes.to_vec();
+        attributes.sort();
+        let mut hasher = crc32fast::Hasher::new();
+        attributes.hash(&mut hasher);
+        Self(hasher.finalize())
+    }
+}
+
+pub struct VertexBufferLayout {
+    /// The stride, in bytes, between elements of this buffer.
+    pub array_stride: BufferAddress,
+    /// How often this vertex buffer is "stepped" forward.
+    pub step_mode: VertexStepMode,
+    /// The list of attributes which comprise a single vertex.
+    pub attributes: Vec<wgpu::VertexAttribute>,
+}
+
+impl VertexBufferLayout {
+    pub fn new(layout: &VertexLayout) -> Self {
+        let mut attributes = Vec::new();
+        let mut offset = 0;
+        for (location, kind) in layout.attributes().iter().enumerate() {
+            let size = kind.size() as BufferAddress;
+            attributes.push(wgpu::VertexAttribute {
+                format: kind.format(),
+                offset,
+                shader_location: location as u32,
+            });
+            offset += size;
+        }
+
+        Self {
+            array_stride: offset,
+            step_mode: VertexStepMode::Vertex,
+            attributes,
+        }
+    }
+
+    pub fn wgpu(&self) -> wgpu::VertexBufferLayout<'_> {
+        wgpu::VertexBufferLayout {
+            array_stride: self.array_stride,
+            step_mode: self.step_mode,
+            attributes: &self.attributes,
+        }
     }
 }
 
