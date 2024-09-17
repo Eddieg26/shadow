@@ -1,3 +1,7 @@
+use crate::resources::{
+    mesh::{Mesh, MeshTopology},
+    ReadWrite,
+};
 use asset::{
     importer::{AssetImporter, ImportContext},
     io::AssetReader,
@@ -5,13 +9,7 @@ use asset::{
 };
 use glam::{Vec2, Vec3};
 
-use crate::{
-    core::VertexAttributeValues,
-    resources::{
-        mesh::{Mesh, MeshTopology},
-        ReadWrite,
-    },
-};
+use super::MeshAttribute;
 
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct Model {
@@ -105,15 +103,15 @@ impl AssetImporter for ObjImporter {
 
             let mut mesh = Mesh::new(MeshTopology::TriangleList, ctx.settings().read_write);
             if !positions.is_empty() {
-                mesh.add_attribute(VertexAttributeValues::Position(positions));
+                mesh.add_attribute(MeshAttribute::Position(positions));
             }
 
             if !normals.is_empty() {
-                mesh.add_attribute(VertexAttributeValues::Normal(normals));
+                mesh.add_attribute(MeshAttribute::Normal(normals));
             }
 
             if !uvs.is_empty() {
-                mesh.add_attribute(VertexAttributeValues::TexCoord0(uvs));
+                mesh.add_attribute(MeshAttribute::TexCoord0(uvs));
             }
 
             meshes.push(ctx.add_sub_asset(&model.name, mesh));

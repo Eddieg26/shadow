@@ -1,4 +1,7 @@
-use crate::{core::Color, resources::buffer::UniformBufferArray};
+use crate::{
+    core::Color,
+    resources::buffer::{BufferFlags, UniformBuffer},
+};
 use asset::AssetId;
 use ecs::core::{Component, Resource};
 use glam::{UVec2, Vec2, Vec3};
@@ -132,6 +135,7 @@ impl Default for RenderFrame {
     }
 }
 
+#[derive(Debug, Clone, Default)]
 pub struct RenderFrames {
     frames: Vec<RenderFrame>,
 }
@@ -194,5 +198,10 @@ impl<'a> IntoIterator for &'a RenderFrames {
 
 impl Resource for RenderFrames {}
 
-pub type CameraBuffers = UniformBufferArray<CameraData>;
-impl Resource for CameraBuffers {}
+pub type CameraBuffer = UniformBuffer<CameraData>;
+impl Resource for CameraBuffer {}
+impl Default for CameraBuffer {
+    fn default() -> Self {
+        CameraBuffer::new(CameraData::default(), BufferFlags::COPY_DST)
+    }
+}

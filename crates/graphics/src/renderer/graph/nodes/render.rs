@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use ecs::core::{LocalResource, Resource};
 
 use crate::{
@@ -6,6 +8,7 @@ use crate::{
     renderer::{
         draw::{Draw, DrawCalls},
         graph::{context::RenderContext, RenderGraphNode},
+        surface::RenderSurface,
     },
     resources::ResourceId,
 };
@@ -73,14 +76,16 @@ pub struct DepthAttachment {
 }
 
 pub struct RenderPass {
+    name: String,
     colors: Vec<ColorAttachment>,
     depth: Option<DepthAttachment>,
     subpasses: Vec<Subpass>,
 }
 
 impl RenderPass {
-    pub fn new() -> Self {
+    pub fn new(name: impl ToString) -> Self {
         Self {
+            name: name.to_string(),
             subpasses: Vec::new(),
             colors: Vec::new(),
             depth: None,
@@ -148,21 +153,16 @@ impl RenderPass {
         ctx: &RenderContext,
         encoder: &'a mut wgpu::CommandEncoder,
     ) -> Option<RenderCommands<'a>> {
-        let target = match frame.camera.target {
-            Some(id) => ctx.render_target(id)?,
-            None => ctx.render_target(ctx.surface_id())?,
-        };
-
         let mut color_attachments = vec![];
         for color in self.colors.iter() {
             let view = match color.attachment {
-                Attachment::Surface => target.color()?,
+                Attachment::Surface => ctx.render_target().color()?,
                 Attachment::Texture(id) => ctx.texture(id)?,
             };
 
             let resolve_target = match color.resolve_target {
                 Some(attachment) => match attachment {
-                    Attachment::Surface => Some(target.color()?),
+                    Attachment::Surface => Some(ctx.render_target().color()?),
                     Attachment::Texture(id) => Some(ctx.texture(id)?),
                 },
                 None => None,
@@ -179,7 +179,7 @@ impl RenderPass {
 
             let attachement = wgpu::RenderPassColorAttachment {
                 view,
-                resolve_target,
+                resolve_target: resolve_target.map(|t| t.deref()),
                 ops: wgpu::Operations {
                     load,
                     store: color.store_op.into(),
@@ -192,7 +192,7 @@ impl RenderPass {
         let depth_stencil_attachment = match &self.depth {
             Some(attachment) => Some(wgpu::RenderPassDepthStencilAttachment {
                 view: match attachment.attachment {
-                    Attachment::Surface => target.depth()?,
+                    Attachment::Surface => ctx.render_target().depth()?,
                     Attachment::Texture(id) => ctx.texture(id)?,
                 },
                 depth_ops: Some(wgpu::Operations {
@@ -224,6 +224,22 @@ impl RenderPass {
 }
 
 impl RenderGraphNode for RenderPass {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn info(&self) -> super::NodeInfo {
+        let mut info = super::NodeInfo::new();
+        for color in &self.colors {
+            match color.attachment {
+                Attachment::Surface => info.write(RenderSurface::id_static()),
+                Attachment::Texture(id) => info.write(id),
+            }
+        }
+
+        info
+    }
+
     fn execute(&mut self, ctx: &RenderContext) {
         let mut encoder = ctx.encoder();
         if let Some(mut commands) = self.begin(ctx.frame(), ctx, &mut encoder) {

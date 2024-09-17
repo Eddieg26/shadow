@@ -1,4 +1,4 @@
-use super::{RenderAsset, RenderAssetExtractor};
+use super::{RenderAsset, RenderAssetExtractor, ResourceId};
 use crate::core::RenderDevice;
 use asset::{
     importer::{AssetImporter, ImportContext},
@@ -116,7 +116,20 @@ impl AssetImporter for ShaderSource {
     }
 }
 
-pub struct Shader(wgpu::ShaderModule);
+#[derive(Debug, serde::Serialize)]
+pub struct Shader {
+    #[serde(skip)]
+    module: wgpu::ShaderModule,
+}
+
+impl<'de> serde::Deserialize<'de> for Shader {
+    fn deserialize<D>(_: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        Err(serde::de::Error::custom("Deserialization not supported"))
+    }
+}
 
 impl Shader {
     pub fn create(device: &wgpu::Device, source: &ShaderSource) -> Self {
@@ -143,17 +156,21 @@ impl Shader {
             }),
         };
 
-        Self(module)
+        Self { module }
     }
 }
 
-impl RenderAsset for Shader {}
+impl Asset for Shader {}
+
+impl RenderAsset for Shader {
+    type Id = ResourceId;
+}
 
 impl std::ops::Deref for Shader {
     type Target = wgpu::ShaderModule;
 
     fn deref(&self) -> &Self::Target {
-        &self.0
+        &self.module
     }
 }
 
@@ -166,6 +183,6 @@ impl RenderAssetExtractor for Shader {
         source: &mut Self::Source,
         arg: &ArgItem<Self::Arg<'a>>,
     ) -> Option<Self::Target> {
-        Some(Self::create(&arg, source))
+        Some(Self::create(arg, source))
     }
 }

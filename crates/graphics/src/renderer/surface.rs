@@ -1,10 +1,10 @@
 use crate::resources::ResourceId;
 use ecs::core::Resource;
-use window::window::Window;
 use wgpu::{
     rwh::{HasDisplayHandle, HasWindowHandle},
     SurfaceTargetUnsafe,
 };
+use window::window::Window;
 
 pub enum RenderSurfaceError {
     Create(wgpu::CreateSurfaceError),
@@ -22,11 +22,11 @@ impl From<wgpu::CreateSurfaceError> for RenderSurfaceError {
 pub struct RenderSurface {
     id: ResourceId,
     window: Window,
-    inner: wgpu::Surface<'static>,
-    config: wgpu::SurfaceConfiguration,
+    inner: Box<wgpu::Surface<'static>>,
     adapter: wgpu::Adapter,
+    config: wgpu::SurfaceConfiguration,
     format: wgpu::TextureFormat,
-    depth_format: Option<wgpu::TextureFormat>,
+    depth_format: wgpu::TextureFormat,
 }
 
 impl RenderSurface {
@@ -73,6 +73,8 @@ impl RenderSurface {
             .find(|f| f.is_srgb())
             .unwrap_or(surface_caps.formats[0]);
 
+        let depth_format = wgpu::TextureFormat::Depth24Plus;
+
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
@@ -85,18 +87,22 @@ impl RenderSurface {
         };
 
         Ok(Self {
-            id: ResourceId::gen(),
+            id: Self::id_static(),
             window: window.clone(),
-            inner: surface,
-            config,
+            inner: Box::new(surface),
             adapter,
+            config,
             format: surface_format,
-            depth_format: None,
+            depth_format,
         })
     }
 
     pub fn id(&self) -> ResourceId {
         self.id
+    }
+
+    pub fn id_static() -> ResourceId {
+        ResourceId::from("render_surface")
     }
 
     pub fn window(&self) -> &Window {
@@ -137,13 +143,47 @@ impl RenderSurface {
         self.format
     }
 
-    pub fn depth_format(&self) -> Option<wgpu::TextureFormat> {
+    pub fn depth_format(&self) -> wgpu::TextureFormat {
         self.depth_format
     }
 
-    pub fn surface_texture(&self) -> Result<wgpu::SurfaceTexture, wgpu::SurfaceError> {
+    pub fn texture(&self) -> Result<wgpu::SurfaceTexture, wgpu::SurfaceError> {
         self.inner.get_current_texture()
     }
 }
 
 impl Resource for RenderSurface {}
+
+#[derive(Debug, Default)]
+pub struct RenderSurfaceTexture(Option<wgpu::SurfaceTexture>);
+
+impl RenderSurfaceTexture {
+    pub fn new(texture: wgpu::SurfaceTexture) -> Self {
+        Self(Some(texture))
+    }
+
+    pub fn set(&mut self, texture: wgpu::SurfaceTexture) {
+        self.0 = Some(texture);
+    }
+
+    pub fn present(&mut self) -> Option<()> {
+        let texture = self.0.take()?;
+        Some(texture.present())
+    }
+}
+
+impl std::ops::Deref for RenderSurfaceTexture {
+    type Target = Option<wgpu::SurfaceTexture>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for RenderSurfaceTexture {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl Resource for RenderSurfaceTexture {}

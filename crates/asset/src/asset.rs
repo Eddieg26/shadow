@@ -114,6 +114,29 @@ impl<A: AsRef<Path>> From<A> for AssetPath {
     }
 }
 
+pub enum AssetHandle<A: Asset> {
+    Id(AssetId),
+    Asset(A),
+}
+
+impl<A: Asset> From<AssetId> for AssetHandle<A> {
+    fn from(value: AssetId) -> Self {
+        AssetHandle::Id(value)
+    }
+}
+
+impl<A: Asset> From<&AssetId> for AssetHandle<A> {
+    fn from(value: &AssetId) -> Self {
+        AssetHandle::Id(*value)
+    }
+}
+
+impl<A: Asset> From<A> for AssetHandle<A> {
+    fn from(value: A) -> Self {
+        AssetHandle::Asset(value)
+    }
+}
+
 pub trait Asset: Send + Sync + serde::Serialize + for<'a> serde::Deserialize<'a> + 'static {}
 pub trait Settings: Default + serde::Serialize + for<'a> serde::Deserialize<'a> + 'static {}
 

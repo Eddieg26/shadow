@@ -1,4 +1,4 @@
-use crate::core::{RenderDevice, RenderQueue, VertexLayout};
+use crate::core::{RenderDevice, RenderQueue};
 use wgpu::util::DeviceExt;
 
 pub trait BufferData: bytemuck::Pod {}
@@ -125,21 +125,23 @@ impl<'de> serde::Deserialize<'de> for BufferFlags {
     }
 }
 
-pub struct VertexBuffer<V> {
+pub trait Vertex: bytemuck::Pod + bytemuck::Zeroable + 'static {}
+
+pub struct VertexBuffer {
     buffer: Option<wgpu::Buffer>,
-    vertices: Vec<V>,
+    data: Vec<u8>,
     flags: BufferFlags,
-    layout: VertexLayout,
+    size: usize,
     dirty: bool,
 }
 
-impl<V: bytemuck::Pod> VertexBuffer<V> {
-    pub fn create(vertices: Vec<V>, layout: VertexLayout, flags: BufferFlags) -> Self {
+impl VertexBuffer {
+    pub fn new<V: Vertex>(vertices: &[V], flags: BufferFlags) -> Self {
         Self {
             buffer: None,
-            vertices,
+            data: bytemuck::cast_slice(vertices).to_vec(),
             flags,
-            layout,
+            size: std::mem::size_of::<V>(),
             dirty: false,
         }
     }
@@ -148,50 +150,43 @@ impl<V: bytemuck::Pod> VertexBuffer<V> {
         self.buffer.as_ref()
     }
 
-    pub fn vertices(&self) -> &[V] {
-        &self.vertices
+    pub fn data(&self) -> &[u8] {
+        &self.data
     }
 
-    pub fn vertices_mut(&mut self) -> &mut Vec<V> {
-        self.dirty = true;
-        &mut self.vertices
+    pub fn flags(&self) -> BufferFlags {
+        self.flags
     }
 
-    pub fn layout(&self) -> &VertexLayout {
-        &self.layout
+    pub fn size(&self) -> usize {
+        self.size
     }
 
-    pub fn push(&mut self, vertex: V) {
-        self.vertices.push(vertex);
-        self.dirty = true;
-    }
-
-    pub fn append(&mut self, vertices: &[V]) {
-        self.vertices.extend_from_slice(vertices);
-        self.dirty = true;
-    }
-
-    pub fn set_vertices(&mut self, vertices: Vec<V>) {
-        self.vertices = vertices;
-        self.dirty = true;
+    pub fn dirty(&self) -> bool {
+        self.dirty
     }
 
     pub fn len(&self) -> usize {
-        self.vertices.len()
+        self.data.len()
     }
 
-    pub fn clear(&mut self) {
-        self.vertices.clear();
+    pub fn set<V: Vertex>(&mut self, vertices: &[V]) {
+        self.data = bytemuck::cast_slice(vertices).to_vec();
         self.dirty = true;
     }
 
-    pub fn resize(&mut self, device: &RenderDevice) -> bool {
+    pub fn clear(&mut self) {
+        self.data.clear();
+        self.dirty = true;
+    }
+
+    pub fn create(&mut self, device: &RenderDevice) -> bool {
         let buffer_size = self.buffer.as_ref().map_or(0, |buffer| buffer.size());
-        let size = (self.vertices.len() * std::mem::size_of::<V>()) as u64;
+        let size = (self.len() * self.size) as u64;
         if size > 0 && (self.dirty || buffer_size != size) {
             let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: None,
-                contents: bytemuck::cast_slice(&self.vertices),
+                contents: &self.data,
                 usage: self.flags.usages(BufferKind::Vertex),
             });
 
@@ -204,9 +199,9 @@ impl<V: bytemuck::Pod> VertexBuffer<V> {
     }
 
     pub fn commit(&mut self, device: &RenderDevice, queue: &RenderQueue) {
-        if !self.resize(device) && self.flags.is_write() {
+        if !self.create(device) && self.flags.is_write() {
             self.buffer.as_ref().map(|buffer| {
-                let bytes = &self.vertices[0..self.vertices.len()];
+                let bytes = &self.data[0..self.data.len()];
                 queue.write_buffer(buffer, 0, bytemuck::cast_slice(bytes));
             });
         }
@@ -221,7 +216,7 @@ pub struct IndexBuffer {
 }
 
 impl IndexBuffer {
-    pub fn create(indices: Indices, flags: BufferFlags) -> Self {
+    pub fn new(indices: Indices, flags: BufferFlags) -> Self {
         Self {
             buffer: None,
             indices: indices,
@@ -261,7 +256,7 @@ impl IndexBuffer {
         self.dirty = true;
     }
 
-    pub fn set_indices(&mut self, indices: Indices) {
+    pub fn set(&mut self, indices: Indices) {
         self.indices = indices;
         self.dirty = true;
     }
@@ -282,7 +277,7 @@ impl IndexBuffer {
         self.dirty = true;
     }
 
-    pub fn resize(&mut self, device: &RenderDevice) -> bool {
+    pub fn create(&mut self, device: &RenderDevice) -> bool {
         let buffer_size = self.buffer.as_ref().map_or(0, |buffer| buffer.size());
         let size = match &self.indices {
             Indices::U16(v) => (v.len() * std::mem::size_of::<u16>()) as u64,
@@ -308,7 +303,7 @@ impl IndexBuffer {
     }
 
     pub fn commit(&mut self, device: &RenderDevice, queue: &RenderQueue) {
-        if !self.resize(device) && self.flags.is_write() {
+        if !self.create(device) && self.flags.is_write() {
             self.buffer.as_ref().map(|buffer| {
                 queue.write_buffer(buffer, 0, &self.indices.bytes());
             });
@@ -324,7 +319,7 @@ pub struct UniformBuffer<T: BufferData> {
 }
 
 impl<T: BufferData> UniformBuffer<T> {
-    pub fn create(value: T, flags: BufferFlags) -> Self {
+    pub fn new(value: T, flags: BufferFlags) -> Self {
         Self {
             value,
             buffer: None,
@@ -355,7 +350,7 @@ impl<T: BufferData> UniformBuffer<T> {
         self.value = value;
     }
 
-    pub fn resize(&mut self, device: &RenderDevice) -> bool {
+    pub fn create(&mut self, device: &RenderDevice) -> bool {
         let buffer_size = self.buffer.as_ref().map_or(0, |buffer| buffer.size());
         let size = std::mem::size_of::<T>() as u64;
 
@@ -375,7 +370,7 @@ impl<T: BufferData> UniformBuffer<T> {
     }
 
     pub fn commit(&mut self, device: &RenderDevice, queue: &RenderQueue) {
-        if (!self.resize(device)) && self.flags.is_write() {
+        if (!self.create(device)) && self.flags.is_write() {
             self.buffer.as_ref().map(|buffer| {
                 queue.write_buffer(buffer, 0, bytemuck::bytes_of(&self.value));
             });
@@ -399,7 +394,7 @@ pub struct UniformBufferArray<T: BufferData> {
 }
 
 impl<T: BufferData> UniformBufferArray<T> {
-    pub fn create(flags: BufferFlags) -> Self {
+    pub fn new(flags: BufferFlags) -> Self {
         Self {
             flags,
             values: vec![],
@@ -425,8 +420,7 @@ impl<T: BufferData> UniformBufferArray<T> {
     }
 
     pub fn binding(&self) -> Option<wgpu::BindingResource> {
-        let binding = self.buffer.as_ref()?.as_entire_buffer_binding();
-        Some(wgpu::BindingResource::Buffer(binding))
+        Some(self.buffer.as_ref()?.as_entire_binding())
     }
 
     pub fn push(&mut self, value: T) {
@@ -453,7 +447,7 @@ impl<T: BufferData> UniformBufferArray<T> {
         self.values.clear();
     }
 
-    pub fn resize(&mut self, device: &RenderDevice) -> bool {
+    pub fn create(&mut self, device: &RenderDevice) -> bool {
         let buffer_size = self.buffer.as_ref().map_or(0, |buffer| buffer.size());
         let size = (self.values.len() * std::mem::size_of::<T>()) as u64;
 
@@ -473,7 +467,7 @@ impl<T: BufferData> UniformBufferArray<T> {
     }
 
     pub fn commit(&mut self, device: &RenderDevice, queue: &RenderQueue) {
-        if (!self.resize(device) || self.dirty) && self.flags.is_write() {
+        if (!self.create(device) || self.dirty) && self.flags.is_write() {
             self.buffer.as_ref().map(|buffer| {
                 queue.write_buffer(buffer, 0, bytemuck::cast_slice(&self.values));
             });
@@ -497,7 +491,7 @@ pub struct StorageBuffer<T: BufferData> {
 }
 
 impl<T: BufferData> StorageBuffer<T> {
-    pub fn create(value: T, flags: BufferFlags) -> Self {
+    pub fn new(value: T, flags: BufferFlags) -> Self {
         Self {
             value,
             buffer: None,
@@ -528,7 +522,7 @@ impl<T: BufferData> StorageBuffer<T> {
         self.value = value;
     }
 
-    pub fn resize(&mut self, device: &RenderDevice) -> bool {
+    pub fn create(&mut self, device: &RenderDevice) -> bool {
         let buffer_size = self.buffer.as_ref().map_or(0, |buffer| buffer.size());
         let size = std::mem::size_of::<T>() as u64;
 
@@ -548,7 +542,7 @@ impl<T: BufferData> StorageBuffer<T> {
     }
 
     pub fn commit(&mut self, device: &RenderDevice, queue: &RenderQueue) {
-        if (!self.resize(device) || self.dirty) && self.flags.is_write() {
+        if (!self.create(device) || self.dirty) && self.flags.is_write() {
             self.buffer.as_ref().map(|buffer| {
                 queue.write_buffer(buffer, 0, bytemuck::bytes_of(&self.value));
             });
@@ -572,7 +566,7 @@ pub struct StorageBufferArray<T: BufferData> {
 }
 
 impl<T: BufferData> StorageBufferArray<T> {
-    pub fn create(flags: BufferFlags) -> Self {
+    pub fn new(flags: BufferFlags) -> Self {
         Self {
             flags,
             values: vec![],
@@ -626,7 +620,7 @@ impl<T: BufferData> StorageBufferArray<T> {
         self.values.clear();
     }
 
-    pub fn resize(&mut self, device: &RenderDevice) -> bool {
+    pub fn create(&mut self, device: &RenderDevice) -> bool {
         let buffer_size = self.buffer.as_ref().map_or(0, |buffer| buffer.size());
         let size = (self.values.len() * std::mem::size_of::<T>()) as u64;
 
@@ -646,7 +640,7 @@ impl<T: BufferData> StorageBufferArray<T> {
     }
 
     pub fn commit(&mut self, device: &RenderDevice, queue: &RenderQueue) {
-        if (!self.resize(device) || self.dirty) && self.flags.is_write() {
+        if (!self.create(device) || self.dirty) && self.flags.is_write() {
             self.buffer.as_ref().map(|buffer| {
                 queue.write_buffer(buffer, 0, bytemuck::cast_slice(&self.values));
             });

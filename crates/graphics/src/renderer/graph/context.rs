@@ -1,4 +1,4 @@
-use super::resources::{RenderGraphResources, RenderTarget};
+use super::resources::{RenderGraphBuffer, RenderGraphResources, RenderGraphTexture, RenderTarget};
 use crate::{
     camera::RenderFrame,
     core::device::{RenderDevice, RenderQueue},
@@ -16,55 +16,37 @@ pub enum RenderNodeAction {
 }
 
 pub struct RenderContext<'a> {
-    surface_id: ResourceId,
+    world: &'a World,
     frame: &'a RenderFrame,
-    frame_index: usize,
-    total_frames: usize,
+    target: &'a RenderTarget,
     device: &'a RenderDevice,
     queue: &'a RenderQueue,
     resources: &'a RenderGraphResources,
-    world: &'a World,
     actions: Arc<Mutex<Vec<RenderNodeAction>>>,
 }
 
 impl<'a> RenderContext<'a> {
     pub fn new(
-        surface_id: ResourceId,
+        world: &'a World,
         frame: &'a RenderFrame,
-        frame_index: usize,
-        total_frames: usize,
+        target: &'a RenderTarget,
         device: &'a RenderDevice,
         queue: &'a RenderQueue,
         resources: &'a RenderGraphResources,
-        world: &'a World,
     ) -> Self {
         Self {
-            surface_id,
+            world,
             frame,
-            frame_index,
-            total_frames,
+            target,
             device,
             queue,
             resources,
-            world,
             actions: Arc::default(),
         }
     }
 
-    pub fn surface_id(&self) -> ResourceId {
-        self.surface_id
-    }
-
     pub fn frame(&self) -> &RenderFrame {
         self.frame
-    }
-
-    pub fn frame_index(&self) -> usize {
-        self.frame_index
-    }
-
-    pub fn total_frames(&self) -> usize {
-        self.total_frames
     }
 
     pub fn device(&self) -> &RenderDevice {
@@ -75,18 +57,15 @@ impl<'a> RenderContext<'a> {
         self.queue
     }
 
-    pub fn render_target(&self, id: impl Into<ResourceId>) -> Option<&RenderTarget> {
-        self.resources.target(id.into())
+    pub fn render_target(&self) -> &RenderTarget {
+        self.target
     }
 
-    pub fn texture(&self, texture: ResourceId) -> Option<&wgpu::TextureView> {
-        self.resources
-            .target(self.surface_id)
-            .and_then(|t| t.texture(texture))
-            .or_else(|| self.resources.texture(texture))
+    pub fn texture(&self, id: ResourceId) -> Option<&RenderGraphTexture> {
+        self.resources.texture(id)
     }
 
-    pub fn buffer(&self, id: ResourceId) -> Option<&wgpu::Buffer> {
+    pub fn buffer(&self, id: ResourceId) -> Option<&RenderGraphBuffer> {
         self.resources.buffer(id)
     }
 
@@ -118,10 +97,6 @@ impl<'a> RenderContext<'a> {
             .push(RenderNodeAction::Submit(buffer));
     }
 
-    pub(crate) fn append_actions(&self, actions: impl IntoIterator<Item = RenderNodeAction>) {
-        self.actions.lock().unwrap().extend(actions);
-    }
-
     pub(crate) fn finish(self) -> Vec<RenderNodeAction> {
         match self.actions.try_lock() {
             Ok(mut actions) => std::mem::take(&mut *actions),
@@ -133,14 +108,12 @@ impl<'a> RenderContext<'a> {
 impl<'a> Clone for RenderContext<'a> {
     fn clone(&self) -> Self {
         Self {
-            surface_id: self.surface_id,
+            world: self.world,
             frame: self.frame,
-            frame_index: self.frame_index,
-            total_frames: self.total_frames,
+            target: self.target,
             device: self.device,
             queue: self.queue,
             resources: self.resources,
-            world: self.world,
             actions: Arc::default(),
         }
     }

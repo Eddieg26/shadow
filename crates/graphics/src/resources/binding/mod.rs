@@ -1,44 +1,21 @@
 use crate::core::RenderDevice;
-use std::num::NonZeroU32;
 
 pub type ShaderBinding = wgpu::BindGroupLayoutEntry;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ShaderBindGroup {
-    group: u32,
+pub struct ShaderBindings {
     bindings: Vec<ShaderBinding>,
 }
 
-impl ShaderBindGroup {
-    pub fn new(group: u32) -> Self {
+impl ShaderBindings {
+    pub fn new() -> Self {
         Self {
-            group,
             bindings: Vec::new(),
         }
     }
 
-    pub fn group(&self) -> u32 {
-        self.group
-    }
-
     pub fn add(&mut self, binding: ShaderBinding) -> &mut Self {
         self.bindings.push(binding);
-        self
-    }
-
-    pub fn add_binding(
-        &mut self,
-        binding: u32,
-        visibility: wgpu::ShaderStages,
-        ty: wgpu::BindingType,
-        count: Option<u32>,
-    ) -> &mut Self {
-        self.bindings.push(ShaderBinding {
-            binding,
-            visibility,
-            ty,
-            count: count.and_then(|c| NonZeroU32::new(c)),
-        });
         self
     }
 
@@ -50,16 +27,17 @@ impl ShaderBindGroup {
         has_dynamic_offset: bool,
         min_binding_size: Option<wgpu::BufferSize>,
     ) -> &mut Self {
-        self.add_binding(
+        self.bindings.push(ShaderBinding {
             binding,
             visibility,
-            wgpu::BindingType::Buffer {
+            ty: wgpu::BindingType::Buffer {
+                ty,
                 has_dynamic_offset,
                 min_binding_size,
-                ty,
             },
-            None,
-        )
+            count: None,
+        });
+        self
     }
 
     pub fn add_texture(
@@ -70,16 +48,17 @@ impl ShaderBindGroup {
         view_dimension: wgpu::TextureViewDimension,
         multisampled: bool,
     ) -> &mut Self {
-        self.add_binding(
+        self.bindings.push(ShaderBinding {
             binding,
             visibility,
-            wgpu::BindingType::Texture {
+            ty: wgpu::BindingType::Texture {
                 sample_type,
                 view_dimension,
                 multisampled,
             },
-            None,
-        )
+            count: None,
+        });
+        self
     }
 
     pub fn add_sampler(
@@ -88,7 +67,13 @@ impl ShaderBindGroup {
         visibility: wgpu::ShaderStages,
         ty: wgpu::SamplerBindingType,
     ) -> &mut Self {
-        self.add_binding(binding, visibility, wgpu::BindingType::Sampler(ty), None)
+        self.bindings.push(ShaderBinding {
+            binding,
+            visibility,
+            ty: wgpu::BindingType::Sampler(ty),
+            count: None,
+        });
+        self
     }
 
     pub fn bindings(&self) -> &[ShaderBinding] {
@@ -101,6 +86,20 @@ impl ShaderBindGroup {
             entries: &entries,
             label: None,
         })
+    }
+}
+
+pub struct BindGroupLayout(wgpu::BindGroupLayout);
+impl From<wgpu::BindGroupLayout> for BindGroupLayout {
+    fn from(layout: wgpu::BindGroupLayout) -> Self {
+        Self(layout)
+    }
+}
+
+impl std::ops::Deref for BindGroupLayout {
+    type Target = wgpu::BindGroupLayout;
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 

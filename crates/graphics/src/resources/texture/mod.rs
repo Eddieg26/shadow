@@ -1,4 +1,4 @@
-use super::RenderAsset;
+use super::{RenderAsset, ResourceId};
 use crate::core::{RenderDevice, RenderQueue};
 use asset::Asset;
 
@@ -14,9 +14,9 @@ pub enum TextureDimension {
     D1,
     D2,
     D2Array,
-    Cube,
-    CubeArray,
     D3,
+    D3Array,
+    Cube,
 }
 
 impl Into<wgpu::TextureDimension> for TextureDimension {
@@ -26,7 +26,7 @@ impl Into<wgpu::TextureDimension> for TextureDimension {
             TextureDimension::D2 => wgpu::TextureDimension::D2,
             TextureDimension::D2Array => wgpu::TextureDimension::D2,
             TextureDimension::Cube => wgpu::TextureDimension::D3,
-            TextureDimension::CubeArray => wgpu::TextureDimension::D3,
+            TextureDimension::D3Array => wgpu::TextureDimension::D3,
             TextureDimension::D3 => wgpu::TextureDimension::D3,
         }
     }
@@ -39,7 +39,7 @@ impl Into<wgpu::TextureViewDimension> for TextureDimension {
             TextureDimension::D2 => wgpu::TextureViewDimension::D2,
             TextureDimension::D2Array => wgpu::TextureViewDimension::D2,
             TextureDimension::Cube => wgpu::TextureViewDimension::Cube,
-            TextureDimension::CubeArray => wgpu::TextureViewDimension::Cube,
+            TextureDimension::D3Array => wgpu::TextureViewDimension::Cube,
             TextureDimension::D3 => wgpu::TextureViewDimension::D3,
         }
     }
@@ -92,13 +92,13 @@ pub trait Texture: Asset + 'static {
     fn pixels(&self) -> &[u8];
 }
 
-pub struct GPUTexture {
+pub struct GpuTexture {
     texture: wgpu::Texture,
     view: wgpu::TextureView,
     sampler: wgpu::Sampler,
 }
 
-impl GPUTexture {
+impl GpuTexture {
     pub fn create<T: Texture>(device: &RenderDevice, queue: &RenderQueue, texture: &T) -> Self {
         let size = wgpu::Extent3d {
             width: texture.width(),
@@ -215,7 +215,7 @@ impl GPUTexture {
     }
 }
 
-impl std::ops::Deref for GPUTexture {
+impl std::ops::Deref for GpuTexture {
     type Target = wgpu::TextureView;
 
     fn deref(&self) -> &Self::Target {
@@ -223,4 +223,6 @@ impl std::ops::Deref for GPUTexture {
     }
 }
 
-impl RenderAsset for GPUTexture {}
+impl RenderAsset for GpuTexture {
+    type Id = ResourceId;
+}

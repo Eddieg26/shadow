@@ -24,13 +24,16 @@ use game::{
 };
 use graphics::{
     camera::{ClearFlag, RenderFrame, RenderFrames},
-    core::{Color, VertexAttribute},
+    core::Color,
     plugin::{GraphicsExt, GraphicsPlugin, RenderApp},
     renderer::{
         draw::{Draw, DrawCalls},
-        graph::{context::RenderContext, RenderGraphBuilder},
-        nodes::render::{
-            Attachment, RenderCommands, RenderGroup, RenderPass, RenderPassContext, StoreOp,
+        graph::{
+            context::RenderContext,
+            nodes::render::{
+                Attachment, RenderCommands, RenderGroup, RenderPass, RenderPassContext, StoreOp,
+            },
+            RenderGraphBuilder,
         },
     },
     resources::{
@@ -75,10 +78,7 @@ pub struct DrawModelNode {
 impl DrawModelNode {
     pub fn new() -> Self {
         Self {
-            model: UniformBuffer::create(
-                ModelData::from(glam::Mat4::IDENTITY),
-                BufferFlags::COPY_DST,
-            ),
+            model: UniformBuffer::new(ModelData::from(glam::Mat4::IDENTITY), BufferFlags::COPY_DST),
         }
     }
 }
@@ -103,7 +103,7 @@ impl Plugin for BasicPlugin {
 
     fn start(&self, game: &mut Game) {
         let builder = game.resource_mut::<RenderGraphBuilder>();
-        let pass = RenderPass::new()
+        let pass = RenderPass::new("basic")
             .with_color(Attachment::Surface, None, StoreOp::Store, None)
             .add_subpass()
             .with_render_group::<DrawModel>(
@@ -111,9 +111,7 @@ impl Plugin for BasicPlugin {
                 |ctx: &RenderPassContext<DrawModel>, commands: &mut RenderCommands| {},
             );
 
-        builder.add_node("basic", pass);
-
-        let app = game.sub_app_mut::<RenderApp>().unwrap();
+        builder.add_node(pass);
     }
 
     fn run(&mut self, game: &mut Game) {

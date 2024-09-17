@@ -30,7 +30,7 @@ pub type AssetLoadFn =
 
 pub type AssetSaveFn = fn(&Path, &ImportedAsset, &AssetConfig) -> Result<Vec<u8>, AssetError>;
 
-pub type AssetEmbedFn = fn(&'static str, &'static [u8], &World) -> Result<(), AssetError>;
+pub type AssetEmbedFn = fn(AssetId, &'static str, &'static [u8], &World) -> Result<(), AssetError>;
 
 pub struct AssetMetadata {
     load: AssetLoadFn,
@@ -149,10 +149,10 @@ impl AssetMetadata {
             Ok(asset)
         };
 
-        let embed: AssetEmbedFn = |path, bytes, world| {
+        let embed: AssetEmbedFn = |id, path, bytes, world| {
             let config = world.resource::<AssetConfig>();
             let mut reader = EmbeddedReader::new(path, bytes);
-            let mut settings = AssetSettings::default();
+            let mut settings = AssetSettings::new(id, I::Settings::default());
 
             let (mut asset, sub_assets) = {
                 let mut ctx = ImportContext::new(config, &settings);
@@ -256,6 +256,7 @@ impl AssetMetadata {
 
     pub fn embed(
         &self,
+        id: AssetId,
         path: &'static str,
         bytes: &'static [u8],
         world: &World,
@@ -268,7 +269,7 @@ impl AssetMetadata {
             .get(&ext)
             .ok_or_else(|| AssetError::import(path, LoadErrorKind::NoImporter))?;
 
-        embed(path, bytes, world)
+        embed(id, path, bytes, world)
     }
 
     pub fn load_dependencies<'a>(

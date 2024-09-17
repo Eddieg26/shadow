@@ -1,12 +1,10 @@
 use asset::{Asset, AssetId};
 use ecs::core::{DenseMap, Resource};
 use ecs::system::{ArgItem, SystemArg};
-use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 pub mod binding;
 pub mod buffer;
-pub mod material;
 pub mod mesh;
 pub mod pipeline;
 pub mod shader;
@@ -14,18 +12,19 @@ pub mod texture;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ResourceId(u64);
-
 impl ResourceId {
-    pub fn gen() -> Self {
-        let mut hasher = DefaultHasher::new();
-        hasher.write_u64(0);
-        Self(hasher.finish())
+    pub fn raw(id: u64) -> Self {
+        Self(id)
+    }
+
+    pub fn id(&self) -> u64 {
+        self.0
     }
 }
 
 impl From<&str> for ResourceId {
     fn from(name: &str) -> Self {
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        let mut hasher = crc32fast::Hasher::new();
         name.hash(&mut hasher);
         Self(hasher.finish())
     }
@@ -33,7 +32,7 @@ impl From<&str> for ResourceId {
 
 impl From<String> for ResourceId {
     fn from(name: String) -> Self {
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        let mut hasher = crc32fast::Hasher::new();
         name.hash(&mut hasher);
         Self(hasher.finish())
     }
@@ -72,10 +71,12 @@ impl<'a, A: ExtractArg<'a>, B: ExtractArg<'a>, C: ExtractArg<'a>, D: ExtractArg<
 {
 }
 
-pub trait RenderAsset: Send + Sync + 'static {}
+pub trait RenderAsset: Send + Sync + 'static {
+    type Id: Hash + Eq + Copy + Send + Sync + From<AssetId> + 'static;
+}
 
 pub struct RenderAssets<R: RenderAsset> {
-    assets: DenseMap<ResourceId, R>,
+    assets: DenseMap<R::Id, R>,
 }
 
 impl<R: RenderAsset> RenderAssets<R> {
@@ -85,20 +86,20 @@ impl<R: RenderAsset> RenderAssets<R> {
         }
     }
 
-    pub fn insert(&mut self, id: ResourceId, asset: R) {
+    pub fn add(&mut self, id: R::Id, asset: R) {
         self.assets.insert(id, asset);
     }
 
-    pub fn get(&self, id: &ResourceId) -> Option<&R> {
+    pub fn get(&self, id: &R::Id) -> Option<&R> {
         self.assets.get(id)
     }
 
-    pub fn get_mut(&mut self, id: &ResourceId) -> Option<&mut R> {
+    pub fn get_mut(&mut self, id: &R::Id) -> Option<&mut R> {
         self.assets.get_mut(id)
     }
 
-    pub fn remove(&mut self, id: &ResourceId) {
-        self.assets.remove(id);
+    pub fn remove(&mut self, id: &R::Id) -> Option<R> {
+        self.assets.remove(id)
     }
 }
 
@@ -114,6 +115,12 @@ impl<R: RenderAsset> Resource for RenderAssets<R> {}
 pub enum AssetUsage {
     Keep,
     Discard,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ExtractedResource {
+    BindGroup,
+    Pipeline,
 }
 
 pub trait RenderAssetExtractor: 'static {
@@ -132,5 +139,9 @@ pub trait RenderAssetExtractor: 'static {
 
     fn usage(_source: &Self::Source) -> AssetUsage {
         AssetUsage::Keep
+    }
+
+    fn extracted_resource() -> Option<ExtractedResource> {
+        None
     }
 }

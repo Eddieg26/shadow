@@ -1,21 +1,91 @@
-use crate::resources::ResourceId;
+use crate::{
+    core::RenderDevice,
+    renderer::surface::RenderSurface,
+    resources::{RenderAsset, ResourceId},
+};
+use spatial::size::Size;
 use std::collections::HashMap;
 
-pub struct TextureDesc {
-    pub format: wgpu::TextureFormat,
-    pub usage: wgpu::TextureUsages,
-}
-
+#[derive(Debug, Clone, Copy)]
 pub struct BufferDesc {
     pub size: wgpu::BufferAddress,
     pub usage: wgpu::BufferUsages,
 }
 
+pub struct RenderGraphBuffer(wgpu::Buffer);
+impl RenderGraphBuffer {
+    pub fn create(device: &RenderDevice, desc: &BufferDesc) -> Self {
+        Self(device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: desc.size,
+            usage: desc.usage,
+            mapped_at_creation: false,
+        }))
+    }
+}
+
+impl std::ops::Deref for RenderGraphBuffer {
+    type Target = wgpu::Buffer;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl From<wgpu::Buffer> for RenderGraphBuffer {
+    fn from(buffer: wgpu::Buffer) -> Self {
+        Self(buffer)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct TextureDesc {
+    pub format: wgpu::TextureFormat,
+    pub usages: wgpu::TextureUsages,
+}
+
+pub struct RenderGraphTexture(wgpu::TextureView);
+impl RenderGraphTexture {
+    pub fn create(device: &RenderDevice, desc: &TextureDesc, width: u32, height: u32) -> Self {
+        Self(
+            device
+                .create_texture(&wgpu::TextureDescriptor {
+                    label: None,
+                    size: wgpu::Extent3d {
+                        width,
+                        height,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: desc.format,
+                    usage: desc.usages,
+                    view_formats: &[desc.format],
+                })
+                .create_view(&wgpu::TextureViewDescriptor::default()),
+        )
+    }
+}
+
+impl std::ops::Deref for RenderGraphTexture {
+    type Target = wgpu::TextureView;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl From<wgpu::TextureView> for RenderGraphTexture {
+    fn from(view: wgpu::TextureView) -> Self {
+        Self(view)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct RenderTargetDesc {
     pub width: u32,
     pub height: u32,
     pub format: wgpu::TextureFormat,
-    pub depth_format: Option<wgpu::TextureFormat>,
+    pub depth: wgpu::TextureFormat,
 }
 
 impl RenderTargetDesc {
@@ -23,182 +93,289 @@ impl RenderTargetDesc {
         width: u32,
         height: u32,
         format: wgpu::TextureFormat,
-        depth_format: Option<wgpu::TextureFormat>,
+        depth: wgpu::TextureFormat,
     ) -> Self {
         Self {
             width,
             height,
             format,
-            depth_format,
+            depth,
         }
     }
 }
 
 pub struct RenderTarget {
-    width: u32,
-    height: u32,
-    color: Option<wgpu::TextureView>,
-    depth: Option<wgpu::TextureView>,
-    textures: HashMap<ResourceId, wgpu::TextureView>,
+    size: Size,
+    color: Option<RenderGraphTexture>,
+    format: wgpu::TextureFormat,
+    depth: Option<RenderGraphTexture>,
+    depth_format: wgpu::TextureFormat,
 }
 
 impl RenderTarget {
-    pub fn create(device: &wgpu::Device, desc: RenderTargetDesc) -> Self {
-        let size = wgpu::Extent3d {
-            width: desc.width,
-            height: desc.height,
-            depth_or_array_layers: 1,
-        };
+    pub fn create(device: &RenderDevice, desc: RenderTargetDesc) -> Self {
+        let color = RenderGraphTexture(
+            device
+                .create_texture(&wgpu::TextureDescriptor {
+                    label: None,
+                    size: wgpu::Extent3d {
+                        width: desc.width,
+                        height: desc.height,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: desc.format,
+                    usage: wgpu::TextureUsages::all(),
+                    view_formats: &[desc.format],
+                })
+                .create_view(&wgpu::TextureViewDescriptor::default()),
+        );
 
-        let color = device.create_texture(&wgpu::TextureDescriptor {
-            label: None,
-            size,
-            dimension: wgpu::TextureDimension::D2,
-            format: desc.format,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                | wgpu::TextureUsages::COPY_SRC
-                | wgpu::TextureUsages::TEXTURE_BINDING,
-            view_formats: &[desc.format],
-            mip_level_count: 1,
-            sample_count: 1,
-        });
-
-        let depth = desc.depth_format.map(|format| {
-            device.create_texture(&wgpu::TextureDescriptor {
-                label: None,
-                size,
-                dimension: wgpu::TextureDimension::D2,
-                format,
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                    | wgpu::TextureUsages::COPY_SRC
-                    | wgpu::TextureUsages::TEXTURE_BINDING,
-                view_formats: &[format],
-                mip_level_count: 1,
-                sample_count: 1,
-            })
-        });
+        let depth = RenderGraphTexture(
+            device
+                .create_texture(&wgpu::TextureDescriptor {
+                    label: None,
+                    size: wgpu::Extent3d {
+                        width: desc.width,
+                        height: desc.height,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: desc.depth,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                        | wgpu::TextureUsages::TEXTURE_BINDING
+                        | wgpu::TextureUsages::COPY_DST
+                        | wgpu::TextureUsages::COPY_SRC,
+                    view_formats: &[desc.depth],
+                })
+                .create_view(&wgpu::TextureViewDescriptor::default()),
+        );
 
         Self {
-            width: desc.width,
-            height: desc.height,
-            color: Some(color.create_view(&wgpu::TextureViewDescriptor::default())),
-            depth: depth.map(|d| d.create_view(&wgpu::TextureViewDescriptor::default())),
-            textures: HashMap::new(),
+            size: Size::new(desc.width, desc.height),
+            color: Some(color),
+            format: desc.format,
+            depth: Some(depth),
+            depth_format: wgpu::TextureFormat::Depth32Float,
         }
     }
 
-    pub fn width(&self) -> u32 {
-        self.width
+    pub fn from_surface(device: &RenderDevice, surface: &RenderSurface) -> Self {
+        let width = surface.width();
+        let height = surface.height();
+        let format = surface.format();
+        let depth_format = surface.depth_format();
+
+        let depth = RenderGraphTexture(
+            device
+                .create_texture(&wgpu::TextureDescriptor {
+                    label: None,
+                    size: wgpu::Extent3d {
+                        width,
+                        height,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: depth_format,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                        | wgpu::TextureUsages::TEXTURE_BINDING
+                        | wgpu::TextureUsages::COPY_DST
+                        | wgpu::TextureUsages::COPY_SRC,
+                    view_formats: &[depth_format],
+                })
+                .create_view(&wgpu::TextureViewDescriptor::default()),
+        );
+
+        Self {
+            size: Size::new(width, height),
+            color: None,
+            format,
+            depth: Some(depth),
+            depth_format: wgpu::TextureFormat::Depth32Float,
+        }
     }
 
-    pub fn height(&self) -> u32 {
-        self.height
+    pub fn empty(
+        size: Size,
+        format: wgpu::TextureFormat,
+        depth_format: wgpu::TextureFormat,
+    ) -> Self {
+        Self {
+            size,
+            color: None,
+            format,
+            depth: None,
+            depth_format,
+        }
     }
 
-    pub fn color(&self) -> Option<&wgpu::TextureView> {
+    pub fn size(&self) -> Size {
+        self.size
+    }
+
+    pub fn color(&self) -> Option<&RenderGraphTexture> {
         self.color.as_ref()
     }
 
-    pub fn depth(&self) -> Option<&wgpu::TextureView> {
+    pub fn format(&self) -> wgpu::TextureFormat {
+        self.format
+    }
+
+    pub fn depth(&self) -> Option<&RenderGraphTexture> {
         self.depth.as_ref()
     }
 
-    pub fn texture(&self, id: ResourceId) -> Option<&wgpu::TextureView> {
-        self.textures.get(&id)
+    pub fn depth_format(&self) -> wgpu::TextureFormat {
+        self.depth_format
     }
 
-    pub fn add_texture(&mut self, id: ResourceId, texture: wgpu::TextureView) {
-        self.textures.insert(id, texture);
+    pub fn set_color(&mut self, color: Option<RenderGraphTexture>) {
+        self.color = color;
     }
 
-    pub(crate) fn set_color(&mut self, color: Option<wgpu::TextureView>) {
-        self.color = color
+    pub fn resize(&mut self, device: &RenderDevice, width: u32, height: u32) {
+        self.size = Size::new(width, height);
+
+        if self.color.is_some() {
+            self.color = Some(RenderGraphTexture(
+                device
+                    .create_texture(&wgpu::TextureDescriptor {
+                        label: None,
+                        size: wgpu::Extent3d {
+                            width,
+                            height,
+                            depth_or_array_layers: 1,
+                        },
+                        mip_level_count: 1,
+                        sample_count: 1,
+                        dimension: wgpu::TextureDimension::D2,
+                        format: self.format,
+                        usage: wgpu::TextureUsages::all(),
+                        view_formats: &[self.format],
+                    })
+                    .create_view(&wgpu::TextureViewDescriptor::default()),
+            ));
+        }
+
+        if self.depth.is_some() {
+            self.depth = Some(RenderGraphTexture(
+                device
+                    .create_texture(&wgpu::TextureDescriptor {
+                        label: None,
+                        size: wgpu::Extent3d {
+                            width,
+                            height,
+                            depth_or_array_layers: 1,
+                        },
+                        mip_level_count: 1,
+                        sample_count: 1,
+                        dimension: wgpu::TextureDimension::D2,
+                        format: self.depth_format,
+                        usage: wgpu::TextureUsages::all(),
+                        view_formats: &[self.depth_format],
+                    })
+                    .create_view(&wgpu::TextureViewDescriptor::default()),
+            ));
+        }
     }
 }
 
-#[derive(Default)]
+impl RenderAsset for RenderTarget {
+    type Id = ResourceId;
+}
+
+#[derive(Debug, Clone)]
+pub enum ResourceDesc {
+    Buffer(BufferDesc),
+    Texture(TextureDesc),
+}
+
+impl From<BufferDesc> for ResourceDesc {
+    fn from(desc: BufferDesc) -> Self {
+        Self::Buffer(desc)
+    }
+}
+
+impl From<TextureDesc> for ResourceDesc {
+    fn from(desc: TextureDesc) -> Self {
+        Self::Texture(desc)
+    }
+}
+
 pub struct RenderGraphResources {
-    targets: HashMap<ResourceId, RenderTarget>,
-    buffers: HashMap<ResourceId, wgpu::Buffer>,
-    textures: HashMap<ResourceId, wgpu::TextureView>,
+    size: Size,
+    prev_size: Size,
     texture_descs: HashMap<ResourceId, TextureDesc>,
     buffer_descs: HashMap<ResourceId, BufferDesc>,
+    textures: HashMap<ResourceId, RenderGraphTexture>,
+    buffers: HashMap<ResourceId, RenderGraphBuffer>,
 }
 
 impl RenderGraphResources {
     pub fn new() -> Self {
         Self {
-            targets: HashMap::new(),
-            buffers: HashMap::new(),
-            textures: HashMap::new(),
+            size: Size::new(0, 0),
+            prev_size: Size::new(0, 0),
             texture_descs: HashMap::new(),
             buffer_descs: HashMap::new(),
+            textures: HashMap::new(),
+            buffers: HashMap::new(),
         }
     }
 
-    pub fn target(&self, id: ResourceId) -> Option<&RenderTarget> {
-        self.targets.get(&id)
+    pub fn size(&self) -> Size {
+        self.size
     }
 
-    pub fn texture(&self, id: ResourceId) -> Option<&wgpu::TextureView> {
+    pub fn prev_size(&self) -> Size {
+        self.prev_size
+    }
+
+    pub fn texture(&self, id: ResourceId) -> Option<&RenderGraphTexture> {
         self.textures.get(&id)
     }
 
-    pub fn buffer(&self, id: ResourceId) -> Option<&wgpu::Buffer> {
+    pub fn buffer(&self, id: ResourceId) -> Option<&RenderGraphBuffer> {
         self.buffers.get(&id)
     }
 
-    pub fn create_texture(&mut self, id: ResourceId, desc: TextureDesc) {
+    pub fn add_texture(&mut self, id: ResourceId, desc: TextureDesc) {
         self.texture_descs.insert(id, desc);
     }
 
-    pub fn create_buffer(&mut self, id: ResourceId, desc: BufferDesc) {
+    pub fn add_buffer(&mut self, id: ResourceId, desc: BufferDesc) {
         self.buffer_descs.insert(id, desc);
     }
 
-    pub fn create_target(&mut self, device: &wgpu::Device, id: ResourceId, desc: RenderTargetDesc) {
-        let size = wgpu::Extent3d {
-            width: desc.width,
-            height: desc.height,
-            depth_or_array_layers: 1,
-        };
-        let mut target = RenderTarget::create(device, desc);
-        for info in &self.texture_descs {
-            let texture = device.create_texture(&wgpu::TextureDescriptor {
-                label: None,
-                size,
-                dimension: wgpu::TextureDimension::D2,
-                format: info.1.format,
-                usage: info.1.usage,
-                view_formats: &[info.1.format],
-                mip_level_count: 1,
-                sample_count: 1,
-            });
-
-            target.add_texture(
-                *info.0,
-                texture.create_view(&wgpu::TextureViewDescriptor::default()),
-            );
-        }
-
-        self.targets.insert(id, target);
-    }
-
-    pub fn import_texture(&mut self, id: ResourceId, texture: wgpu::TextureView) {
+    pub fn import_texture(&mut self, id: ResourceId, texture: RenderGraphTexture) {
         self.textures.insert(id, texture);
     }
 
-    pub fn import_buffer(&mut self, id: ResourceId, buffer: wgpu::Buffer) {
+    pub fn import_buffer(&mut self, id: ResourceId, buffer: RenderGraphBuffer) {
         self.buffers.insert(id, buffer);
     }
 
-    pub fn remove_render_target(&mut self, id: ResourceId) -> Option<RenderTarget> {
-        self.targets.remove(&id)
+    pub fn set_size(&mut self, size: Size) {
+        self.prev_size = self.size;
+
+        let width = self.size.width.max(size.width);
+        let height = self.size.height.max(size.height);
+        self.size = Size::new(width, height);
     }
 
-    pub(crate) fn set_target_color(&mut self, id: ResourceId, color: Option<wgpu::TextureView>) {
-        if let Some(target) = self.targets.get_mut(&id) {
-            target.set_color(color);
-        }
+    pub fn set_prev_size(&mut self) {
+        self.prev_size = self.size;
+    }
+}
+
+impl Default for RenderGraphResources {
+    fn default() -> Self {
+        Self::new()
     }
 }

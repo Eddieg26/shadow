@@ -16,7 +16,7 @@ use super::{
     task::{max_thread_count, TaskPool},
 };
 use crate::{archetype::table::EntityRow, system::schedule::Schedule};
-use event::{Event, Events, RemoveResource};
+use event::{Event, Events};
 use std::collections::HashSet;
 
 pub mod event;
@@ -200,13 +200,11 @@ impl World {
 
     pub fn init_resource<R: Resource + Default>(&mut self) -> &mut Self {
         self.resources.add(R::default());
-        self.register_event::<RemoveResource<R>>();
         self
     }
 
     pub fn add_resource<R: Resource>(&mut self, resource: R) -> &mut Self {
         self.resources.add(resource);
-        self.register_event::<RemoveResource<R>>();
         self
     }
 

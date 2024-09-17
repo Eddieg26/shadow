@@ -18,7 +18,6 @@ pub struct AssetPlugin;
 
 impl Plugin for AssetPlugin {
     fn start(&self, game: &mut Game) {
-        println!("Starting asset plugin");
         game.init_resource::<AssetConfig>()
             .init_resource::<EmbeddedAssets>()
             .add_system(Init, asset_config_init);
@@ -100,7 +99,7 @@ impl AssetExt for Game {
             .and_then(|ext| config.registry().get_metadata_by_ext(ext));
 
         if let Some(metadata) = metadata {
-            let _ = metadata.embed(path, bytes, self.world());
+            let _ = metadata.embed(id, path, bytes, self.world());
         }
 
         self
