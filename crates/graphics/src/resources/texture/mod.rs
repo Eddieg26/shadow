@@ -1,6 +1,6 @@
-use super::{RenderAsset, ResourceId};
+use super::RenderAsset;
 use crate::core::{RenderDevice, RenderQueue};
-use asset::Asset;
+use asset::{Asset, AssetId};
 
 pub mod format;
 pub mod render;
@@ -224,5 +224,5 @@ impl std::ops::Deref for GpuTexture {
 }
 
 impl RenderAsset for GpuTexture {
-    type Id = ResourceId;
+    type Id = AssetId;
 }

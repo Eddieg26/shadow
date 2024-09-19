@@ -1,8 +1,11 @@
-use super::{NodeId, ShaderNode, VertexInput, VertexOutput, VERTEX_OUTPUT};
+use super::{
+    constants::{CAMERA_BINDING, CAMERA_GROUP, OBJECT_BINDING, OBJECT_GROUP, VERTEX_OUTPUT},
+    NodeId, ShaderNode, VertexInput, VertexOutput,
+};
 use crate::{
     material::shader::{
         snippets::{self},
-        ShaderOutput, CAMERA_BINDING, CAMERA_GROUP, OBJECT_BINDING, OBJECT_GROUP,
+        ShaderOutput,
     },
     resources::shader::ShaderSource,
 };

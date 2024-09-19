@@ -1,7 +1,7 @@
 use super::{
+    constants::{CAMERA_BINDING, CAMERA_GROUP, FRAGMENT_INPUT_STRUCT, MATERIAL_GROUP, SURFACE},
     snippets::{self},
     NodeId, ShaderInput, ShaderNode, ShaderOutput, ShaderProperty, SurfaceAttribute,
-    CAMERA_BINDING, CAMERA_GROUP, FRAGMENT_INPUT_STRUCT, MATERIAL_GROUP, SURFACE,
 };
 use crate::{
     material::{BlendMode, Material, ShaderModel},

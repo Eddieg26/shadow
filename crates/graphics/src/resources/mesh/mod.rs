@@ -1,10 +1,10 @@
 use super::{
     buffer::{BufferFlags, IndexBuffer, Indices, Vertex, VertexBuffer},
-    ReadWrite, RenderAsset, RenderAssetExtractor, ResourceId,
+    AssetUsage, ReadWrite, RenderAsset, RenderAssetExtractor, RenderAssets,
 };
 use crate::core::{Color, RenderDevice, RenderQueue};
-use asset::Asset;
-use ecs::system::ArgItem;
+use asset::{Asset, AssetId};
+use ecs::system::{unlifetime::Read, ArgItem, StaticSystemArg};
 use spatial::bounds::BoundingBox;
 use std::{hash::Hash, ops::Range};
 
@@ -489,33 +489,39 @@ impl MeshBuffers {
 }
 
 impl RenderAsset for MeshBuffers {
-    type Id = ResourceId;
+    type Id = AssetId;
 }
 
 impl RenderAssetExtractor for MeshBuffers {
     type Source = Mesh;
     type Target = MeshBuffers;
-    type Arg<'a> = (&'a RenderDevice, &'a RenderQueue);
+    type Arg = StaticSystemArg<'static, (Read<RenderDevice>, Read<RenderQueue>)>;
 
-    fn extract<'a>(
+    fn extract(
+        id: &AssetId,
         source: &mut Self::Source,
-        arg: &ArgItem<Self::Arg<'a>>,
-    ) -> Option<Self::Target> {
-        let (device, _) = arg;
+        arg: &ArgItem<Self::Arg>,
+        assets: &mut RenderAssets<Self::Target>,
+    ) -> Option<AssetUsage> {
+        let (device, queue) = **arg;
 
-        let buffers = source.buffers(device);
+        match assets.get_mut(id) {
+            Some(buffers) => match source.read_write {
+                ReadWrite::Enabled => source.update(buffers, device, queue),
+                ReadWrite::Disabled => (),
+            },
+            None => {
+                assets.add(*id, source.buffers(device));
+            }
+        }
 
-        Some(buffers)
+        match source.read_write {
+            ReadWrite::Enabled => Some(AssetUsage::Keep),
+            ReadWrite::Disabled => Some(AssetUsage::Discard),
+        }
     }
 
-    fn update<'a>(
-        source: &mut Self::Source,
-        asset: &mut Self::Target,
-        arg: &ArgItem<Self::Arg<'a>>,
-    ) {
-        if source.read_write() == ReadWrite::Enabled {
-            let (device, queue) = arg;
-            source.update(asset, device, queue);
-        }
+    fn remove(id: &AssetId, assets: &mut RenderAssets<Self::Target>) {
+        assets.remove(id);
     }
 }

@@ -154,7 +154,7 @@ impl RenderFrames {
     }
 
     pub fn extract(&mut self, other: &mut Self) {
-        self.frames.append(&mut other.frames);
+        self.frames = std::mem::take(&mut other.frames);
     }
 
     pub fn frames(&self) -> &[RenderFrame] {

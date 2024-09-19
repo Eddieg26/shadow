@@ -125,3 +125,9 @@ impl std::ops::Deref for BindGroup {
         &self.0
     }
 }
+
+impl From<wgpu::BindGroup> for BindGroup {
+    fn from(binding: wgpu::BindGroup) -> Self {
+        Self(binding)
+    }
+}

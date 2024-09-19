@@ -1,12 +1,12 @@
-use super::{RenderAsset, RenderAssetExtractor, ResourceId};
+use super::{AssetUsage, RenderAsset, RenderAssetExtractor, RenderAssets};
 use crate::core::RenderDevice;
 use asset::{
     importer::{AssetImporter, ImportContext},
     io::{AssetIoError, AssetReader, PathExt},
-    Asset, DefaultSettings,
+    Asset, AssetId, DefaultSettings,
 };
-use ecs::system::ArgItem;
-use std::borrow::Cow;
+use ecs::system::{unlifetime::Read, ArgItem, StaticSystemArg};
+use std::{borrow::Cow, sync::Arc};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum ShaderStage {
@@ -116,10 +116,10 @@ impl AssetImporter for ShaderSource {
     }
 }
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct Shader {
     #[serde(skip)]
-    module: wgpu::ShaderModule,
+    module: Arc<wgpu::ShaderModule>,
 }
 
 impl<'de> serde::Deserialize<'de> for Shader {
@@ -132,7 +132,7 @@ impl<'de> serde::Deserialize<'de> for Shader {
 }
 
 impl Shader {
-    pub fn create(device: &wgpu::Device, source: &ShaderSource) -> Self {
+    pub fn create(device: &RenderDevice, source: &ShaderSource) -> Self {
         let module = match source {
             ShaderSource::Spirv(data) => {
                 device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -156,14 +156,20 @@ impl Shader {
             }),
         };
 
-        Self { module }
+        Self {
+            module: Arc::new(module),
+        }
+    }
+
+    pub fn module(&self) -> &wgpu::ShaderModule {
+        &self.module
     }
 }
 
 impl Asset for Shader {}
 
 impl RenderAsset for Shader {
-    type Id = ResourceId;
+    type Id = AssetId;
 }
 
 impl std::ops::Deref for Shader {
@@ -177,12 +183,20 @@ impl std::ops::Deref for Shader {
 impl RenderAssetExtractor for Shader {
     type Source = ShaderSource;
     type Target = Shader;
-    type Arg<'a> = &'a RenderDevice;
+    type Arg = StaticSystemArg<'static, Read<RenderDevice>>;
 
-    fn extract<'a>(
+    fn extract(
+        id: &AssetId,
         source: &mut Self::Source,
-        arg: &ArgItem<Self::Arg<'a>>,
-    ) -> Option<Self::Target> {
-        Some(Self::create(arg, source))
+        arg: &ArgItem<Self::Arg>,
+        assets: &mut RenderAssets<Self::Target>,
+    ) -> Option<AssetUsage> {
+        assets.add(*id, Self::create(arg, source));
+
+        Some(AssetUsage::Discard)
+    }
+
+    fn remove(id: &AssetId, assets: &mut RenderAssets<Self::Target>) {
+        assets.remove(&id);
     }
 }

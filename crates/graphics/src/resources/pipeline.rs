@@ -15,10 +15,68 @@ impl std::ops::Deref for RenderPipeline {
 impl RenderPipeline {
     pub fn create(
         device: &RenderDevice,
-        desc: &RenderPipelineDesc,
+        desc: RenderPipelineDesc,
         shaders: &RenderAssets<Shader>,
     ) -> Option<Self> {
-        None
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: None,
+            bind_group_layouts: desc.layout,
+            push_constant_ranges: &[],
+        });
+
+        let vertex_shader = match &desc.vertex.shader {
+            AssetHandle::Id(id) => shaders.get(id)?,
+            AssetHandle::Asset(shader) => shader,
+        };
+
+        let vertex_buffer_layouts = desc
+            .vertex
+            .buffers
+            .iter()
+            .map(|layout| wgpu::VertexBufferLayout {
+                array_stride: layout.array_stride,
+                step_mode: layout.step_mode,
+                attributes: &layout.attributes,
+            })
+            .collect::<Vec<_>>();
+
+        let vertex = wgpu::VertexState {
+            module: vertex_shader.module(),
+            entry_point: &desc.vertex.entry,
+            compilation_options: Default::default(),
+            buffers: &vertex_buffer_layouts,
+        };
+
+        let fragment = match &desc.fragment {
+            Some(state) => Some(wgpu::FragmentState {
+                module: match &state.shader {
+                    AssetHandle::Id(id) => shaders.get(id)?.module(),
+                    AssetHandle::Asset(shader) => shader.module(),
+                },
+                entry_point: &state.entry,
+                compilation_options: Default::default(),
+                targets: &state.targets,
+            }),
+            None => None,
+        };
+
+        let desc = wgpu::RenderPipelineDescriptor {
+            label: None,
+            layout: Some(&layout),
+            vertex,
+            primitive: desc.primitive,
+            depth_stencil: desc.depth_state,
+            fragment,
+            multisample: desc.multisample,
+            multiview: None,
+            cache: None,
+        };
+
+        Some(RenderPipeline(device.create_render_pipeline(&desc)))
+    }
+
+    pub fn inner(&self) -> &wgpu::RenderPipeline {
+        &self.0
     }
 }
 
@@ -63,11 +121,11 @@ pub struct FragmentState {
     pub targets: Vec<Option<wgpu::ColorTargetState>>,
 }
 
-pub struct RenderPipelineDesc {
-    pub layout: Vec<wgpu::BindGroupLayout>,
+pub struct RenderPipelineDesc<'a> {
+    pub layout: &'a [&'a wgpu::BindGroupLayout],
     pub vertex: VertexState,
     pub fragment: Option<FragmentState>,
     pub primitive: wgpu::PrimitiveState,
-    pub depth_write: Option<wgpu::DepthStencilState>,
+    pub depth_state: Option<wgpu::DepthStencilState>,
     pub multisample: wgpu::MultisampleState,
 }

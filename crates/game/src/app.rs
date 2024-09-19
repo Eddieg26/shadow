@@ -1,7 +1,7 @@
 use crate::phases::Update;
 use ecs::{
     core::{DenseMap, Resource},
-    system::schedule::Phase,
+    system::{access::WorldAccess, schedule::Phase, ArgItem, SystemArg},
     world::{event::Events, World},
 };
 use std::{
@@ -42,6 +42,40 @@ impl std::ops::DerefMut for MainWorld {
 }
 
 impl Resource for MainWorld {}
+
+pub struct Main<'w, S: SystemArg>(ArgItem<'w, S>);
+
+impl<'w, S: SystemArg> std::ops::Deref for Main<'w, S> {
+    type Target = ArgItem<'w, S>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<'w, 's, S: SystemArg> std::ops::DerefMut for Main<'w, S> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl<'w, P: SystemArg> Main<'w, P> {
+    pub fn into_inner(self) -> ArgItem<'w, P> {
+        self.0
+    }
+}
+
+impl<S: SystemArg + 'static> SystemArg for Main<'_, S> {
+    type Item<'world> = Main<'world, S>;
+
+    fn get<'a>(world: &'a World) -> Self::Item<'a> {
+        Main(S::get(world))
+    }
+
+    fn access() -> Vec<WorldAccess> {
+        S::access()
+    }
+}
 
 pub struct MainEvents(Events);
 

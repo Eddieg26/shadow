@@ -1,6 +1,7 @@
 use asset::{Asset, AssetId};
 use ecs::core::{DenseMap, Resource};
 use ecs::system::{ArgItem, SystemArg};
+use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 
 pub mod binding;
@@ -60,19 +61,8 @@ pub enum ReadWrite {
     Disabled,
 }
 
-pub trait ExtractArg<'a>: SystemArg {}
-
-impl<'a, R: Resource> ExtractArg<'a> for &R {}
-impl<'a> ExtractArg<'a> for () {}
-impl<'a, A: ExtractArg<'a>, B: ExtractArg<'a>> ExtractArg<'a> for (A, B) {}
-impl<'a, A: ExtractArg<'a>, B: ExtractArg<'a>, C: ExtractArg<'a>> ExtractArg<'a> for (A, B, C) {}
-impl<'a, A: ExtractArg<'a>, B: ExtractArg<'a>, C: ExtractArg<'a>, D: ExtractArg<'a>> ExtractArg<'a>
-    for (A, B, C, D)
-{
-}
-
 pub trait RenderAsset: Send + Sync + 'static {
-    type Id: Hash + Eq + Copy + Send + Sync + From<AssetId> + 'static;
+    type Id: Hash + Eq + Copy + Send + Sync + 'static;
 }
 
 pub struct RenderAssets<R: RenderAsset> {
@@ -86,10 +76,6 @@ impl<R: RenderAsset> RenderAssets<R> {
         }
     }
 
-    pub fn add(&mut self, id: R::Id, asset: R) {
-        self.assets.insert(id, asset);
-    }
-
     pub fn get(&self, id: &R::Id) -> Option<&R> {
         self.assets.get(id)
     }
@@ -98,8 +84,28 @@ impl<R: RenderAsset> RenderAssets<R> {
         self.assets.get_mut(id)
     }
 
+    pub fn add(&mut self, id: R::Id, asset: R) -> Option<R> {
+        self.assets.insert(id, asset)
+    }
+
     pub fn remove(&mut self, id: &R::Id) -> Option<R> {
         self.assets.remove(id)
+    }
+
+    pub fn contains(&self, id: &R::Id) -> bool {
+        self.assets.contains(id)
+    }
+
+    pub fn clear(&mut self) {
+        self.assets.clear()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&R::Id, &R)> {
+        self.assets.iter()
+    }
+
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = (&R::Id, &mut R)> {
+        self.assets.iter_mut()
     }
 }
 
@@ -110,6 +116,26 @@ impl<R: RenderAsset> Default for RenderAssets<R> {
 }
 
 impl<R: RenderAsset> Resource for RenderAssets<R> {}
+
+pub struct DiscardedAssets<A: Asset>(HashSet<AssetId>, std::marker::PhantomData<A>);
+impl<A: Asset> Resource for DiscardedAssets<A> {}
+impl<A: Asset> std::ops::Deref for DiscardedAssets<A> {
+    type Target = HashSet<AssetId>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl<A: Asset> std::ops::DerefMut for DiscardedAssets<A> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+impl<A: Asset> Default for DiscardedAssets<A> {
+    fn default() -> Self {
+        Self(Default::default(), Default::default())
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AssetUsage {
@@ -126,20 +152,16 @@ pub enum ExtractedResource {
 pub trait RenderAssetExtractor: 'static {
     type Source: Asset;
     type Target: RenderAsset;
-    type Arg<'a>: ExtractArg<'a>;
+    type Arg: SystemArg;
 
-    fn extract<'a>(source: &mut Self::Source, arg: &ArgItem<Self::Arg<'a>>)
-        -> Option<Self::Target>;
-    fn update<'a>(
-        _source: &mut Self::Source,
-        _asset: &mut Self::Target,
-        _arg: &ArgItem<Self::Arg<'a>>,
-    ) {
-    }
+    fn extract(
+        id: &AssetId,
+        source: &mut Self::Source,
+        arg: &ArgItem<Self::Arg>,
+        assets: &mut RenderAssets<Self::Target>,
+    ) -> Option<AssetUsage>;
 
-    fn usage(_source: &Self::Source) -> AssetUsage {
-        AssetUsage::Keep
-    }
+    fn remove(id: &AssetId, assets: &mut RenderAssets<Self::Target>);
 
     fn extracted_resource() -> Option<ExtractedResource> {
         None

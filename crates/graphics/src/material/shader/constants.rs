@@ -1,0 +1,20 @@
+pub const CAMERA_GROUP: u32 = 0;
+pub const OBJECT_GROUP: u32 = 1;
+pub const MATERIAL_GROUP: u32 = 2;
+pub const CAMERA_BINDING: u32 = 0;
+pub const OBJECT_BINDING: u32 = 0;
+
+pub const FRAGMENT_INPUT_STRUCT: &str = "FragmentInput";
+pub const VERTEX_OUTPUT_STRUCT: &str = "VertexOutput";
+pub const VERTEX_INPUT_STRUCT: &str = "VertexInput";
+pub const SURFACE_STRUCT: &str = "Surface";
+pub const CAMERA_STRUCT: &str = "Camera";
+pub const OBJECT_STRUCT: &str = "Object";
+pub const MATERIAL_STRUCT: &str = "Material";
+pub const FRAGMENT_INPUT: &str = "input";
+pub const SURFACE: &str = "surface";
+pub const CAMERA: &str = "camera";
+pub const MATERIAL: &str = "material";
+pub const OBJECT: &str = "object";
+pub const VERTEX_INPUT: &str = "vertex_input";
+pub const VERTEX_OUTPUT: &str = "vertex_output";

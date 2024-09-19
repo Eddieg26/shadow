@@ -44,6 +44,14 @@ impl From<AssetId> for u64 {
     }
 }
 
+impl From<&str> for AssetId {
+    fn from(value: &str) -> Self {
+        let mut hasher = crc32fast::Hasher::new();
+        value.hash(&mut hasher);
+        AssetId(hasher.finish())
+    }
+}
+
 impl std::ops::Deref for AssetId {
     type Target = u64;
 

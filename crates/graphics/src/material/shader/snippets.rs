@@ -1,11 +1,12 @@
 use super::{
+    constants::{
+        CAMERA, CAMERA_STRUCT, FRAGMENT_INPUT, FRAGMENT_INPUT_STRUCT, MATERIAL, MATERIAL_STRUCT,
+        SURFACE, SURFACE_STRUCT, VERTEX_INPUT, VERTEX_INPUT_STRUCT, VERTEX_OUTPUT_STRUCT,
+    },
     BuiltinValue, ShaderAttribute, ShaderField, ShaderInput, ShaderProperty, ShaderResource,
-    ShaderValue, SurfaceAttribute, VertexInput, MATERIAL_STRUCT, SURFACE_STRUCT, VERTEX_INPUT,
-    VERTEX_INPUT_STRUCT,
+    ShaderValue, SurfaceAttribute, VertexInput,
 };
-use super::{CAMERA, CAMERA_STRUCT, FRAGMENT_INPUT, FRAGMENT_INPUT_STRUCT, MATERIAL, SURFACE};
-use crate::material::shader::{OBJECT, OBJECT_STRUCT, VERTEX_OUTPUT, VERTEX_OUTPUT_STRUCT};
-use crate::material::{BlendMode, ShaderModel};
+use crate::material::{shader::constants::{OBJECT, OBJECT_STRUCT, VERTEX_OUTPUT}, BlendMode, ShaderModel};
 use crate::resources::mesh::MeshAttributeKind;
 use std::borrow::Cow;
 
