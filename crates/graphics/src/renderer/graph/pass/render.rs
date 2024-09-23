@@ -1,16 +1,16 @@
-use std::ops::Deref;
-
-use ecs::core::{LocalResource, Resource};
-
 use crate::{
-    camera::{ClearFlag, RenderFrame},
-    core::{Color, RenderDevice, RenderQueue},
+    camera::ClearFlag,
+    core::Color,
     renderer::{
-        draw::{Draw, DrawCalls},
-        graph::{context::RenderContext, RenderGraphNode},
+        graph::{context::RenderContext, node::NodeInfo},
         surface::RenderSurface,
     },
     resources::ResourceId,
+};
+use std::{
+    collections::HashMap,
+    hash::Hash,
+    ops::{Deref, Range},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -72,21 +72,17 @@ pub struct ColorAttachment {
 pub struct DepthAttachment {
     pub attachment: Attachment,
     pub depth_store_op: Operations<f32>,
-    pub stencil_store_op: Operations<u32>,
+    pub stencil_store_op: Option<Operations<u32>>,
 }
 
 pub struct RenderPass {
-    name: String,
     colors: Vec<ColorAttachment>,
     depth: Option<DepthAttachment>,
-    subpasses: Vec<Subpass>,
 }
 
 impl RenderPass {
-    pub fn new(name: impl ToString) -> Self {
+    pub fn new() -> Self {
         Self {
-            name: name.to_string(),
-            subpasses: Vec::new(),
             colors: Vec::new(),
             depth: None,
         }
@@ -113,7 +109,7 @@ impl RenderPass {
         mut self,
         attachment: Attachment,
         depth_store_op: Operations<f32>,
-        stencil_store_op: Operations<u32>,
+        stencil_store_op: Option<Operations<u32>>,
     ) -> Self {
         self.depth = Some(DepthAttachment {
             attachment,
@@ -124,35 +120,24 @@ impl RenderPass {
         self
     }
 
-    pub fn add_subpass(mut self) -> Self {
-        self.subpasses.push(Subpass::new());
-        self
+    pub fn info(&self) -> NodeInfo {
+        let mut info = NodeInfo::new();
+        for color in &self.colors {
+            match color.attachment {
+                Attachment::Surface => info.write(RenderSurface::id_static()),
+                Attachment::Texture(id) => info.write(id),
+            }
+        }
+
+        info
     }
 
-    pub fn with_render_group<D: Draw>(
-        mut self,
-        subpass: usize,
-        group: impl RenderGroup<D>,
-    ) -> Self {
-        self.subpasses[subpass].add_group(group);
-        self
-    }
-
-    pub fn add_render_group<D: Draw>(
-        &mut self,
-        subpass: usize,
-        group: impl RenderGroup<D>,
-    ) -> &mut Self {
-        self.subpasses[subpass].add_group(group);
-        self
-    }
-
-    fn begin<'a>(
+    pub fn begin<'a>(
         &self,
-        frame: &RenderFrame,
         ctx: &RenderContext,
         encoder: &'a mut wgpu::CommandEncoder,
     ) -> Option<RenderCommands<'a>> {
+        let frame = ctx.frame();
         let mut color_attachments = vec![];
         for color in self.colors.iter() {
             let view = match color.attachment {
@@ -202,13 +187,16 @@ impl RenderPass {
                     },
                     store: attachment.depth_store_op.store.into(),
                 }),
-                stencil_ops: Some(wgpu::Operations {
-                    load: match attachment.stencil_store_op.load {
-                        LoadOp::Clear(value) => wgpu::LoadOp::Clear(value),
-                        LoadOp::Load => wgpu::LoadOp::Load,
-                    },
-                    store: attachment.stencil_store_op.store.into(),
-                }),
+                stencil_ops: attachment
+                    .stencil_store_op
+                    .as_ref()
+                    .map(|op| wgpu::Operations {
+                        load: match op.load {
+                            LoadOp::Clear(value) => wgpu::LoadOp::Clear(value),
+                            LoadOp::Load => wgpu::LoadOp::Load,
+                        },
+                        store: op.store.into(),
+                    }),
             }),
             None => None,
         };
@@ -223,134 +211,105 @@ impl RenderPass {
     }
 }
 
-impl RenderGraphNode for RenderPass {
-    fn name(&self) -> &str {
-        &self.name
-    }
-
-    fn info(&self) -> super::NodeInfo {
-        let mut info = super::NodeInfo::new();
-        for color in &self.colors {
-            match color.attachment {
-                Attachment::Surface => info.write(RenderSurface::id_static()),
-                Attachment::Texture(id) => info.write(id),
-            }
-        }
-
-        info
-    }
-
-    fn execute(&mut self, ctx: &RenderContext) {
-        let mut encoder = ctx.encoder();
-        if let Some(mut commands) = self.begin(ctx.frame(), ctx, &mut encoder) {
-            for pass in &mut self.subpasses {
-                pass.run(ctx, &mut commands);
-            }
-        }
-
-        ctx.submit(encoder.finish());
-    }
-}
-
 pub struct RenderCommands<'a> {
     pass: wgpu::RenderPass<'a>,
+    binding: Option<u32>,
+    render_pipeline: Option<wgpu::Id<wgpu::RenderPipeline>>,
+    vertex_buffers: HashMap<u32, wgpu::Id<wgpu::Buffer>>,
+    index_buffer: Option<wgpu::Id<wgpu::Buffer>>,
 }
 
 impl<'a> RenderCommands<'a> {
     fn new(pass: wgpu::RenderPass<'a>) -> Self {
-        Self { pass }
-    }
-}
-
-pub struct RenderPassContext<'a, D: Draw> {
-    ctx: &'a RenderContext<'a>,
-    draws: &'a DrawCalls<D>,
-}
-
-impl<'a, D: Draw> RenderPassContext<'a, D> {
-    pub fn new(ctx: &'a RenderContext, draws: &'a DrawCalls<D>) -> Self {
-        Self { ctx, draws }
-    }
-
-    pub fn frame(&self) -> &RenderFrame {
-        self.ctx.frame()
-    }
-
-    pub fn draws(&self) -> &'a DrawCalls<D> {
-        self.draws
-    }
-
-    pub fn device(&self) -> &RenderDevice {
-        self.ctx.device()
-    }
-
-    pub fn queue(&self) -> &RenderQueue {
-        self.ctx.queue()
-    }
-
-    pub fn resource<R: Resource>(&self) -> &R {
-        self.ctx.resource()
-    }
-
-    pub fn local_resource<R: LocalResource>(&self) -> &R {
-        self.ctx.local_resource()
-    }
-}
-
-pub trait RenderGroup<D: Draw>: Send + Sync + 'static {
-    fn render(&mut self, ctx: &RenderPassContext<D>, commands: &mut RenderCommands);
-}
-
-impl<D: Draw, F: Fn(&RenderPassContext<D>, &mut RenderCommands) + Send + Sync + 'static>
-    RenderGroup<D> for F
-{
-    fn render(&mut self, ctx: &RenderPassContext<D>, commands: &mut RenderCommands) {
-        (self)(ctx, commands);
-    }
-}
-
-pub struct ErasedRenderGroup {
-    render: Box<dyn FnMut(&RenderContext, &mut RenderCommands) + Send + Sync>,
-}
-
-impl ErasedRenderGroup {
-    pub fn new<D: Draw>(mut group: impl RenderGroup<D>) -> Self {
         Self {
-            render: Box::new(move |ctx, commands| {
-                if let Some(draws) = ctx.try_resource::<DrawCalls<D>>() {
-                    let ctx = RenderPassContext::new(ctx, draws);
-                    group.render(&ctx, commands);
-                }
-            }),
+            pass,
+            binding: None,
+            render_pipeline: None,
+            vertex_buffers: HashMap::new(),
+            index_buffer: None,
         }
     }
 
-    pub fn render(&mut self, ctx: &RenderContext, commands: &mut RenderCommands) {
-        (self.render)(ctx, commands);
-    }
-}
-
-pub struct Subpass {
-    groups: Vec<ErasedRenderGroup>,
-}
-
-impl Subpass {
-    pub fn new() -> Self {
-        Self { groups: Vec::new() }
-    }
-
-    pub fn with_group<D: Draw>(mut self, group: impl RenderGroup<D>) -> Self {
-        self.groups.push(ErasedRenderGroup::new(group));
-        self
-    }
-
-    pub fn add_group<D: Draw>(&mut self, group: impl RenderGroup<D>) {
-        self.groups.push(ErasedRenderGroup::new(group));
-    }
-
-    pub fn run(&mut self, ctx: &RenderContext, commands: &mut RenderCommands) {
-        for group in &mut self.groups {
-            group.render(ctx, commands);
+    pub fn set_bind_group(
+        &mut self,
+        index: u32,
+        binding: &wgpu::BindGroup,
+        offsets: &[wgpu::DynamicOffset],
+    ) {
+        let hash = Some(Self::hash((index, binding.global_id(), offsets)));
+        if hash != self.binding {
+            self.pass.set_bind_group(index, binding, offsets);
+            self.binding = hash;
         }
+    }
+
+    pub fn set_pipeline(&mut self, pipeline: &wgpu::RenderPipeline) {
+        let id = Some(pipeline.global_id());
+        if id != self.render_pipeline {
+            self.pass.set_pipeline(pipeline);
+            self.render_pipeline = id;
+        }
+    }
+
+    pub fn set_index_buffer(
+        &mut self,
+        id: wgpu::Id<wgpu::Buffer>,
+        buffer_slice: wgpu::BufferSlice<'a>,
+        format: wgpu::IndexFormat,
+    ) {
+        let id = Some(id);
+        if id != self.index_buffer {
+            self.pass.set_index_buffer(buffer_slice, format);
+            self.index_buffer = id;
+        }
+    }
+
+    pub fn set_vertex_buffer(
+        &mut self,
+        id: wgpu::Id<wgpu::Buffer>,
+        location: u32,
+        buffer_slice: wgpu::BufferSlice<'a>,
+    ) {
+        if self
+            .vertex_buffers
+            .get(&location)
+            .map(|b| b != &id)
+            .unwrap_or(true)
+        {}
+        {
+            self.pass.set_vertex_buffer(location, buffer_slice);
+            self.vertex_buffers.insert(location, id);
+        }
+    }
+
+    pub fn draw(&mut self, vertices: Range<u32>, instances: Range<u32>) {
+        self.pass.draw(vertices, instances);
+    }
+
+    pub fn draw_indirect(
+        &mut self,
+        indirect_buffer: &'a wgpu::Buffer,
+        indirect_offset: wgpu::BufferAddress,
+    ) {
+        self.pass.draw_indirect(indirect_buffer, indirect_offset);
+    }
+
+    pub fn draw_indexed(&mut self, indices: Range<u32>, base_vertex: i32, instances: Range<u32>) {
+        self.pass.draw_indexed(indices, base_vertex, instances);
+    }
+
+    pub fn draw_indexed_indirect(
+        &mut self,
+        indirect_buffer: &'a wgpu::Buffer,
+        indirect_offset: wgpu::BufferAddress,
+    ) {
+        self.pass
+            .draw_indexed_indirect(indirect_buffer, indirect_offset);
+    }
+
+    fn hash(value: impl Hash) -> u32 {
+        let mut hasher = crc32fast::Hasher::new();
+        value.hash(&mut hasher);
+        hasher.finalize()
     }
 }

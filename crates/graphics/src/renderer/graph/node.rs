@@ -5,8 +5,6 @@ use super::{
 use crate::resources::ResourceId;
 use std::collections::{HashMap, HashSet};
 
-pub mod render;
-
 pub trait RenderGraphNode: downcast_rs::Downcast + Send + Sync + 'static {
     fn name(&self) -> &str;
     fn info(&self) -> NodeInfo;

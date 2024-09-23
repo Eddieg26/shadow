@@ -61,7 +61,7 @@ impl RenderPipeline {
         };
 
         let desc = wgpu::RenderPipelineDescriptor {
-            label: None,
+            label: desc.label,
             layout: Some(&layout),
             vertex,
             primitive: desc.primitive,
@@ -88,24 +88,40 @@ pub struct VertexBufferLayout {
 }
 
 impl VertexBufferLayout {
-    pub fn from(step_mode: wgpu::VertexStepMode, layout: &[MeshAttributeKind]) -> Self {
-        let mut offset = 0;
-        let mut attributes = vec![];
-        for (location, attribute) in layout.iter().enumerate() {
-            let attribute = wgpu::VertexAttribute {
-                format: attribute.format(),
-                offset,
-                shader_location: location as u32,
-            };
-            offset += attribute.format.size();
-            attributes.push(attribute);
-        }
+    // pub fn from(step_mode: wgpu::VertexStepMode, layout: &[MeshAttributeKind]) -> Self {
+    //     let mut offset = 0;
+    //     let mut attributes = vec![];
+    //     for (location, attribute) in layout.iter().enumerate() {
+    //         let attribute = wgpu::VertexAttribute {
+    //             format: attribute.format(),
+    //             offset,
+    //             shader_location: location as u32,
+    //         };
+    //         offset += attribute.format.size();
+    //         attributes.push(attribute);
+    //     }
 
-        Self {
-            array_stride: offset as wgpu::BufferAddress,
-            step_mode,
-            attributes,
-        }
+    //     Self {
+    //         array_stride: offset as wgpu::BufferAddress,
+    //         step_mode,
+    //         attributes,
+    //     }
+    // }
+
+    pub fn from(step_mode: wgpu::VertexStepMode, layout: &[MeshAttributeKind]) -> Vec<Self> {
+        layout
+            .iter()
+            .enumerate()
+            .map(|(location, attribute)| Self {
+                array_stride: attribute.size() as wgpu::BufferAddress,
+                step_mode,
+                attributes: vec![wgpu::VertexAttribute {
+                    format: attribute.format(),
+                    offset: 0,
+                    shader_location: location as u32,
+                }],
+            })
+            .collect()
     }
 }
 
@@ -122,6 +138,7 @@ pub struct FragmentState {
 }
 
 pub struct RenderPipelineDesc<'a> {
+    pub label: Option<&'a str>,
     pub layout: &'a [&'a wgpu::BindGroupLayout],
     pub vertex: VertexState,
     pub fragment: Option<FragmentState>,

@@ -1,3 +1,5 @@
+use std::num::NonZero;
+
 use crate::core::{RenderDevice, RenderQueue};
 use wgpu::util::DeviceExt;
 
@@ -19,17 +21,10 @@ impl Indices {
         }
     }
 
-    pub fn data(&self, index: usize) -> &[u8] {
-        match self {
-            Indices::U16(v) => bytemuck::bytes_of(&v[index]),
-            Indices::U32(v) => bytemuck::bytes_of(&v[index]),
-        }
-    }
-
     pub fn bytes(&self) -> &[u8] {
         match self {
-            Indices::U16(v) => bytemuck::cast_slice(&v[0..v.len()]),
-            Indices::U32(v) => bytemuck::cast_slice(&v[0..v.len()]),
+            Indices::U16(v) => bytemuck::cast_slice(&v[..]),
+            Indices::U32(v) => bytemuck::cast_slice(&v[..]),
         }
     }
 
@@ -37,6 +32,21 @@ impl Indices {
         match self {
             Indices::U16(v) => v.is_empty(),
             Indices::U32(v) => v.is_empty(),
+        }
+    }
+
+    pub fn extend(&mut self, indices: Indices) {
+        match (self, indices) {
+            (Indices::U16(v1), Indices::U16(v2)) => v1.extend_from_slice(&v2),
+            (Indices::U32(v1), Indices::U32(v2)) => v1.extend_from_slice(&v2),
+            _ => (),
+        }
+    }
+
+    pub fn format(&self) -> wgpu::IndexFormat {
+        match self {
+            Indices::U16(_) => wgpu::IndexFormat::Uint16,
+            Indices::U32(_) => wgpu::IndexFormat::Uint32,
         }
     }
 }
@@ -128,6 +138,7 @@ impl<'de> serde::Deserialize<'de> for BufferFlags {
 pub trait Vertex: bytemuck::Pod + bytemuck::Zeroable + 'static {}
 
 pub struct VertexBuffer {
+    label: Option<&'static str>,
     buffer: Option<wgpu::Buffer>,
     data: Vec<u8>,
     flags: BufferFlags,
@@ -138,12 +149,22 @@ pub struct VertexBuffer {
 impl VertexBuffer {
     pub fn new<V: Vertex>(vertices: &[V], flags: BufferFlags) -> Self {
         Self {
+            label: None,
             buffer: None,
             data: bytemuck::cast_slice(vertices).to_vec(),
             flags,
             size: std::mem::size_of::<V>(),
             dirty: false,
         }
+    }
+
+    pub fn with_label(mut self, label: &'static str) -> Self {
+        self.label = Some(label);
+        self
+    }
+
+    pub fn label(&self) -> Option<&'static str> {
+        self.label
     }
 
     pub fn buffer(&self) -> Option<&wgpu::Buffer> {
@@ -167,7 +188,7 @@ impl VertexBuffer {
     }
 
     pub fn len(&self) -> usize {
-        self.data.len()
+        self.data.len() / self.size
     }
 
     pub fn set<V: Vertex>(&mut self, vertices: &[V]) {
@@ -182,10 +203,11 @@ impl VertexBuffer {
 
     pub fn create(&mut self, device: &RenderDevice) -> bool {
         let buffer_size = self.buffer.as_ref().map_or(0, |buffer| buffer.size());
-        let size = (self.len() * self.size) as u64;
+        let size = self.data.len() as u64;
+
         if size > 0 && (self.dirty || buffer_size != size) {
             let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: None,
+                label: self.label,
                 contents: &self.data,
                 usage: self.flags.usages(BufferKind::Vertex),
             });
@@ -201,8 +223,7 @@ impl VertexBuffer {
     pub fn commit(&mut self, device: &RenderDevice, queue: &RenderQueue) {
         if !self.create(device) && self.flags.is_write() {
             self.buffer.as_ref().map(|buffer| {
-                let bytes = &self.data[0..self.data.len()];
-                queue.write_buffer(buffer, 0, bytemuck::cast_slice(bytes));
+                queue.write_buffer(buffer, 0, &self.data[..self.data.len()]);
             });
         }
     }
@@ -287,10 +308,7 @@ impl IndexBuffer {
         if size > 0 && (self.dirty || buffer_size != size) {
             let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: None,
-                contents: match &self.indices {
-                    Indices::U16(v) => bytemuck::cast_slice(v),
-                    Indices::U32(v) => bytemuck::cast_slice(v),
-                },
+                contents: self.indices.bytes(),
                 usage: self.flags.usages(BufferKind::Index),
             });
 
@@ -378,14 +396,6 @@ impl<T: BufferData> UniformBuffer<T> {
     }
 }
 
-impl<T: BufferData> std::ops::Deref for UniformBuffer<T> {
-    type Target = Option<wgpu::Buffer>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.buffer
-    }
-}
-
 pub struct UniformBufferArray<T: BufferData> {
     values: Vec<T>,
     buffer: Option<wgpu::Buffer>,
@@ -421,6 +431,18 @@ impl<T: BufferData> UniformBufferArray<T> {
 
     pub fn binding(&self) -> Option<wgpu::BindingResource> {
         Some(self.buffer.as_ref()?.as_entire_binding())
+    }
+
+    pub fn binding_offset(&self, index: u64) -> Option<wgpu::BindingResource> {
+        let buffer = self.buffer.as_ref()?;
+        let size = std::mem::size_of::<T>() as u64;
+        let binding = wgpu::BufferBinding {
+            buffer,
+            offset: index * size,
+            size: NonZero::<u64>::new(size),
+        };
+
+        Some(wgpu::BindingResource::Buffer(binding))
     }
 
     pub fn push(&mut self, value: T) {
@@ -472,14 +494,6 @@ impl<T: BufferData> UniformBufferArray<T> {
                 queue.write_buffer(buffer, 0, bytemuck::cast_slice(&self.values));
             });
         }
-    }
-}
-
-impl<T: BufferData> std::ops::Deref for UniformBufferArray<T> {
-    type Target = Option<wgpu::Buffer>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.buffer
     }
 }
 
@@ -547,14 +561,6 @@ impl<T: BufferData> StorageBuffer<T> {
                 queue.write_buffer(buffer, 0, bytemuck::bytes_of(&self.value));
             });
         }
-    }
-}
-
-impl<T: BufferData> std::ops::Deref for StorageBuffer<T> {
-    type Target = Option<wgpu::Buffer>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.buffer
     }
 }
 
@@ -645,13 +651,5 @@ impl<T: BufferData> StorageBufferArray<T> {
                 queue.write_buffer(buffer, 0, bytemuck::cast_slice(&self.values));
             });
         }
-    }
-}
-
-impl<T: BufferData> std::ops::Deref for StorageBufferArray<T> {
-    type Target = Option<wgpu::Buffer>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.buffer
     }
 }

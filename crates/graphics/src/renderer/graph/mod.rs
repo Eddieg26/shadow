@@ -5,14 +5,15 @@ use crate::{
 };
 use context::{RenderContext, RenderNodeAction};
 use ecs::{core::Resource, world::World};
-use nodes::{NodeGroup, NodeGroupInfo, RenderGraphNode};
+use node::{NodeGroup, NodeGroupInfo, RenderGraphNode};
 use resources::{
     BufferDesc, RenderGraphBuffer, RenderGraphResources, RenderGraphTexture, RenderTarget,
     TextureDesc,
 };
 
 pub mod context;
-pub mod nodes;
+pub mod node;
+pub mod pass;
 pub mod resources;
 
 pub struct RenderGraphBuilder {
@@ -140,18 +141,29 @@ impl RenderGraph {
         device: &RenderDevice,
         queue: &RenderQueue,
         frame: &RenderFrame,
+        frame_index: usize,
+        frame_count: usize,
         target: &RenderTarget,
     ) {
         let groups = match self.groups.take() {
             Some(groups) => groups,
             None => return,
         };
-
+        
         for group in &groups {
             let mut actions = vec![];
 
             for index in &group.nodes {
-                let ctx = RenderContext::new(world, &frame, target, device, queue, &self.resources);
+                let ctx = RenderContext::new(
+                    world,
+                    &frame,
+                    frame_index,
+                    frame_count,
+                    target,
+                    device,
+                    queue,
+                    &self.resources,
+                );
                 self.nodes[*index].execute(&ctx);
 
                 actions.extend(ctx.finish());

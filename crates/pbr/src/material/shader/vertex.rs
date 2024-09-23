@@ -1,15 +1,13 @@
 use super::{
     constants::{CAMERA_BINDING, CAMERA_GROUP, OBJECT_BINDING, OBJECT_GROUP, VERTEX_OUTPUT},
-    NodeId, ShaderNode, VertexInput, VertexOutput,
+    NodeDependency, NodeId, ShaderNode, VertexInput, VertexOutput,
 };
-use crate::{
-    material::shader::{
-        snippets::{self},
-        ShaderOutput,
-    },
-    resources::shader::ShaderSource,
+use crate::material::shader::{
+    snippets::{self},
+    ShaderOutput,
 };
-use std::collections::{BTreeMap, HashMap, HashSet};
+use graphics::resources::{mesh::MeshLayout, shader::ShaderSource};
+use std::collections::{HashMap, HashSet};
 
 pub struct MeshShader {
     inputs: Vec<VertexInput>,
@@ -42,8 +40,11 @@ impl MeshShader {
         self.inputs.push(input);
     }
 
-    pub fn add_node(&mut self, node: impl ShaderNode) {
-        self.nodes.push(Box::new(node));
+    pub fn add_node(&mut self, node: impl ShaderNode) -> NodeId {
+        let node = Box::new(node);
+        let id = node.id();
+        self.nodes.push(node);
+        id
     }
 
     pub fn add_edge(&mut self, edge: impl Into<Edge>) {
@@ -88,16 +89,30 @@ impl MeshShader {
         self.nodes.iter().position(|node| node.id() == id)
     }
 
-    pub fn generate(&self) -> ShaderSource {
-        let mut outputs: HashMap<EdgeSlot, ShaderOutput> = HashMap::new();
+    pub fn layout(&self) -> MeshLayout {
+        let mut layout = vec![];
         for input in self.inputs() {
+            layout.push(input.attribute());
+        }
+
+        MeshLayout::from(layout)
+    }
+
+    pub fn generate(&self) -> ShaderSource {
+        let mut outputs: HashMap<NodeId, Vec<ShaderOutput>> = HashMap::new();
+        let mut attributes = vec![];
+        for input in self.inputs() {
+            attributes.push(input.attribute());
             let output = snippets::vertex_input(*input);
-            outputs.insert(EdgeSlot::input(*input), output);
+            let id = input.id();
+            outputs.entry(id).or_insert(vec![]).push(output);
         }
 
         let mut definitions = String::new();
         definitions += &snippets::define_camera(CAMERA_GROUP, CAMERA_BINDING);
         definitions += &snippets::define_object(OBJECT_GROUP, OBJECT_BINDING);
+        definitions += &snippets::define_vertex_input(&self.inputs);
+        definitions += &snippets::define_vertex_output();
 
         let (node_inputs, vertex_outputs) = self.get_order();
 
@@ -107,7 +122,9 @@ impl MeshShader {
             let inputs = inputs
                 .iter()
                 .map(|input| match input {
-                    Some(input) => outputs.get(*input),
+                    Some(input) => outputs
+                        .get(&input.node)
+                        .and_then(|outputs| outputs.get(input.slot)),
                     None => None,
                 })
                 .collect::<Vec<_>>();
@@ -119,13 +136,19 @@ impl MeshShader {
 
             body += &output.code;
 
-            for (slot, output) in output.outputs.drain(..).enumerate() {
-                outputs.insert(EdgeSlot::node(node.id(), slot), output);
+            let mut node_outputs = vec![];
+            for output in output.outputs.drain(..) {
+                node_outputs.push(output);
             }
+
+            outputs.insert(node.id(), node_outputs);
         }
 
         for (attribute, input) in vertex_outputs {
-            let output = match outputs.get(input) {
+            let output = match outputs
+                .get(&input.node)
+                .and_then(|outputs| outputs.get(input.slot))
+            {
                 Some(output) => output,
                 None => continue,
             };
@@ -135,7 +158,7 @@ impl MeshShader {
                 None => continue,
             };
 
-            let code = format!("{}.{} = {}", VERTEX_OUTPUT, attribute.name(), value);
+            let code = format!("{}.{} = {};", VERTEX_OUTPUT, attribute.name(), value);
             body += &code;
         }
 
@@ -148,71 +171,102 @@ impl MeshShader {
     fn get_order(
         &self,
     ) -> (
-        Vec<(usize, Box<[Option<&EdgeSlot>]>)>,
-        Vec<(&VertexOutput, &EdgeSlot)>,
+        Vec<(usize, Box<[Option<NodeDependency>]>)>,
+        HashMap<&VertexOutput, NodeDependency>,
     ) {
-        let mut dependencies = HashMap::new();
-        let mut outputs = HashSet::new();
+        let mut dependencies = self
+            .nodes
+            .iter()
+            .map(|node| (node.id(), HashMap::new()))
+            .collect::<HashMap<_, _>>();
+        let mut outputs: HashMap<&VertexOutput, NodeDependency> = HashMap::new();
 
         for edge in self.edges() {
-            let to = match edge.to() {
-                EdgeSlot::Node { .. } => edge.to(),
-                EdgeSlot::Output { .. } => {
-                    outputs.insert(edge.to());
-                    edge.to()
+            let (from_id, from_slot) = match edge.from() {
+                EdgeSlot::Node { id, slot } => (*id, *slot),
+                EdgeSlot::Input { input } => (input.id(), 0),
+                _ => continue,
+            };
+
+            let (to_id, to_slot) = match edge.to() {
+                EdgeSlot::Node { id, slot } => (*id, *slot),
+                EdgeSlot::Output { output } => {
+                    outputs.insert(output, NodeDependency::new(from_id, from_slot));
+                    continue;
                 }
                 _ => continue,
             };
 
-            let from = match edge.from() {
-                EdgeSlot::Node { .. } => edge.from(),
-                EdgeSlot::Input { .. } => edge.from(),
-                _ => continue,
-            };
-
-            dependencies.entry(to).or_insert(from);
+            dependencies
+                .entry(to_id)
+                .or_insert(HashMap::new())
+                .insert(to_slot, NodeDependency::new(from_id, from_slot));
         }
 
-        let mut inputs = BTreeMap::new();
-        let mut outputs: Vec<(&VertexOutput, &EdgeSlot)> = vec![];
+        self.purge_unsused_nodes(&mut dependencies, outputs.values());
+
+        let mut order = vec![];
         while !dependencies.is_empty() {
             let mut next = vec![];
-            for (slot, input) in dependencies.iter() {
-                if !dependencies.contains_key(input) {
-                    next.push(*slot);
+            for (node, inputs) in dependencies.iter() {
+                if inputs
+                    .values()
+                    .all(|input| !dependencies.contains_key(&input.node))
+                {
+                    next.push(*node);
                 }
             }
 
-            for to in next {
-                let from = match dependencies.remove(to) {
-                    Some(from) => from,
+            for node in next {
+                let inputs = match dependencies.remove(&node) {
+                    Some(inputs) => inputs,
                     None => continue,
                 };
 
-                match to {
-                    EdgeSlot::Node { id, slot } => {
-                        if let Some(index) = self.node_index(*id) {
-                            let node = &self.nodes[index];
-                            let inputs = inputs
-                                .entry(index)
-                                .or_insert(vec![None; node.inputs().len()]);
-                            inputs[*slot] = Some(from);
-                        }
-                    }
-                    EdgeSlot::Output { output } => {
-                        outputs.push((output, from));
-                    }
-                    _ => continue,
+                let index = self.node_index(node).unwrap();
+                let node = &self.nodes[index];
+                let mut slots = vec![None; node.inputs().len()];
+                for (slot, input) in inputs {
+                    slots[slot] = Some(input);
                 }
+
+                order.push((index, slots.into_boxed_slice()));
             }
         }
 
-        let inputs = inputs
-            .into_iter()
-            .map(|(index, inputs)| (index, inputs.into()))
-            .collect();
+        (order, outputs)
+    }
 
-        (inputs, outputs)
+    fn purge_unsused_nodes<'a>(
+        &self,
+        dependencies: &mut HashMap<NodeId, HashMap<usize, NodeDependency>>,
+        outputs: impl Iterator<Item = &'a NodeDependency>,
+    ) {
+        let mut marked = HashSet::new();
+        for output in outputs {
+            marked.extend(self.mark_used_nodes(&output.node, dependencies));
+        }
+
+        dependencies.retain(|id, _| marked.contains(id));
+    }
+
+    fn mark_used_nodes(
+        &self,
+        id: &NodeId,
+        dependencies: &HashMap<NodeId, HashMap<usize, NodeDependency>>,
+    ) -> HashSet<NodeId> {
+        let mut marked = HashSet::new();
+        marked.insert(*id);
+        match dependencies.get(id) {
+            Some(inputs) => {
+                for input in inputs.values() {
+                    marked.extend(self.mark_used_nodes(&input.node, dependencies));
+                }
+            }
+            None => (),
+        }
+
+        marked
     }
 }
 

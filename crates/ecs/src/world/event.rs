@@ -325,7 +325,7 @@ pub mod internal {
     use super::{Event, EventOutputs, World};
     use crate::{
         archetype::table::EntityRow,
-        core::{ColumnCell, Component, ComponentId, DenseSet, Entity},
+        core::{ColumnCell, Component, ComponentId, DenseSet, Entity, Resource},
         system::schedule::SystemTag,
     };
 
@@ -726,6 +726,25 @@ pub mod internal {
 
         fn invoke(self, world: &mut super::World) -> Option<Self::Output> {
             world.deactivate_system_group(self.tag);
+            None
+        }
+    }
+
+    pub struct AddResource<R: Resource> {
+        resource: R,
+    }
+
+    impl<R: Resource> AddResource<R> {
+        pub fn new(resource: R) -> Self {
+            Self { resource }
+        }
+    }
+
+    impl<R: Resource> Event for AddResource<R> {
+        type Output = ();
+
+        fn invoke(self, world: &mut World) -> Option<Self::Output> {
+            world.add_resource(self.resource);
             None
         }
     }

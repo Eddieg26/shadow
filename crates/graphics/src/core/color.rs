@@ -10,30 +10,30 @@
 )]
 #[repr(C)]
 pub struct Color {
-    pub r: f64,
-    pub g: f64,
-    pub b: f64,
-    pub a: f64,
+    pub r: f32,
+    pub g: f32,
+    pub b: f32,
+    pub a: f32,
 }
 
 impl Color {
-    pub const fn new(r: f64, g: f64, b: f64, a: f64) -> Self {
+    pub const fn new(r: f32, g: f32, b: f32, a: f32) -> Self {
         Self { r, g, b, a }
     }
 
-    pub fn r(&self) -> f64 {
+    pub fn r(&self) -> f32 {
         self.r
     }
 
-    pub fn g(&self) -> f64 {
+    pub fn g(&self) -> f32 {
         self.g
     }
 
-    pub fn b(&self) -> f64 {
+    pub fn b(&self) -> f32 {
         self.b
     }
 
-    pub fn a(&self) -> f64 {
+    pub fn a(&self) -> f32 {
         self.a
     }
 
@@ -67,10 +67,10 @@ impl Default for Color {
 impl Into<wgpu::Color> for Color {
     fn into(self) -> wgpu::Color {
         wgpu::Color {
-            r: self.r,
-            g: self.g,
-            b: self.b,
-            a: self.a,
+            r: self.r as f64,
+            g: self.g as f64,
+            b: self.b as f64,
+            a: self.a as f64,
         }
     }
 }
@@ -78,22 +78,22 @@ impl Into<wgpu::Color> for Color {
 impl From<wgpu::Color> for Color {
     fn from(color: wgpu::Color) -> Self {
         Self {
-            r: color.r,
-            g: color.g,
-            b: color.b,
-            a: color.a,
+            r: color.r as f32,
+            g: color.g as f32,
+            b: color.b as f32,
+            a: color.a as f32,
         }
     }
 }
 
-impl From<(f64, f64, f64, f64)> for Color {
-    fn from((r, g, b, a): (f64, f64, f64, f64)) -> Self {
+impl From<(f32, f32, f32, f32)> for Color {
+    fn from((r, g, b, a): (f32, f32, f32, f32)) -> Self {
         Self::new(r, g, b, a)
     }
 }
 
-impl From<Color> for (f64, f64, f64, f64) {
-    fn from(color: Color) -> (f64, f64, f64, f64) {
+impl From<Color> for (f32, f32, f32, f32) {
+    fn from(color: Color) -> (f32, f32, f32, f32) {
         (color.r, color.g, color.b, color.a)
     }
 }

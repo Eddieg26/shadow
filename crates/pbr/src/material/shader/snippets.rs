@@ -1,13 +1,13 @@
 use super::{
     constants::{
         CAMERA, CAMERA_STRUCT, FRAGMENT_INPUT, FRAGMENT_INPUT_STRUCT, MATERIAL, MATERIAL_STRUCT,
-        SURFACE, SURFACE_STRUCT, VERTEX_INPUT, VERTEX_INPUT_STRUCT, VERTEX_OUTPUT_STRUCT,
+        OBJECT, OBJECT_STRUCT, SURFACE, SURFACE_STRUCT, VERTEX_INPUT, VERTEX_INPUT_STRUCT,
+        VERTEX_OUTPUT, VERTEX_OUTPUT_STRUCT,
     },
     BuiltinValue, ShaderAttribute, ShaderField, ShaderInput, ShaderProperty, ShaderResource,
     ShaderValue, SurfaceAttribute, VertexInput,
 };
-use crate::material::{shader::constants::{OBJECT, OBJECT_STRUCT, VERTEX_OUTPUT}, BlendMode, ShaderModel};
-use crate::resources::mesh::MeshAttributeKind;
+use crate::material::{BlendMode, ShaderModel};
 use std::borrow::Cow;
 
 pub fn define_struct_field(
@@ -166,23 +166,13 @@ pub fn declare_surface(model: ShaderModel) -> String {
     )
 }
 
-pub fn define_vertex_input(inputs: &[MeshAttributeKind]) -> String {
+pub fn define_vertex_input(inputs: &[VertexInput]) -> String {
     let fields = inputs
         .iter()
         .enumerate()
-        .map(|(index, i)| match i {
-            MeshAttributeKind::Position => ShaderField::new("position", ShaderProperty::Vec3)
-                .with_attribute(ShaderAttribute::Location(index as u32)),
-            MeshAttributeKind::Normal => ShaderField::new("normal", ShaderProperty::Vec3)
-                .with_attribute(ShaderAttribute::Location(index as u32)),
-            MeshAttributeKind::TexCoord0 => ShaderField::new("texCoord0", ShaderProperty::Vec2)
-                .with_attribute(ShaderAttribute::Location(index as u32)),
-            MeshAttributeKind::TexCoord1 => ShaderField::new("texCoord1", ShaderProperty::Vec2)
-                .with_attribute(ShaderAttribute::Location(index as u32)),
-            MeshAttributeKind::Tangent => ShaderField::new("tangent", ShaderProperty::Vec4)
-                .with_attribute(ShaderAttribute::Location(index as u32)),
-            MeshAttributeKind::Color => ShaderField::new("color", ShaderProperty::Color)
-                .with_attribute(ShaderAttribute::Location(index as u32)),
+        .map(|(index, i)| {
+            ShaderField::new(i.name(), i.property())
+                .with_attribute(ShaderAttribute::Location(index as u32))
         })
         .collect::<Vec<_>>();
 
@@ -232,7 +222,7 @@ pub fn define_camera(group: u32, binding: u32) -> String {
 pub fn define_object(group: u32, binding: u32) -> String {
     let object = define_struct(
         OBJECT_STRUCT,
-        &[ShaderField::new("model", ShaderProperty::Mat4)],
+        &[ShaderField::new("world", ShaderProperty::Mat4)],
     );
 
     let binding = define_binding(
@@ -257,7 +247,7 @@ pub fn define_fragment_input(name: &str) -> String {
                 .with_attribute(ShaderAttribute::Location(0)),
             ShaderField::new("normal", ShaderProperty::Vec3)
                 .with_attribute(ShaderAttribute::Location(1)),
-            ShaderField::new("uv", ShaderProperty::Vec2)
+            ShaderField::new("uv_0", ShaderProperty::Vec2)
                 .with_attribute(ShaderAttribute::Location(2)),
         ],
     )
@@ -409,14 +399,14 @@ pub fn convert_input(from: &ShaderInput, to: ShaderProperty) -> Option<String> {
             Some(format!("vec2<f32>({NAME}.x, {NAME}.y)", NAME = from.name))
         }
         (ShaderProperty::Vec4, ShaderProperty::Vec3) => Some(format!(
-            "vec4<f32>({NAME}.x, {NAME}.y, {NAME}.z, 1.0)",
+            "vec3<f32>({NAME}.x, {NAME}.y, {NAME}.z)",
             NAME = from.name
         )),
         (ShaderProperty::Color, ShaderProperty::Vec2) => {
             Some(format!("vec2<f32>({NAME}.x, {NAME}.y)", NAME = from.name))
         }
         (ShaderProperty::Color, ShaderProperty::Vec3) => Some(format!(
-            "vec4<f32>({NAME}.x, {NAME}.y, {NAME}.z, 1.0)",
+            "vec3<f32>({NAME}.x, {NAME}.y, {NAME}.z)",
             NAME = from.name
         )),
         (ShaderProperty::Color, ShaderProperty::Vec4) => Some(from.name.clone()),
@@ -441,24 +431,7 @@ pub fn material_input(input: &ShaderInput) -> ShaderInput {
 }
 
 pub fn vertex_input(input: VertexInput) -> ShaderInput {
-    match input {
-        VertexInput::Position => {
-            ShaderInput::new(format!("{}.position", VERTEX_INPUT), ShaderProperty::Vec3)
-        }
-        VertexInput::Normal => {
-            ShaderInput::new(format!("{}.normal", VERTEX_INPUT), ShaderProperty::Vec3)
-        }
-        VertexInput::TexCoord0 => {
-            ShaderInput::new(format!("{}.texCoord0", VERTEX_INPUT), ShaderProperty::Vec2)
-        }
-        VertexInput::TexCoord1 => {
-            ShaderInput::new(format!("{}.texCoord1", VERTEX_INPUT), ShaderProperty::Vec2)
-        }
-        VertexInput::Tangent => {
-            ShaderInput::new(format!("{}.tangent", VERTEX_INPUT), ShaderProperty::Vec4)
-        }
-        VertexInput::Color => {
-            ShaderInput::new(format!("{}.color", VERTEX_INPUT), ShaderProperty::Color)
-        }
-    }
+    let name = input.name();
+    let property = input.property();
+    ShaderInput::child(VERTEX_INPUT, name, property)
 }

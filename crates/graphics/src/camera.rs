@@ -53,6 +53,7 @@ pub struct Camera {
     pub viewport: Viewport,
     pub projection: Projection,
     pub target: Option<AssetId>,
+    pub depth: u32,
 }
 
 impl Default for Camera {
@@ -67,6 +68,7 @@ impl Default for Camera {
                 far: 1000.0,
             },
             target: None,
+            depth: 0,
         }
     }
 }
@@ -76,17 +78,19 @@ impl Component for Camera {}
 #[derive(Debug, Clone, Copy, Default, bytemuck::Pod, bytemuck::Zeroable)]
 #[repr(C)]
 pub struct CameraData {
-    pub world: [f32; 16],
     pub view: [f32; 16],
     pub projection: [f32; 16],
+    pub world: [f32; 3],
+    pub _padding: f32,
 }
 
 impl CameraData {
-    pub fn new(world: glam::Mat4, view: glam::Mat4, projection: glam::Mat4) -> Self {
+    pub fn new(view: glam::Mat4, projection: glam::Mat4, world: glam::Vec3) -> Self {
         Self {
-            world: world.to_cols_array(),
             view: view.to_cols_array(),
             projection: projection.to_cols_array(),
+            world: world.to_array(),
+            _padding: 0.0,
         }
     }
 }
@@ -120,7 +124,7 @@ impl RenderFrame {
             } => glam::Mat4::perspective_rh(fov.to_radians(), aspect, near, far),
         };
 
-        let buffer = CameraData::new(world, view, projection);
+        let buffer = CameraData::new(view, projection, translation);
 
         Self { camera, buffer }
     }
@@ -155,6 +159,8 @@ impl RenderFrames {
 
     pub fn extract(&mut self, other: &mut Self) {
         self.frames = std::mem::take(&mut other.frames);
+        self.frames
+            .sort_by(|a, b| a.camera.depth.cmp(&b.camera.depth));
     }
 
     pub fn frames(&self) -> &[RenderFrame] {

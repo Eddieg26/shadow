@@ -63,6 +63,10 @@ pub enum ReadWrite {
 
 pub trait RenderAsset: Send + Sync + 'static {
     type Id: Hash + Eq + Copy + Send + Sync + 'static;
+
+    fn world() -> RenderAssetWorld {
+        RenderAssetWorld::Render
+    }
 }
 
 pub struct RenderAssets<R: RenderAsset> {
@@ -143,6 +147,12 @@ pub enum AssetUsage {
     Discard,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RenderAssetWorld {
+    Main,
+    Render,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ExtractedResource {
     BindGroup,
@@ -157,11 +167,11 @@ pub trait RenderAssetExtractor: 'static {
     fn extract(
         id: &AssetId,
         source: &mut Self::Source,
-        arg: &ArgItem<Self::Arg>,
+        arg: &mut ArgItem<Self::Arg>,
         assets: &mut RenderAssets<Self::Target>,
     ) -> Option<AssetUsage>;
 
-    fn remove(id: &AssetId, assets: &mut RenderAssets<Self::Target>);
+    fn remove(id: &AssetId, assets: &mut RenderAssets<Self::Target>, arg: &mut ArgItem<Self::Arg>);
 
     fn extracted_resource() -> Option<ExtractedResource> {
         None

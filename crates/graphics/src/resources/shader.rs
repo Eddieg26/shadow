@@ -188,7 +188,7 @@ impl RenderAssetExtractor for Shader {
     fn extract(
         id: &AssetId,
         source: &mut Self::Source,
-        arg: &ArgItem<Self::Arg>,
+        arg: &mut ArgItem<Self::Arg>,
         assets: &mut RenderAssets<Self::Target>,
     ) -> Option<AssetUsage> {
         assets.add(*id, Self::create(arg, source));
@@ -196,7 +196,7 @@ impl RenderAssetExtractor for Shader {
         Some(AssetUsage::Discard)
     }
 
-    fn remove(id: &AssetId, assets: &mut RenderAssets<Self::Target>) {
+    fn remove(id: &AssetId, assets: &mut RenderAssets<Self::Target>, _: &mut ArgItem<Self::Arg>) {
         assets.remove(&id);
     }
 }

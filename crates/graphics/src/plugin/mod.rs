@@ -10,11 +10,11 @@ use crate::{
         surface::{RenderSurface, RenderSurfaceTexture},
     },
     resources::{
-        mesh::{model::ObjImporter, Mesh, MeshBuffers},
+        mesh::{loaders::ObjImporter, Mesh, MeshBuffers, SubMesh},
         shader::{Shader, ShaderSource},
         texture::{render::RenderTexture, GpuTexture, Texture2d},
         AssetUsage, DiscardedAssets, ExtractedResource, RenderAsset, RenderAssetExtractor,
-        RenderAssets,
+        RenderAssetWorld, RenderAssets,
     },
 };
 use asset::{
@@ -22,11 +22,11 @@ use asset::{
     AssetAction, AssetActions, Assets,
 };
 use ecs::{
-    system::{schedule::Phase, StaticSystemArg},
+    system::{schedule::Phase, IntoSystem, StaticSystemArg, System},
     world::{event::Event, World},
 };
 use game::{
-    app::{Extract, MainWorld},
+    app::Extract,
     game::Game,
     phases::Update,
     plugin::{Plugin, Plugins},
@@ -64,6 +64,7 @@ impl Plugin for GraphicsPlugin {
         game.add_importer::<ObjImporter>();
 
         game.register_asset::<Mesh>();
+        game.register_asset::<SubMesh>();
         game.register::<Camera>();
 
         let app = game.sub_app_mut::<RenderApp>().unwrap();
@@ -71,6 +72,7 @@ impl Plugin for GraphicsPlugin {
         app.init_resource::<RenderSurfaceTexture>();
         app.add_sub_phase::<Extract, ExtractBindGroup>();
         app.add_sub_phase::<Extract, ExtractPipeline>();
+        app.add_sub_phase::<Extract, PostExtract>();
         app.add_sub_phase::<Update, PreRender>();
         app.add_sub_phase::<Update, Render>();
         app.add_sub_phase::<Update, Present>();
@@ -78,6 +80,7 @@ impl Plugin for GraphicsPlugin {
     }
 
     fn run(&mut self, game: &mut Game) {
+        game.add_render_asset_extractor::<Mesh>();
         game.observe::<WindowCreated, _>(on_window_created);
         game.observe::<Resized, _>(|resized: &[Resized], events: &SubEvents<RenderApp>| {
             let resized = resized.last().unwrap();
@@ -126,25 +129,25 @@ impl Phase for ExtractBindGroup {}
 pub struct ExtractPipeline;
 impl Phase for ExtractPipeline {}
 
-fn extract_draw_calls<D: Draw>(main_world: &MainWorld, calls: &mut DrawCalls<D>) {
-    let main = main_world.resource_mut::<DrawCalls<D>>();
-    calls.extract(main);
+pub struct PostExtract;
+impl Phase for PostExtract {}
+
+fn extract_draw_calls<D: Draw>(mut main_draws: Main<&mut DrawCalls<D>>, calls: &mut DrawCalls<D>) {
+    calls.extract(&mut main_draws);
 }
 
 fn clear_draw_calls<D: Draw>(calls: &mut DrawCalls<D>) {
     calls.clear();
 }
 
-fn extract_render_frames(main_world: &MainWorld, frames: &mut RenderFrames) {
-    let main = main_world.resource_mut::<RenderFrames>();
-    frames.extract(main);
+fn extract_render_frames(mut main_frames: Main<&mut RenderFrames>, frames: &mut RenderFrames) {
+    frames.extract(&mut main_frames);
 }
 
 fn update_render_graph(
     world: &World,
     graph: &mut RenderGraph,
     targets: &mut RenderAssets<RenderTarget>,
-    camera: &mut CameraBuffer,
 ) {
     let surface = world.resource::<RenderSurface>();
     let texture = match surface.texture() {
@@ -152,29 +155,33 @@ fn update_render_graph(
         Err(_) => return,
     };
 
-    if let Some(target) = targets.get_mut(&surface.id()) {
-        let view = texture
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
-        target.set_color(Some(RenderGraphTexture::from(view)));
-    } else {
-        return;
+    match targets.get_mut(&surface.id()) {
+        Some(target) => {
+            let view = texture
+                .texture
+                .create_view(&wgpu::TextureViewDescriptor::default());
+            target.set_color(Some(RenderGraphTexture::from(view)));
+        }
+        None => return,
     }
 
     let surface_target = unsafe { targets.get(&surface.id()).unwrap_unchecked() };
 
     let device = world.resource::<RenderDevice>();
     let queue = world.resource::<RenderQueue>();
-    for frame in world.resource_mut::<RenderFrames>().drain() {
+    let (frame_count, frames) = {
+        let frames = world.resource_mut::<RenderFrames>();
+        let frame_count = frames.len();
+        (frame_count, frames.drain())
+    };
+
+    for (current, frame) in frames.enumerate() {
         let target = match frame.camera.target.and_then(|id| targets.get(&id.into())) {
             Some(target) => target,
             None => surface_target,
         };
 
-        camera.update(frame.buffer);
-        camera.commit(device, queue);
-
-        graph.run(world, device, queue, &frame, target);
+        graph.run(world, device, queue, &frame, current, frame_count, target);
     }
 
     let target = unsafe { targets.get_mut(&surface.id()).unwrap_unchecked() };
@@ -188,6 +195,26 @@ fn present_surface(texture: &mut RenderSurfaceTexture) {
     texture.present();
 }
 
+pub fn extract_render_asset_render_world<R: RenderAssetExtractor>(
+    sources: Main<&mut Assets<R::Source>>,
+    actions: Main<&AssetActions<R::Source>>,
+    assets: &mut RenderAssets<R::Target>,
+    discarded: &mut DiscardedAssets<R::Source>,
+    arg: StaticSystemArg<R::Arg>,
+) {
+    extract_render_asset::<R>(sources, actions, assets, discarded, arg);
+}
+
+pub fn extract_render_asset_main_world<R: RenderAssetExtractor>(
+    sources: Main<&mut Assets<R::Source>>,
+    actions: Main<&AssetActions<R::Source>>,
+    mut assets: Main<&mut RenderAssets<R::Target>>,
+    discarded: &mut DiscardedAssets<R::Source>,
+    arg: StaticSystemArg<R::Arg>,
+) {
+    extract_render_asset::<R>(sources, actions, &mut assets, discarded, arg);
+}
+
 pub fn extract_render_asset<R: RenderAssetExtractor>(
     mut sources: Main<&mut Assets<R::Source>>,
     actions: Main<&AssetActions<R::Source>>,
@@ -195,7 +222,7 @@ pub fn extract_render_asset<R: RenderAssetExtractor>(
     discarded: &mut DiscardedAssets<R::Source>,
     arg: StaticSystemArg<R::Arg>,
 ) {
-    let arg = arg.into_inner();
+    let mut arg = arg.into_inner();
     for action in actions.iter() {
         match action {
             AssetAction::Added(id) => {
@@ -204,13 +231,13 @@ pub fn extract_render_asset<R: RenderAssetExtractor>(
                     None => continue,
                 };
 
-                match R::extract(id, source, &arg, assets) {
+                match R::extract(id, source, &mut arg, assets) {
                     Some(AssetUsage::Discard) => discarded.insert(*id),
                     _ => false,
                 };
             }
             AssetAction::Removed(id) => {
-                R::remove(id, assets);
+                R::remove(id, assets, &mut arg);
             }
             _ => (),
         }
@@ -298,10 +325,16 @@ fn on_window_created(_: &[WindowCreated], window: &Window, render_events: &SubEv
     render_events.add(SurfaceCreated::new(surface, device, queue));
 }
 
-fn on_window_resized(resized: &[Resized], device: &RenderDevice, surface: &mut RenderSurface) {
+fn on_window_resized(
+    resized: &[Resized],
+    device: &RenderDevice,
+    surface: &mut RenderSurface,
+    targets: &mut RenderAssets<RenderTarget>,
+) {
     let resized = resized.last().unwrap();
 
     surface.resize(device, resized.width, resized.height);
+    targets.add(surface.id(), RenderTarget::from_surface(device, surface));
 }
 
 pub trait GraphicsExt {
@@ -323,9 +356,18 @@ impl GraphicsExt for Game {
     }
 
     fn add_render_asset<R: RenderAsset>(&mut self) -> &mut Self {
-        let app = self.sub_app_mut::<RenderApp>().unwrap();
-        if !app.has_resource::<RenderAssets<R>>() {
-            app.init_resource::<RenderAssets<R>>();
+        match R::world() {
+            RenderAssetWorld::Main => {
+                if !self.has_resource::<RenderAssets<R>>() {
+                    self.init_resource::<RenderAssets<R>>();
+                }
+            }
+            RenderAssetWorld::Render => {
+                let app = self.sub_app_mut::<RenderApp>().unwrap();
+                if !app.has_resource::<RenderAssets<R>>() {
+                    app.init_resource::<RenderAssets<R>>();
+                }
+            }
         }
 
         self
@@ -336,16 +378,18 @@ impl GraphicsExt for Game {
         self.register_asset::<R::Source>();
 
         let app = self.sub_app_mut::<RenderApp>().unwrap();
-        app.add_system(PostRender, remove_discarded_assets::<R>);
+        app.add_system(PostExtract, remove_discarded_assets::<R>);
         app.init_resource::<DiscardedAssets<R::Source>>();
+
+        let system: System = match R::Target::world() {
+            RenderAssetWorld::Main => extract_render_asset_main_world::<R>.into_system(),
+            RenderAssetWorld::Render => extract_render_asset_render_world::<R>.into_system(),
+        };
+
         match R::extracted_resource() {
-            Some(ExtractedResource::BindGroup) => {
-                app.add_system(ExtractBindGroup, extract_render_asset::<R>)
-            }
-            Some(ExtractedResource::Pipeline) => {
-                app.add_system(ExtractPipeline, extract_render_asset::<R>)
-            }
-            None => app.add_system(Extract, extract_render_asset::<R>),
+            Some(ExtractedResource::BindGroup) => app.add_system(ExtractBindGroup, system),
+            Some(ExtractedResource::Pipeline) => app.add_system(ExtractPipeline, system),
+            None => app.add_system(Extract, system),
         };
 
         self

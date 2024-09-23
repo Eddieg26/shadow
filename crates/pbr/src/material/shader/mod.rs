@@ -1,5 +1,6 @@
-use crate::core::color::Color;
 use std::hash::Hash;
+
+use graphics::{core::Color, resources::mesh::MeshAttributeKind};
 
 pub mod constants;
 pub mod fragment;
@@ -43,6 +44,32 @@ impl ShaderProperty {
         }
     }
 
+    pub fn is_scalar(&self) -> bool {
+        match self {
+            ShaderProperty::Float | ShaderProperty::UInt | ShaderProperty::SInt => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_vector(&self) -> bool {
+        match self {
+            ShaderProperty::Vec2
+            | ShaderProperty::Vec3
+            | ShaderProperty::Vec4
+            | ShaderProperty::Mat2
+            | ShaderProperty::Mat3
+            | ShaderProperty::Mat4 => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_matrix(&self) -> bool {
+        match self {
+            ShaderProperty::Mat2 | ShaderProperty::Mat3 | ShaderProperty::Mat4 => true,
+            _ => false,
+        }
+    }
+
     pub fn resource(&self) -> Option<ShaderResource> {
         match self {
             ShaderProperty::Texture2D => Some(ShaderResource::Texture2D),
@@ -69,6 +96,90 @@ pub enum ShaderValue {
     Mat2(glam::Mat2),
     Mat3(glam::Mat3),
     Mat4(glam::Mat4),
+}
+
+impl ShaderValue {
+    pub fn property(&self) -> ShaderProperty {
+        match self {
+            ShaderValue::Float(_) => ShaderProperty::Float,
+            ShaderValue::UInt(_) => ShaderProperty::UInt,
+            ShaderValue::SInt(_) => ShaderProperty::SInt,
+            ShaderValue::Bool(_) => ShaderProperty::Bool,
+            ShaderValue::Color(_) => ShaderProperty::Color,
+            ShaderValue::Vec2(_) => ShaderProperty::Vec2,
+            ShaderValue::Vec3(_) => ShaderProperty::Vec3,
+            ShaderValue::Vec4(_) => ShaderProperty::Vec4,
+            ShaderValue::Mat2(_) => ShaderProperty::Mat2,
+            ShaderValue::Mat3(_) => ShaderProperty::Mat3,
+            ShaderValue::Mat4(_) => ShaderProperty::Mat4,
+        }
+    }
+}
+
+impl From<f32> for ShaderValue {
+    fn from(value: f32) -> Self {
+        ShaderValue::Float(value)
+    }
+}
+
+impl From<u32> for ShaderValue {
+    fn from(value: u32) -> Self {
+        ShaderValue::UInt(value)
+    }
+}
+
+impl From<i32> for ShaderValue {
+    fn from(value: i32) -> Self {
+        ShaderValue::SInt(value)
+    }
+}
+
+impl From<bool> for ShaderValue {
+    fn from(value: bool) -> Self {
+        ShaderValue::Bool(value)
+    }
+}
+
+impl From<Color> for ShaderValue {
+    fn from(value: Color) -> Self {
+        ShaderValue::Color(value)
+    }
+}
+
+impl From<glam::Vec2> for ShaderValue {
+    fn from(value: glam::Vec2) -> Self {
+        ShaderValue::Vec2(value)
+    }
+}
+
+impl From<glam::Vec3> for ShaderValue {
+    fn from(value: glam::Vec3) -> Self {
+        ShaderValue::Vec3(value)
+    }
+}
+
+impl From<glam::Vec4> for ShaderValue {
+    fn from(value: glam::Vec4) -> Self {
+        ShaderValue::Vec4(value)
+    }
+}
+
+impl From<glam::Mat2> for ShaderValue {
+    fn from(value: glam::Mat2) -> Self {
+        ShaderValue::Mat2(value)
+    }
+}
+
+impl From<glam::Mat3> for ShaderValue {
+    fn from(value: glam::Mat3) -> Self {
+        ShaderValue::Mat3(value)
+    }
+}
+
+impl From<glam::Mat4> for ShaderValue {
+    fn from(value: glam::Mat4) -> Self {
+        ShaderValue::Mat4(value)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -226,8 +337,8 @@ impl VertexInput {
             VertexInput::Position => "position",
             VertexInput::Normal => "normal",
             VertexInput::Tangent => "tangent",
-            VertexInput::TexCoord0 => "texcoord0",
-            VertexInput::TexCoord1 => "texcoord1",
+            VertexInput::TexCoord0 => "uv_0",
+            VertexInput::TexCoord1 => "uv_1",
             VertexInput::Color => "color",
         }
     }
@@ -241,6 +352,21 @@ impl VertexInput {
             VertexInput::TexCoord1 => ShaderProperty::Vec2,
             VertexInput::Color => ShaderProperty::Color,
         }
+    }
+
+    pub fn attribute(&self) -> MeshAttributeKind {
+        match self {
+            VertexInput::Position => MeshAttributeKind::Position,
+            VertexInput::Normal => MeshAttributeKind::Normal,
+            VertexInput::Tangent => MeshAttributeKind::Tangent,
+            VertexInput::TexCoord0 => MeshAttributeKind::TexCoord0,
+            VertexInput::TexCoord1 => MeshAttributeKind::TexCoord1,
+            VertexInput::Color => MeshAttributeKind::Color,
+        }
+    }
+
+    pub fn id(&self) -> NodeId {
+        NodeId::from(self)
     }
 }
 
@@ -263,8 +389,8 @@ impl VertexOutput {
             },
             VertexOutput::Normal => "normal",
             VertexOutput::Tangent => "tangent",
-            VertexOutput::TexCoord0 => "texcoord0",
-            VertexOutput::TexCoord1 => "texcoord1",
+            VertexOutput::TexCoord0 => "uv_0",
+            VertexOutput::TexCoord1 => "uv_1",
             VertexOutput::Color => "color",
         }
     }
@@ -281,6 +407,10 @@ impl VertexOutput {
             VertexOutput::TexCoord1 => ShaderProperty::Vec2,
             VertexOutput::Color => ShaderProperty::Color,
         }
+    }
+
+    pub fn id(&self) -> NodeId {
+        NodeId::from(self)
     }
 }
 
@@ -302,6 +432,13 @@ impl ShaderInput {
     pub fn sub(base: &str, name: &str, property: ShaderProperty) -> Self {
         Self {
             name: format!("{}_{}", base, name),
+            property,
+        }
+    }
+
+    pub fn child(base: &str, name: &str, property: ShaderProperty) -> Self {
+        Self {
+            name: format!("{}.{}", base, name),
             property,
         }
     }
@@ -337,9 +474,9 @@ pub struct NodeOutput {
 }
 
 impl NodeOutput {
-    pub fn new(code: String) -> Self {
+    pub fn new(code: impl ToString) -> Self {
         Self {
-            code,
+            code: code.to_string(),
             outputs: Vec::new(),
         }
     }
@@ -367,10 +504,28 @@ impl NodeOutput {
 pub struct NodeId(u32);
 
 impl NodeId {
+    pub fn new(id: u32) -> Self {
+        NodeId(id)
+    }
+
     pub fn gen() -> Self {
         let mut hasher = crc32fast::Hasher::new();
         let id = ulid::Ulid::new();
         id.hash(&mut hasher);
+        NodeId(hasher.finalize())
+    }
+}
+
+impl From<u32> for NodeId {
+    fn from(id: u32) -> Self {
+        NodeId(id)
+    }
+}
+
+impl<H: Hash> From<&H> for NodeId {
+    fn from(hash: &H) -> Self {
+        let mut hasher = crc32fast::Hasher::new();
+        hash.hash(&mut hasher);
         NodeId(hasher.finalize())
     }
 }
@@ -380,6 +535,18 @@ impl std::ops::Deref for NodeId {
 
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct NodeDependency {
+    pub node: NodeId,
+    pub slot: usize,
+}
+
+impl NodeDependency {
+    pub fn new(node: NodeId, slot: usize) -> Self {
+        Self { node, slot }
     }
 }
 

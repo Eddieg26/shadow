@@ -1,0 +1,18 @@
+[package]
+name = "pbr"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ecs = { path = "../ecs" }
+asset = { path = "../asset" }
+graphics = { path = "../graphics" }
+game = { path = "../game" }
+spatial = { path = "../spatial" }
+crc32fast = { workspace = true }
+wgpu = { workspace = true }
+serde = { workspace = true }
+bytemuck = { workspace = true }
+glam = { workspace = true }
+downcast-rs = { workspace = true }
+ulid = { workspace = true }

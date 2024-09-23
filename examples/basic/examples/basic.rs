@@ -1,5 +1,7 @@
 use std::{
+    borrow::Cow,
     hash::{Hash, Hasher},
+    ops::Deref,
     path::PathBuf,
     u32,
 };
@@ -22,44 +24,51 @@ use game::{
     plugin::{Plugin, Plugins},
     Execute, First, GameInstance, PostInit,
 };
+use glam::{Vec2, Vec3};
 use graphics::{
     camera::{ClearFlag, RenderFrame, RenderFrames},
-    core::Color,
+    core::{Color, RenderInstance},
     plugin::{GraphicsExt, GraphicsPlugin, RenderApp},
     renderer::{
         draw::{Draw, DrawCalls},
         graph::{
             context::RenderContext,
-            nodes::render::{
-                Attachment, RenderCommands, RenderGroup, RenderPass, RenderPassContext, StoreOp,
-            },
+            pass::render::{Attachment, RenderCommands, RenderPass, StoreOp},
             RenderGraphBuilder,
         },
     },
     resources::{
-        buffer::{BufferFlags, UniformBuffer},
+        buffer::{BufferFlags, Indices, UniformBuffer},
         mesh::{
-            model::{MeshLoadSettings, ObjImporter},
-            Mesh,
+            loaders::{MeshLoadSettings, ObjImporter},
+            Mesh, MeshAttribute, MeshTopology,
         },
+        shader::ShaderSource,
         texture::{Texture, Texture2d, Texture2dSettings},
-        RenderAsset, RenderAssetExtractor,
+        ReadWrite, RenderAsset, RenderAssetExtractor, RenderAssets,
     },
 };
+use pbr::{
+    pass::{DrawMesh, ForwardPass, ForwardSubPass, Opaque3D, RenderMeshGroup},
+    pipeline::MaterialPipeline,
+    plugin::{MaterialExt, MaterialPlugin},
+    shader::{
+        nodes::{CameraNode, ConvertNode, MultiplyNode, ObjectModelNode},
+        vertex::MeshShader,
+        ShaderProperty, VertexInput, VertexOutput,
+    },
+    unlit::UnlitMaterial,
+    Material, MaterialInstance,
+};
+use spatial::bounds::BoundingBox;
+use wgpu::core::instance;
 use window::{events::WindowCreated, plugin::WindowPlugin};
 
 const TEST_ID: AssetId = AssetId::raw(100);
 const CUBE_ID: AssetId = AssetId::raw(200);
 const SHADER_ID: AssetId = AssetId::raw(300);
-
-pub struct DrawModel {
-    id: AssetId,
-    model: ModelData,
-}
-
-impl Draw for DrawModel {
-    type Partition = Vec<Self>;
-}
+const MATERIAL_ID: AssetId = AssetId::raw(400);
+const TRIANGLE_ID: AssetId = AssetId::raw(500);
 
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 #[repr(C)]
@@ -71,47 +80,33 @@ impl From<glam::Mat4> for ModelData {
     }
 }
 
-pub struct DrawModelNode {
-    model: UniformBuffer<ModelData>,
-}
-
-impl DrawModelNode {
-    pub fn new() -> Self {
-        Self {
-            model: UniformBuffer::new(ModelData::from(glam::Mat4::IDENTITY), BufferFlags::COPY_DST),
-        }
-    }
-}
-
-impl RenderGroup<DrawModel> for DrawModelNode {
-    fn render(&mut self, ctx: &RenderPassContext<DrawModel>, commands: &mut RenderCommands) {
-        for draw in ctx.draws().iter() {
-            self.model.update(draw.model);
-            self.model.commit(ctx.device(), ctx.queue());
-        }
-    }
-}
-
 pub struct BasicPlugin;
 
 impl Plugin for BasicPlugin {
     fn dependencies(&self) -> Plugins {
         let mut plugins = Plugins::new();
-        plugins.add_plugin(GraphicsPlugin);
+        plugins.add_plugin(MaterialPlugin);
         plugins
     }
 
     fn start(&self, game: &mut Game) {
         let builder = game.resource_mut::<RenderGraphBuilder>();
-        let pass = RenderPass::new("basic")
-            .with_color(Attachment::Surface, None, StoreOp::Store, None)
-            .add_subpass()
-            .with_render_group::<DrawModel>(
-                0,
-                |ctx: &RenderPassContext<DrawModel>, commands: &mut RenderCommands| {},
+        builder
+            .node_mut::<ForwardPass>("forward")
+            .unwrap()
+            .add_render_group(
+                ForwardSubPass::Opaque,
+                RenderMeshGroup::<Opaque3D>::new(pbr::ShaderModel::Unlit, pbr::BlendMode::Opaque),
             );
 
-        builder.add_node(pass);
+        game.register_material_pipeline::<Opaque3D>();
+        game.register_material::<UnlitMaterial>();
+        game.events().add(AssetLoaded::add(
+            MATERIAL_ID,
+            UnlitMaterial {
+                color: Color::blue(),
+            },
+        ));
     }
 
     fn run(&mut self, game: &mut Game) {
@@ -119,41 +114,70 @@ impl Plugin for BasicPlugin {
         embed_asset!(game, CUBE_ID, "cube.obj");
         embed_asset!(game, SHADER_ID, "shader.wgsl");
 
-        game.add_system(Update, |renders: &mut RenderFrames| {
-            let mut frame = RenderFrame::default();
-            frame.camera.clear = Some(ClearFlag::Color(Color::green()));
-            renders.add(frame)
-        });
+        let mut triange = Mesh::new(MeshTopology::TriangleList, ReadWrite::Disabled);
+        triange.add_attribute(MeshAttribute::Position(vec![
+            Vec3::new(-1.0, -1.0, 0.0),
+            Vec3::new(1.0, -1.0, 0.0),
+            Vec3::new(0.0, 1.0, 0.0),
+        ]));
+
+        triange.add_attribute(MeshAttribute::TexCoord0(vec![
+            Vec2::new(0.0, 0.0),
+            Vec2::new(1.0, 0.0),
+            Vec2::new(0.5, 1.0),
+        ]));
+
+        triange.set_indices(Indices::U32(vec![0, 1, 2]));
+
+        game.events().add(AssetLoaded::add(TRIANGLE_ID, triange));
+
+        game.add_system(
+            Update,
+            |renders: &mut RenderFrames,
+             draw: &mut DrawCalls<DrawMesh>,
+             materials: &RenderAssets<MaterialInstance>| {
+                let mut frame = RenderFrame::default();
+                frame.camera.clear = Some(ClearFlag::Color(Color::green()));
+                renders.add(frame);
+
+                let material = match materials.get(&MATERIAL_ID) {
+                    Some(material) => material,
+                    None => return,
+                };
+
+                draw.add(DrawMesh::new(
+                    CUBE_ID,
+                    material.clone(),
+                    glam::Mat4::from_translation(Vec3::new(0.0, 0.0, 10.0)),
+                    BoundingBox::ZERO,
+                ));
+            },
+        );
     }
 
     fn finish(&mut self, _: &mut Game) {}
 }
 
-#[derive(Debug, Hash, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct PlainText(String);
-
-impl Asset for PlainText {}
-
-impl AssetImporter for PlainText {
-    type Asset = Self;
-    type Settings = DefaultSettings;
-    type Error = StringError;
-
-    fn import(
-        _: &mut ImportContext<Self::Settings>,
-        reader: &mut dyn asset::io::AssetReader,
-    ) -> Result<Self::Asset, Self::Error> {
-        let content = reader
-            .read_to_string()
-            .map_err(|e| StringError(e.to_string()))?;
-        Ok(PlainText(content))
-    }
-
-    fn extensions() -> &'static [&'static str] {
-        &["txt"]
-    }
-}
-
 fn main() {
     Game::new().add_plugin(BasicPlugin).run();
+
+    // let shader = Opaque3D::shader().generate();
+    // let source = match shader {
+    //     ShaderSource::Wgsl(source) => source,
+    //     _ => panic!("Expected WGSL shader"),
+    // };
+
+    // std::fs::write("mesh_shader.wgsl", source.deref()).unwrap();
+}
+
+pub async fn create_device() -> (wgpu::Device, wgpu::Queue) {
+    let instance = RenderInstance::create();
+    let adapter = instance
+        .request_adapter(&wgpu::RequestAdapterOptionsBase::default())
+        .await
+        .unwrap();
+    adapter
+        .request_device(&wgpu::DeviceDescriptor::default(), None)
+        .await
+        .unwrap()
 }

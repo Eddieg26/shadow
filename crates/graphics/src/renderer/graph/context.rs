@@ -18,6 +18,8 @@ pub enum RenderNodeAction {
 pub struct RenderContext<'a> {
     world: &'a World,
     frame: &'a RenderFrame,
+    frame_index: usize,
+    frame_count: usize,
     target: &'a RenderTarget,
     device: &'a RenderDevice,
     queue: &'a RenderQueue,
@@ -29,6 +31,8 @@ impl<'a> RenderContext<'a> {
     pub fn new(
         world: &'a World,
         frame: &'a RenderFrame,
+        frame_index: usize,
+        frame_count: usize,
         target: &'a RenderTarget,
         device: &'a RenderDevice,
         queue: &'a RenderQueue,
@@ -37,6 +41,8 @@ impl<'a> RenderContext<'a> {
         Self {
             world,
             frame,
+            frame_index,
+            frame_count,
             target,
             device,
             queue,
@@ -47,6 +53,14 @@ impl<'a> RenderContext<'a> {
 
     pub fn frame(&self) -> &RenderFrame {
         self.frame
+    }
+
+    pub fn frame_index(&self) -> usize {
+        self.frame_index
+    }
+
+    pub fn frame_count(&self) -> usize {
+        self.frame_count
     }
 
     pub fn device(&self) -> &RenderDevice {
@@ -73,16 +87,32 @@ impl<'a> RenderContext<'a> {
         self.world.resource::<R>()
     }
 
-    pub fn try_resource<R: Resource>(&self) -> Option<&R> {
-        self.world.try_resource::<R>()
+    pub fn resource_mut<R: Resource>(&self) -> &mut R {
+        self.world.resource_mut::<R>()
     }
 
     pub fn local_resource<R: LocalResource>(&self) -> &R {
         self.world.local_resource::<R>()
     }
 
+    pub fn local_resource_mut<R: LocalResource>(&self) -> &mut R {
+        self.world.local_resource_mut::<R>()
+    }
+
+    pub fn try_resource<R: Resource>(&self) -> Option<&R> {
+        self.world.try_resource::<R>()
+    }
+
+    pub fn try_resource_mut<R: Resource>(&self) -> Option<&mut R> {
+        self.world.try_resource_mut::<R>()
+    }
+
     pub fn try_local_resource<R: LocalResource>(&self) -> Option<&R> {
         self.world.try_local_resource::<R>()
+    }
+
+    pub fn try_local_resource_mut<R: LocalResource>(&self) -> Option<&mut R> {
+        self.world.try_local_resource_mut::<R>()
     }
 
     pub fn encoder(&self) -> wgpu::CommandEncoder {
@@ -110,6 +140,8 @@ impl<'a> Clone for RenderContext<'a> {
         Self {
             world: self.world,
             frame: self.frame,
+            frame_index: self.frame_index,
+            frame_count: self.frame_count,
             target: self.target,
             device: self.device,
             queue: self.queue,

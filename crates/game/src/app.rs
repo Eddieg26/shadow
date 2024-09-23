@@ -69,6 +69,7 @@ impl<S: SystemArg + 'static> SystemArg for Main<'_, S> {
     type Item<'world> = Main<'world, S>;
 
     fn get<'a>(world: &'a World) -> Self::Item<'a> {
+        let world = world.resource::<MainWorld>();
         Main(S::get(world))
     }
 

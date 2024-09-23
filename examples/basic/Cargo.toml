@@ -11,8 +11,11 @@ ecs = { path = "../../crates/ecs" }
 asset = { path = "../../crates/asset" }
 window = { path = "../../crates/window" }
 graphics = { path = "../../crates/graphics" }
+pbr = { path = "../../crates/pbr" }
+spatial = { path = "../../crates/spatial" }
 toml = { workspace = true }
 wgpu = { workspace = true }
 bytemuck = { workspace = true }
 serde = { workspace = true }
 glam = { workspace = true }
+pollster = { workspace = true }

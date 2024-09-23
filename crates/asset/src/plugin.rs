@@ -107,10 +107,10 @@ impl AssetExt for Game {
 }
 
 fn asset_config_init(database: &AssetDatabase) {
-    let config = database.config();
+    // let config = database.config();
 
-    if let Err(error) = config.init() {
-        println!("Failed to initialize asset database: {}", error);
-        return;
-    }
+    // if let Err(error) = config.init() {
+    //     println!("Failed to initialize asset database: {}", error);
+    //     return;
+    // }
 }

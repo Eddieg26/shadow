@@ -8,8 +8,7 @@ use ecs::system::{unlifetime::Read, ArgItem, StaticSystemArg};
 use spatial::bounds::BoundingBox;
 use std::{hash::Hash, ops::Range};
 
-pub mod draw;
-pub mod model;
+pub mod loaders;
 
 #[derive(
     Copy, Clone, Debug, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize,
@@ -77,6 +76,18 @@ impl MeshAttribute {
             MeshAttribute::TexCoord1(v) => v.len(),
             MeshAttribute::Tangent(v) => v.len(),
             MeshAttribute::Color(v) => v.len(),
+        }
+    }
+
+    pub fn extend(&mut self, other: &Self) {
+        match (self, other) {
+            (MeshAttribute::Position(a), MeshAttribute::Position(b)) => a.extend_from_slice(b),
+            (MeshAttribute::Normal(a), MeshAttribute::Normal(b)) => a.extend_from_slice(b),
+            (MeshAttribute::TexCoord0(a), MeshAttribute::TexCoord0(b)) => a.extend_from_slice(b),
+            (MeshAttribute::TexCoord1(a), MeshAttribute::TexCoord1(b)) => a.extend_from_slice(b),
+            (MeshAttribute::Tangent(a), MeshAttribute::Tangent(b)) => a.extend_from_slice(b),
+            (MeshAttribute::Color(a), MeshAttribute::Color(b)) => a.extend_from_slice(b),
+            _ => (),
         }
     }
 
@@ -182,6 +193,27 @@ bitflags::bitflags! {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SubMesh {
+    pub start_vertex: u32,
+    pub vertex_count: u32,
+    pub start_index: u32,
+    pub index_count: u32,
+}
+
+impl SubMesh {
+    pub fn new(start_vertex: u32, vertex_count: u32, start_index: u32, index_count: u32) -> Self {
+        Self {
+            start_vertex,
+            vertex_count,
+            start_index,
+            index_count,
+        }
+    }
+}
+
+impl Asset for SubMesh {}
+
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct Mesh {
     topology: MeshTopology,
@@ -189,6 +221,7 @@ pub struct Mesh {
     indices: Option<Indices>,
     bounds: BoundingBox,
     read_write: ReadWrite,
+    sub_meshes: Vec<SubMesh>,
 
     #[serde(skip)]
     dirty: MeshDirty,
@@ -202,6 +235,7 @@ impl Mesh {
             indices: None,
             bounds: BoundingBox::ZERO,
             read_write,
+            sub_meshes: Vec::new(),
             dirty: MeshDirty::empty(),
         }
     }
@@ -216,6 +250,24 @@ impl Mesh {
 
     pub fn attribute(&self, kind: MeshAttributeKind) -> Option<&MeshAttribute> {
         self.attribute_index(kind).map(|i| &self.attributes[i])
+    }
+
+    pub fn attribute_mut(&mut self, kind: MeshAttributeKind) -> Option<&mut MeshAttribute> {
+        match self.attribute_index(kind) {
+            Some(i) => {
+                self.attribute_dirty(kind);
+                Some(&mut self.attributes[i])
+            }
+            None => None,
+        }
+    }
+
+    pub fn sub_meshes(&self) -> &[SubMesh] {
+        &self.sub_meshes
+    }
+
+    pub fn sub_mesh(&self, index: usize) -> Option<&SubMesh> {
+        self.sub_meshes.get(index)
     }
 
     pub fn dirty(&self) -> MeshDirty {
@@ -269,8 +321,23 @@ impl Mesh {
         self.dirty |= MeshDirty::INDICES;
     }
 
+    pub fn add_indices(&mut self, indices: Indices) {
+        match self.indices {
+            Some(ref mut i) => i.extend(indices),
+            None => self.indices = Some(indices),
+        }
+    }
+
     pub fn attribute_index(&self, kind: MeshAttributeKind) -> Option<usize> {
         self.attributes.iter().position(|a| a.kind() == kind)
+    }
+
+    pub fn add_sub_mesh(&mut self, sub_mesh: SubMesh) {
+        self.sub_meshes.push(sub_mesh);
+    }
+
+    pub fn remove_sub_mesh(&mut self, index: usize) -> SubMesh {
+        self.sub_meshes.remove(index)
     }
 
     pub fn clear(&mut self) {
@@ -283,9 +350,17 @@ impl Mesh {
     }
 
     pub fn vertex_count(&self) -> usize {
+        if self.attributes.is_empty() {
+            return 0;
+        }
+
         self.attributes
             .iter()
-            .fold(0, |len, curr| len.min(curr.len()))
+            .fold(usize::MAX, |len, curr| len.min(curr.len()))
+    }
+
+    pub fn index_count(&self) -> usize {
+        self.indices.as_ref().map_or(0, |i| i.len())
     }
 
     pub fn calculate_bounds(&mut self) {
@@ -361,6 +436,7 @@ impl Mesh {
         };
 
         MeshBuffers {
+            vertex_count: count,
             layout: attributes.into(),
             vertex_buffers: vertex_buffers.into_boxed_slice(),
             index_buffer,
@@ -424,6 +500,12 @@ impl From<&[MeshAttributeKind]> for MeshLayout {
     }
 }
 
+impl<A: AsRef<[MeshAttributeKind]>> From<&A> for MeshLayout {
+    fn from(attributes: &A) -> Self {
+        Self(attributes.as_ref().to_vec().into_boxed_slice())
+    }
+}
+
 impl std::ops::Deref for MeshLayout {
     type Target = [MeshAttributeKind];
 
@@ -432,10 +514,29 @@ impl std::ops::Deref for MeshLayout {
     }
 }
 
+impl IntoIterator for MeshLayout {
+    type Item = MeshAttributeKind;
+    type IntoIter = std::vec::IntoIter<MeshAttributeKind>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_vec().into_iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a MeshLayout {
+    type Item = &'a MeshAttributeKind;
+    type IntoIter = std::slice::Iter<'a, MeshAttributeKind>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
+    }
+}
+
 pub struct MeshBuffers {
     layout: MeshLayout,
     vertex_buffers: Box<[VertexBuffer]>,
     index_buffer: Option<Box<IndexBuffer>>,
+    vertex_count: usize,
 }
 
 impl MeshBuffers {
@@ -455,6 +556,10 @@ impl MeshBuffers {
         &self.vertex_buffers
     }
 
+    pub fn get_vertex_buffer(&self, index: usize) -> Option<&VertexBuffer> {
+        self.vertex_buffers.get(index)
+    }
+
     pub fn vertex_buffer(&self, kind: MeshAttributeKind) -> Option<&VertexBuffer> {
         self.attribute_index(kind).map(|i| &self.vertex_buffers[i])
     }
@@ -462,6 +567,10 @@ impl MeshBuffers {
     pub fn vertex_buffer_mut(&mut self, kind: MeshAttributeKind) -> Option<&mut VertexBuffer> {
         self.attribute_index(kind)
             .map(move |i| &mut self.vertex_buffers[i])
+    }
+
+    pub fn vertex_count(&self) -> usize {
+        self.vertex_count
     }
 
     pub fn index_buffer(&self) -> Option<&IndexBuffer> {
@@ -477,14 +586,16 @@ impl MeshBuffers {
         count: usize,
         flags: BufferFlags,
     ) -> VertexBuffer {
-        match attribute {
+        let buffer = match attribute {
             MeshAttribute::Position(v) => VertexBuffer::new(&v[..count], flags),
             MeshAttribute::Normal(v) => VertexBuffer::new(&v[..count], flags),
             MeshAttribute::TexCoord0(v) => VertexBuffer::new(&v[..count], flags),
             MeshAttribute::TexCoord1(v) => VertexBuffer::new(&v[..count], flags),
             MeshAttribute::Tangent(v) => VertexBuffer::new(&v[..count], flags),
             MeshAttribute::Color(v) => VertexBuffer::new(&v[..count], flags),
-        }
+        };
+
+        buffer.with_label("Mesh Vertex Buffer")
     }
 }
 
@@ -492,7 +603,7 @@ impl RenderAsset for MeshBuffers {
     type Id = AssetId;
 }
 
-impl RenderAssetExtractor for MeshBuffers {
+impl RenderAssetExtractor for Mesh {
     type Source = Mesh;
     type Target = MeshBuffers;
     type Arg = StaticSystemArg<'static, (Read<RenderDevice>, Read<RenderQueue>)>;
@@ -500,7 +611,7 @@ impl RenderAssetExtractor for MeshBuffers {
     fn extract(
         id: &AssetId,
         source: &mut Self::Source,
-        arg: &ArgItem<Self::Arg>,
+        arg: &mut ArgItem<Self::Arg>,
         assets: &mut RenderAssets<Self::Target>,
     ) -> Option<AssetUsage> {
         let (device, queue) = **arg;
@@ -521,7 +632,7 @@ impl RenderAssetExtractor for MeshBuffers {
         }
     }
 
-    fn remove(id: &AssetId, assets: &mut RenderAssets<Self::Target>) {
+    fn remove(id: &AssetId, assets: &mut RenderAssets<Self::Target>, _: &mut ArgItem<Self::Arg>) {
         assets.remove(id);
     }
 }
