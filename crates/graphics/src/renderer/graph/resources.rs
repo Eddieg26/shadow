@@ -290,24 +290,6 @@ impl RenderAsset for RenderTarget {
     type Id = ResourceId;
 }
 
-#[derive(Debug, Clone)]
-pub enum ResourceDesc {
-    Buffer(BufferDesc),
-    Texture(TextureDesc),
-}
-
-impl From<BufferDesc> for ResourceDesc {
-    fn from(desc: BufferDesc) -> Self {
-        Self::Buffer(desc)
-    }
-}
-
-impl From<TextureDesc> for ResourceDesc {
-    fn from(desc: TextureDesc) -> Self {
-        Self::Texture(desc)
-    }
-}
-
 pub struct RenderGraphResources {
     size: Size,
     prev_size: Size,
@@ -359,6 +341,14 @@ impl RenderGraphResources {
 
     pub fn import_buffer(&mut self, id: ResourceId, buffer: RenderGraphBuffer) {
         self.buffers.insert(id, buffer);
+    }
+
+    pub fn remove_texture(&mut self, id: ResourceId) -> Option<RenderGraphTexture> {
+        self.textures.remove(&id)
+    }
+
+    pub fn remove_buffer(&mut self, id: ResourceId) -> Option<RenderGraphBuffer> {
+        self.buffers.remove(&id)
     }
 
     pub fn set_size(&mut self, size: Size) {

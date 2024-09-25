@@ -15,7 +15,10 @@ use super::{
     },
     task::{max_thread_count, TaskPool},
 };
-use crate::{archetype::table::EntityRow, system::schedule::Schedule};
+use crate::{
+    archetype::table::EntityRow,
+    system::schedule::{Schedule, ScheduleId},
+};
 use event::{Event, Events};
 use std::collections::HashSet;
 
@@ -322,8 +325,8 @@ impl World {
         self.infos.deactivate(tag.into());
     }
 
-    pub fn flush(&mut self) {
-        let mut events = self.events.drain();
+    pub fn flush(&mut self, schedule: Option<ScheduleId>) {
+        let mut events = self.events.drain(schedule);
 
         while !events.is_empty() {
             for event in events {
@@ -332,7 +335,7 @@ impl World {
             }
 
             self.observers.run(self);
-            events = self.events.drain();
+            events = self.events.drain(schedule);
         }
     }
 

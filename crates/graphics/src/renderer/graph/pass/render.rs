@@ -137,7 +137,7 @@ impl RenderPass {
         ctx: &RenderContext,
         encoder: &'a mut wgpu::CommandEncoder,
     ) -> Option<RenderCommands<'a>> {
-        let frame = ctx.frame();
+        let camera = ctx.camera();
         let mut color_attachments = vec![];
         for color in self.colors.iter() {
             let view = match color.attachment {
@@ -153,7 +153,7 @@ impl RenderPass {
                 None => None,
             };
 
-            let load = match frame.camera.clear {
+            let load = match camera.clear {
                 Some(ClearFlag::Color(color)) => wgpu::LoadOp::Clear(color.into()),
                 Some(ClearFlag::Skybox) => wgpu::LoadOp::Load,
                 None => match color.clear {

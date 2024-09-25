@@ -195,7 +195,7 @@ impl Schedule {
         let ctx = RunContext::new(world, graphs, system_runner);
         phase_runner.run(ctx);
 
-        world.flush();
+        world.flush(Some(self.id));
 
         for child in self.children.values() {
             child.run(world, systems);

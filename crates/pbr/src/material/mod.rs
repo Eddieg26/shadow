@@ -104,10 +104,6 @@ pub struct MaterialInstance {
 
 impl RenderAsset for MaterialInstance {
     type Id = AssetId;
-
-    fn world() -> graphics::resources::RenderAssetWorld {
-        graphics::resources::RenderAssetWorld::Main
-    }
 }
 
 #[derive(Debug, Default)]

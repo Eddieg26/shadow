@@ -228,16 +228,21 @@ pub struct Mesh {
 }
 
 impl Mesh {
-    pub fn new(topology: MeshTopology, read_write: ReadWrite) -> Self {
+    pub fn new(topology: MeshTopology) -> Self {
         Self {
             topology,
             attributes: Vec::new(),
             indices: None,
             bounds: BoundingBox::ZERO,
-            read_write,
+            read_write: ReadWrite::Disabled,
             sub_meshes: Vec::new(),
             dirty: MeshDirty::empty(),
         }
+    }
+
+    pub fn with_read_write(mut self, read_write: ReadWrite) -> Self {
+        self.read_write = read_write;
+        self
     }
 
     pub fn topology(&self) -> MeshTopology {
@@ -412,8 +417,7 @@ impl Mesh {
         };
 
         for attribute in self.attributes() {
-            let mut buffer = MeshBuffers::create_vertex_buffer(attribute, count, flags);
-            buffer.create(device);
+            let buffer = MeshBuffers::create_vertex_buffer(device, attribute, count, flags);
             vertex_buffers.push(buffer);
             attributes.push(attribute.kind());
         }
@@ -428,8 +432,7 @@ impl Mesh {
 
         let index_buffer = match indices {
             Some(indices) => {
-                let mut buffer = IndexBuffer::new(indices, flags);
-                buffer.create(device);
+                let buffer = IndexBuffer::new(device, indices, flags);
                 Some(Box::new(buffer))
             }
             None => None,
@@ -449,20 +452,32 @@ impl Mesh {
         device: &RenderDevice,
         queue: &RenderQueue,
     ) {
-        let len = self.vertex_count();
+        let vertex_count = self.vertex_count();
+        buffers.vertex_count = vertex_count;
         for values in self.attributes.iter() {
             if self.is_attribute_dirty(values.kind()) {
                 match buffers.vertex_buffer_mut(values.kind()) {
                     Some(buffer) => {
                         match values {
-                            MeshAttribute::Position(v) => buffer.set(&v[..len]),
-                            MeshAttribute::Normal(v) => buffer.set(&v[..len]),
-                            MeshAttribute::TexCoord0(v) => buffer.set(&v[..len]),
-                            MeshAttribute::TexCoord1(v) => buffer.set(&v[..len]),
-                            MeshAttribute::Tangent(v) => buffer.set(&v[..len]),
-                            MeshAttribute::Color(v) => buffer.set(&v[..len]),
+                            MeshAttribute::Position(v) => {
+                                buffer.update(device, queue, 0, &v[..vertex_count])
+                            }
+                            MeshAttribute::Normal(v) => {
+                                buffer.update(device, queue, 0, &v[..vertex_count])
+                            }
+                            MeshAttribute::TexCoord0(v) => {
+                                buffer.update(device, queue, 0, &v[..vertex_count])
+                            }
+                            MeshAttribute::TexCoord1(v) => {
+                                buffer.update(device, queue, 0, &v[..vertex_count])
+                            }
+                            MeshAttribute::Tangent(v) => {
+                                buffer.update(device, queue, 0, &v[..vertex_count])
+                            }
+                            MeshAttribute::Color(v) => {
+                                buffer.update(device, queue, 0, &v[..vertex_count])
+                            }
                         }
-                        buffer.commit(device, queue);
                         self.dirty.remove(MeshDirty::POSITION);
                     }
                     _ => (),
@@ -473,8 +488,7 @@ impl Mesh {
         if self.dirty.contains(MeshDirty::INDICES) {
             match (buffers.index_buffer_mut(), self.indices()) {
                 (Some(index), Some(indices)) => {
-                    index.set(indices.clone());
-                    index.commit(device, queue);
+                    index.update(device, queue, 0, indices);
                     self.dirty.remove(MeshDirty::INDICES);
                 }
                 _ => (),
@@ -582,20 +596,19 @@ impl MeshBuffers {
     }
 
     fn create_vertex_buffer(
+        device: &RenderDevice,
         attribute: &MeshAttribute,
         count: usize,
         flags: BufferFlags,
     ) -> VertexBuffer {
-        let buffer = match attribute {
-            MeshAttribute::Position(v) => VertexBuffer::new(&v[..count], flags),
-            MeshAttribute::Normal(v) => VertexBuffer::new(&v[..count], flags),
-            MeshAttribute::TexCoord0(v) => VertexBuffer::new(&v[..count], flags),
-            MeshAttribute::TexCoord1(v) => VertexBuffer::new(&v[..count], flags),
-            MeshAttribute::Tangent(v) => VertexBuffer::new(&v[..count], flags),
-            MeshAttribute::Color(v) => VertexBuffer::new(&v[..count], flags),
-        };
-
-        buffer.with_label("Mesh Vertex Buffer")
+        match attribute {
+            MeshAttribute::Position(v) => VertexBuffer::new(device, &v[..count], flags),
+            MeshAttribute::Normal(v) => VertexBuffer::new(device, &v[..count], flags),
+            MeshAttribute::TexCoord0(v) => VertexBuffer::new(device, &v[..count], flags),
+            MeshAttribute::TexCoord1(v) => VertexBuffer::new(device, &v[..count], flags),
+            MeshAttribute::Tangent(v) => VertexBuffer::new(device, &v[..count], flags),
+            MeshAttribute::Color(v) => VertexBuffer::new(device, &v[..count], flags),
+        }
     }
 }
 

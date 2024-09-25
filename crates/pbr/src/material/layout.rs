@@ -59,7 +59,6 @@ impl GlobalBinding {
 
         let mut camera = UniformBufferArray::<CameraData>::new(BufferFlags::COPY_DST);
         camera.push(CameraData::default());
-        camera.create(device);
 
         let binding = BindGroup::create(
             device,
@@ -93,10 +92,18 @@ impl GlobalBinding {
 
 impl Resource for GlobalBinding {}
 
-#[derive(Debug, Default, Clone, Copy, bytemuck::Zeroable, bytemuck::Pod)]
+#[derive(Debug, Clone, Copy, bytemuck::Zeroable, bytemuck::Pod)]
 #[repr(C)]
 pub struct ObjectModel {
     pub world: glam::Mat4,
+}
+
+impl Default for ObjectModel {
+    fn default() -> Self {
+        Self {
+            world: glam::Mat4::IDENTITY,
+        }
+    }
 }
 
 impl From<glam::Mat4> for ObjectModel {
@@ -130,16 +137,18 @@ impl ObjectBinding {
             }),
         );
 
-        let mut object =
-            UniformBuffer::<ObjectModel>::new(ObjectModel::default(), BufferFlags::COPY_DST);
-        object.create(device);
+        let object = UniformBuffer::<ObjectModel>::new(
+            device,
+            ObjectModel::default(),
+            BufferFlags::COPY_DST,
+        );
 
         let binding = BindGroup::create(
             device,
             &layout.clone(),
             &[wgpu::BindGroupEntry {
                 binding: 0,
-                resource: object.binding().unwrap(),
+                resource: object.binding(),
             }],
             layout,
         );

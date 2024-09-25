@@ -164,7 +164,7 @@ impl SubAppWorld {
         let main_world = {
             let mut world = self.world.write().unwrap();
             world.add_resource(main_world);
-            world.flush();
+            world.flush(None);
             world.run(Extract);
             world
                 .remove_resource::<MainWorld>()

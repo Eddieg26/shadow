@@ -47,7 +47,8 @@ impl AssetImporter for ObjImporter {
             },
         )?;
 
-        let mut mesh = Mesh::new(MeshTopology::TriangleList, ctx.settings().read_write);
+        let mut mesh =
+            Mesh::new(MeshTopology::TriangleList).with_read_write(ctx.settings().read_write);
 
         for model in models {
             let start_vertex = mesh.vertex_count() as u32;

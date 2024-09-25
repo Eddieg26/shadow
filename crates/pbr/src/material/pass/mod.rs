@@ -21,7 +21,7 @@ use graphics::{
     },
     resources::{mesh::MeshBuffers, RenderAssets},
 };
-use spatial::{bounds::BoundingBox, partition::Partition};
+use spatial::bounds::BoundingBox;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ForwardSubPass {
@@ -82,7 +82,7 @@ impl RenderGraphNode for ForwardPass {
             }
         }
 
-        ctx.submit(encoder.finish());
+        ctx.submit(encoder);
     }
 }
 
@@ -112,13 +112,13 @@ impl<'a> RenderGroupContext<'a> {
     }
 
     #[inline]
-    pub fn frame_index(&self) -> usize {
-        self.ctx.frame_index()
+    pub fn camera_index(&self) -> usize {
+        self.ctx.camera_index()
     }
 
     #[inline]
-    pub fn frame_count(&self) -> usize {
-        self.ctx.frame_count()
+    pub fn camera_count(&self) -> usize {
+        self.ctx.camera_count()
     }
 
     #[inline]
@@ -232,74 +232,6 @@ impl DrawMeshQuery {
     }
 }
 
-pub struct DrawMeshPartition {
-    items: [Vec<DrawMesh>; 4],
-}
-
-impl DrawMeshPartition {
-    pub fn new() -> Self {
-        Self {
-            items: [Vec::new(), Vec::new(), Vec::new(), Vec::new()],
-        }
-    }
-
-    pub fn item_index(mode: BlendMode, model: ShaderModel) -> usize {
-        match (mode, model) {
-            (BlendMode::Opaque, ShaderModel::Unlit) => 0,
-            (BlendMode::Opaque, ShaderModel::Lit) => 1,
-            (BlendMode::Transparent, ShaderModel::Unlit) => 2,
-            (BlendMode::Transparent, ShaderModel::Lit) => 3,
-        }
-    }
-}
-
-impl Partition for DrawMeshPartition {
-    type Item = DrawMesh;
-    type Query = DrawMeshQuery;
-
-    fn insert(&mut self, item: Self::Item) {
-        let index = Self::item_index(item.mode(), item.model());
-        self.items[index].push(item);
-    }
-
-    fn items(&self) -> impl Iterator<Item = &Self::Item> {
-        self.items.iter().flat_map(|items| items.iter())
-    }
-
-    fn query(&self, query: &Self::Query) -> Vec<&Self::Item> {
-        match (query.blend_mode, query.model) {
-            (Some(blend_mode), Some(model)) => {
-                let index = Self::item_index(blend_mode, model);
-                self.items[index].iter().collect()
-            }
-            (Some(blend_mode), None) => match blend_mode {
-                BlendMode::Opaque => self.items[0].iter().chain(self.items[1].iter()).collect(),
-                BlendMode::Transparent => {
-                    self.items[2].iter().chain(self.items[3].iter()).collect()
-                }
-            },
-            (None, Some(model)) => match model {
-                ShaderModel::Unlit => self.items[0].iter().chain(self.items[2].iter()).collect(),
-                ShaderModel::Lit => self.items[1].iter().chain(self.items[3].iter()).collect(),
-            },
-            (None, None) => return Vec::new(),
-        }
-    }
-
-    fn drain(&mut self) -> Vec<Self::Item> {
-        self.items
-            .iter_mut()
-            .flat_map(|items| items.drain(..))
-            .collect()
-    }
-
-    fn clear(&mut self) {
-        for items in &mut self.items {
-            items.clear();
-        }
-    }
-}
-
 pub struct Opaque3D;
 impl MaterialPipeline for Opaque3D {
     fn depth_write() -> DepthWrite {
@@ -330,21 +262,17 @@ impl MaterialPipeline for Transparent3D {
     }
 }
 
-impl Draw for DrawMesh {
-    type Partition = DrawMeshPartition;
-}
+impl Draw for DrawMesh {}
 
 pub struct RenderMeshGroup<M: MaterialPipeline> {
     key: MaterialPipelineKey,
-    query: DrawMeshQuery,
     _marker: std::marker::PhantomData<M>,
 }
 
 impl<M: MaterialPipeline> RenderMeshGroup<M> {
-    pub fn new(model: ShaderModel, mode: BlendMode) -> Self {
+    pub fn new() -> Self {
         Self {
             key: MaterialPipelineKey::of::<M>(),
-            query: DrawMeshQuery::new().with_model(model).with_blend_mode(mode),
             _marker: std::marker::PhantomData,
         }
     }
@@ -353,7 +281,6 @@ impl<M: MaterialPipeline> RenderMeshGroup<M> {
 impl<M: MaterialPipeline> RenderGroup for RenderMeshGroup<M> {
     fn render<'a>(&self, ctx: &'a RenderGroupContext<'a>, commands: &mut RenderCommands<'a>) {
         let calls = ctx.resource::<DrawCalls<DrawMesh>>();
-        let filtered = calls.query(&self.query);
         let global = ctx.resource::<GlobalBinding>();
         let object = ctx.resource_mut::<ObjectBinding>();
         let mesh_buffers = ctx.resource::<RenderAssets<MeshBuffers>>();
@@ -364,7 +291,7 @@ impl<M: MaterialPipeline> RenderGroup for RenderMeshGroup<M> {
             Some(pipelines) => pipelines,
             None => return,
         };
-        for mesh in filtered {
+        for mesh in calls.iter() {
             let pipeline = match material_pipelines.pipeline(mesh.material.ty) {
                 Some(pipeline) => pipeline,
                 None => continue,
@@ -376,33 +303,25 @@ impl<M: MaterialPipeline> RenderGroup for RenderMeshGroup<M> {
             };
 
             for (slot, attribute) in material_pipelines.layout().iter().enumerate() {
-                let index = match buffers.attribute_index(*attribute) {
-                    Some(index) => index,
-                    None => continue,
-                };
-
-                let vertex_buffer = buffers.get_vertex_buffer(index).unwrap();
-                if let Some(buffer) = vertex_buffer.buffer() {
+                if let Some(index) = buffers.attribute_index(*attribute) {
+                    let buffer = buffers.get_vertex_buffer(index).unwrap();
                     commands.set_vertex_buffer(buffer.global_id(), slot as u32, buffer.slice(..))
                 }
             }
 
             object
                 .object_mut()
-                .update(ObjectModel::from(mesh.transform));
-            object.object_mut().commit(ctx.device(), ctx.queue());
+                .update(ctx.queue(), ObjectModel::from(mesh.transform));
 
             commands.set_pipeline(pipeline);
-            commands.set_bind_group(CAMERA_GROUP, global.binding(), &[ctx.frame_index() as u32]);
+            commands.set_bind_group(CAMERA_GROUP, global.binding(), &[ctx.camera_index() as u32]);
             commands.set_bind_group(OBJECT_GROUP, object.binding(), &[]);
             commands.set_bind_group(MATERIAL_GROUP, &mesh.material.binding, &[]);
 
-            if let Some(index) = buffers.index_buffer() {
-                if let Some(buffer) = index.buffer() {
-                    let format = index.indices().format();
-                    commands.set_index_buffer(buffer.global_id(), buffer.slice(..), format);
-                    commands.draw_indexed(0..index.indices().len() as u32, 0, 0..1);
-                }
+            if let Some(buffer) = buffers.index_buffer() {
+                let format = buffer.format();
+                commands.set_index_buffer(buffer.global_id(), buffer.slice(..), format);
+                commands.draw_indexed(0..buffer.len() as u32, 0, 0..1);
             } else {
                 commands.draw(0..buffers.vertex_count() as u32, 0..1);
             }

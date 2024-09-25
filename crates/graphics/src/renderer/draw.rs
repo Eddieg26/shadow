@@ -1,39 +1,26 @@
-use ecs::core::Resource;
-use spatial::partition::Partition;
+use ecs::{
+    core::Resource,
+    system::{ArgItem, SystemArg},
+};
+use spatial::Partition;
 
-pub trait Draw: Send + Sync + 'static {
-    type Partition: Partition<Item = Self> + Send + Sync;
-}
-
-impl Draw for () {
-    type Partition = Vec<()>;
-}
+pub trait Draw: Send + Sync + 'static {}
 
 pub struct DrawCalls<D: Draw> {
-    calls: D::Partition,
+    calls: Vec<D>,
 }
 
 impl<D: Draw> DrawCalls<D> {
-    pub fn new(partition: D::Partition) -> Self {
-        Self { calls: partition }
+    pub fn new() -> Self {
+        Self { calls: vec![] }
     }
 
     pub fn add(&mut self, draw: D) {
-        self.calls.insert(draw);
+        self.calls.push(draw);
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &D> {
         self.calls.items()
-    }
-
-    pub fn query(&self, query: &<D::Partition as Partition>::Query) -> Vec<&D> {
-        self.calls.query(query)
-    }
-
-    pub fn extract(&mut self, other: &mut Self) {
-        for call in other.calls.drain() {
-            self.calls.insert(call);
-        }
     }
 
     pub fn clear(&mut self) {
@@ -42,3 +29,10 @@ impl<D: Draw> DrawCalls<D> {
 }
 
 impl<D: Draw> Resource for DrawCalls<D> {}
+
+pub trait DrawCallExtractor: 'static {
+    type Draw: Draw;
+    type Arg: SystemArg;
+
+    fn extract(draw: &mut DrawCalls<Self::Draw>, arg: &ArgItem<Self::Arg>);
+}

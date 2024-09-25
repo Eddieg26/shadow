@@ -99,71 +99,107 @@ impl MeshShader {
     }
 
     pub fn generate(&self) -> ShaderSource {
-        let mut outputs: HashMap<NodeId, Vec<ShaderOutput>> = HashMap::new();
-        let mut attributes = vec![];
-        for input in self.inputs() {
-            attributes.push(input.attribute());
-            let output = snippets::vertex_input(*input);
-            let id = input.id();
-            outputs.entry(id).or_insert(vec![]).push(output);
-        }
+        // let mut outputs: HashMap<NodeId, Vec<ShaderOutput>> = HashMap::new();
+        // let mut attributes = vec![];
+        // for input in self.inputs() {
+        //     attributes.push(input.attribute());
+        //     let output = snippets::vertex_input(*input);
+        //     let id = input.id();
+        //     outputs.entry(id).or_insert(vec![]).push(output);
+        // }
 
-        let mut definitions = String::new();
-        definitions += &snippets::define_camera(CAMERA_GROUP, CAMERA_BINDING);
-        definitions += &snippets::define_object(OBJECT_GROUP, OBJECT_BINDING);
-        definitions += &snippets::define_vertex_input(&self.inputs);
-        definitions += &snippets::define_vertex_output();
+        // let mut definitions = String::new();
+        // definitions += &snippets::define_camera(CAMERA_GROUP, CAMERA_BINDING);
+        // definitions += &snippets::define_object(OBJECT_GROUP, OBJECT_BINDING);
+        // definitions += &snippets::define_vertex_input(&self.inputs);
+        // definitions += &snippets::define_vertex_output();
 
-        let (node_inputs, vertex_outputs) = self.get_order();
+        // let (node_inputs, vertex_outputs) = self.get_order();
 
-        let mut body = String::new();
-        for (index, inputs) in node_inputs {
-            let node = self.nodes[index].as_ref();
-            let inputs = inputs
-                .iter()
-                .map(|input| match input {
-                    Some(input) => outputs
-                        .get(&input.node)
-                        .and_then(|outputs| outputs.get(input.slot)),
-                    None => None,
-                })
-                .collect::<Vec<_>>();
+        // let mut body = String::new();
+        // for (index, inputs) in node_inputs {
+        //     let node = self.nodes[index].as_ref();
+        //     let inputs = inputs
+        //         .iter()
+        //         .map(|input| match input {
+        //             Some(input) => outputs
+        //                 .get(&input.node)
+        //                 .and_then(|outputs| outputs.get(input.slot)),
+        //             None => None,
+        //         })
+        //         .collect::<Vec<_>>();
 
-            let mut output = match node.execute(&inputs) {
-                Some(output) => output,
-                None => continue,
-            };
+        //     let mut output = match node.execute(&inputs) {
+        //         Some(output) => output,
+        //         None => continue,
+        //     };
 
-            body += &output.code;
+        //     body += &output.code;
 
-            let mut node_outputs = vec![];
-            for output in output.outputs.drain(..) {
-                node_outputs.push(output);
-            }
+        //     let mut node_outputs = vec![];
+        //     for output in output.outputs.drain(..) {
+        //         node_outputs.push(output);
+        //     }
 
-            outputs.insert(node.id(), node_outputs);
-        }
+        //     outputs.insert(node.id(), node_outputs);
+        // }
 
-        for (attribute, input) in vertex_outputs {
-            let output = match outputs
-                .get(&input.node)
-                .and_then(|outputs| outputs.get(input.slot))
-            {
-                Some(output) => output,
-                None => continue,
-            };
+        // for (attribute, input) in vertex_outputs {
+        //     let output = match outputs
+        //         .get(&input.node)
+        //         .and_then(|outputs| outputs.get(input.slot))
+        //     {
+        //         Some(output) => output,
+        //         None => continue,
+        //     };
 
-            let value = match snippets::convert_input(output, attribute.property()) {
-                Some(v) => v,
-                None => continue,
-            };
+        //     let value = match snippets::convert_input(output, attribute.property()) {
+        //         Some(v) => v,
+        //         None => continue,
+        //     };
 
-            let code = format!("{}.{} = {};", VERTEX_OUTPUT, attribute.name(), value);
-            body += &code;
-        }
+        //     let code = format!("{}.{} = {};", VERTEX_OUTPUT, attribute.name(), value);
+        //     body += &code;
+        // }
 
-        let vertex_body = snippets::define_vertex_body(body);
-        let source = format!("{}{}", definitions, vertex_body);
+        // let vertex_body = snippets::define_vertex_body(body);
+        // let source = format!("{}{}", definitions, vertex_body);
+
+        let source = format!(
+            r#"
+            struct VertexInput {{
+                @location(0) position: vec3<f32>,
+                @location(1) uv_0: vec3<f32>,
+            }}
+
+            struct Camera {{
+                view: mat4x4<f32>,
+                projection: mat4x4<f32>,
+                position: vec3<f32>,
+            }}
+
+            struct Object {{
+                world: mat4x4<f32>,
+            }}
+
+            @group(0) @binding(0) var<uniform> camera: Camera;
+            @group(1) @binding(0) var<uniform> object: Object;
+
+            struct VertexOutput {{
+                @builtin(position) clip_position: vec4<f32>,
+                @location(0) position: vec3<f32>,
+                @location(1) normal: vec3<f32>,
+                @location(2) uv_0: vec3<f32>,
+            }}
+
+            @vertex
+            fn main(input: VertexInput) -> VertexOutput {{
+                var output: VertexOutput;
+                output.clip_position = camera.projection * camera.view * object.world * vec4<f32>(input.position, 1.0);
+                return output;
+            }}
+        "#
+        );
 
         ShaderSource::Wgsl(source.into())
     }

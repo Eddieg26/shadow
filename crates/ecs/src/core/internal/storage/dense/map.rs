@@ -31,6 +31,14 @@ impl<K: Hash + Eq, V> DenseMap<K, V> {
         self.map.get(&key).map(|&index| &mut self.values[index])
     }
 
+    pub fn get_by_index(&self, index: usize) -> (&K, &V) {
+        (&self.keys[index], &self.values[index])
+    }
+
+    pub fn get_by_index_mut(&mut self, index: usize) -> (&K, &mut V) {
+        (&self.keys[index], &mut self.values[index])
+    }
+
     pub fn insert(&mut self, key: K, value: V) -> Option<V> {
         let hash = hash_value(&key);
         if let Some(old) = self.map.get(&hash) {

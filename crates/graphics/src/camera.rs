@@ -1,10 +1,8 @@
-use crate::{
-    core::Color,
-    resources::buffer::{BufferFlags, UniformBuffer},
-};
+use crate::{core::Color, resources::RenderAsset};
 use asset::AssetId;
-use ecs::core::{Component, Resource};
-use glam::{UVec2, Vec2, Vec3};
+use ecs::core::Component;
+use glam::{Vec2, Vec3};
+use spatial::Size;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ClearFlag {
@@ -14,7 +12,7 @@ pub enum ClearFlag {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Viewport {
-    pub position: UVec2,
+    pub position: Size,
     pub size: Vec2,
     pub depth: i32,
 }
@@ -22,7 +20,7 @@ pub struct Viewport {
 impl Default for Viewport {
     fn default() -> Self {
         Self {
-            position: UVec2::ZERO,
+            position: Size::ZERO,
             size: Vec2::new(1.0, 1.0),
             depth: 0,
         }
@@ -67,6 +65,14 @@ impl Default for Camera {
                 near: 0.3,
                 far: 1000.0,
             },
+            // projection: Projection::Orthographic {
+            //     left: -1.0,
+            //     right: 1.0,
+            //     bottom: -1.0,
+            //     top: 1.0,
+            //     near: 0.3,
+            //     far: 1000.0,
+            // },
             target: None,
             depth: 0,
         }
@@ -75,39 +81,67 @@ impl Default for Camera {
 
 impl Component for Camera {}
 
-#[derive(Debug, Clone, Copy, Default, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 #[repr(C)]
 pub struct CameraData {
-    pub view: [f32; 16],
-    pub projection: [f32; 16],
-    pub world: [f32; 3],
+    pub view: glam::Mat4,
+    pub projection: glam::Mat4,
+    pub world: glam::Vec3,
     pub _padding: f32,
 }
 
 impl CameraData {
     pub fn new(view: glam::Mat4, projection: glam::Mat4, world: glam::Vec3) -> Self {
         Self {
-            view: view.to_cols_array(),
-            projection: projection.to_cols_array(),
-            world: world.to_array(),
+            view,
+            projection,
+            world,
+            _padding: 0.0,
+        }
+    }
+}
+
+impl Default for CameraData {
+    fn default() -> Self {
+        Self {
+            view: glam::Mat4::IDENTITY,
+            projection: glam::Mat4::IDENTITY,
+            world: Vec3::ZERO,
             _padding: 0.0,
         }
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct RenderFrame {
-    pub camera: Camera,
-    pub buffer: CameraData,
+pub struct RenderCamera {
+    pub clear: Option<ClearFlag>,
+    pub viewport: Viewport,
+    pub projection: Projection,
+    pub target: Option<AssetId>,
+    pub depth: u32,
+    pub data: CameraData,
 }
 
-impl RenderFrame {
-    pub fn new(camera: Camera, world: glam::Mat4) -> Self {
+impl RenderCamera {
+    pub fn new(camera: &Camera, world: glam::Mat4) -> Self {
         let (_, rotation, translation) = world.to_scale_rotation_translation();
         let view =
             glam::Mat4::from_scale_rotation_translation(Vec3::ONE, rotation, translation).inverse();
 
-        let projection = match camera.projection {
+        let projection = Self::calculate_projection(camera.projection);
+
+        Self {
+            clear: camera.clear,
+            viewport: camera.viewport,
+            projection: camera.projection,
+            target: camera.target,
+            depth: camera.depth,
+            data: CameraData::new(view, projection, translation),
+        }
+    }
+
+    fn calculate_projection(projection: Projection) -> glam::Mat4 {
+        match projection {
             Projection::Orthographic {
                 left,
                 right,
@@ -122,92 +156,26 @@ impl RenderFrame {
                 near,
                 far,
             } => glam::Mat4::perspective_rh(fov.to_radians(), aspect, near, far),
-        };
-
-        let buffer = CameraData::new(view, projection, translation);
-
-        Self { camera, buffer }
-    }
-}
-
-impl Default for RenderFrame {
-    fn default() -> Self {
-        Self {
-            camera: Camera::default(),
-            buffer: CameraData::default(),
         }
     }
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct RenderFrames {
-    frames: Vec<RenderFrame>,
-}
-
-impl RenderFrames {
-    pub fn new() -> Self {
-        Self { frames: Vec::new() }
-    }
-
-    pub fn add(&mut self, frame: RenderFrame) {
-        self.frames.push(frame);
-    }
-
-    pub fn clear(&mut self) {
-        self.frames.clear();
-    }
-
-    pub fn extract(&mut self, other: &mut Self) {
-        self.frames = std::mem::take(&mut other.frames);
-        self.frames
-            .sort_by(|a, b| a.camera.depth.cmp(&b.camera.depth));
-    }
-
-    pub fn frames(&self) -> &[RenderFrame] {
-        &self.frames
-    }
-
-    pub fn len(&self) -> usize {
-        self.frames.len()
-    }
-
-    pub fn drain(&mut self) -> std::vec::Drain<RenderFrame> {
-        self.frames.drain(..)
-    }
-}
-
-impl std::ops::Index<usize> for RenderFrames {
-    type Output = RenderFrame;
-
-    fn index(&self, index: usize) -> &Self::Output {
-        &self.frames[index]
-    }
-}
-
-impl IntoIterator for RenderFrames {
-    type Item = RenderFrame;
-    type IntoIter = std::vec::IntoIter<Self::Item>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.frames.into_iter()
-    }
-}
-
-impl<'a> IntoIterator for &'a RenderFrames {
-    type Item = &'a RenderFrame;
-    type IntoIter = std::slice::Iter<'a, RenderFrame>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.frames.iter()
-    }
-}
-
-impl Resource for RenderFrames {}
-
-pub type CameraBuffer = UniformBuffer<CameraData>;
-impl Resource for CameraBuffer {}
-impl Default for CameraBuffer {
+impl Default for RenderCamera {
     fn default() -> Self {
-        CameraBuffer::new(CameraData::default(), BufferFlags::COPY_DST)
+        let camera = Camera::default();
+        let projection = Self::calculate_projection(camera.projection);
+
+        Self {
+            clear: camera.clear,
+            viewport: camera.viewport,
+            projection: camera.projection,
+            target: camera.target,
+            depth: camera.depth,
+            data: CameraData::new(glam::Mat4::IDENTITY, projection, Vec3::ZERO),
+        }
     }
+}
+
+impl RenderAsset for RenderCamera {
+    type Id = u32;
 }

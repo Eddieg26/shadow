@@ -2127,6 +2127,7 @@ name = "spatial"
 version = "0.0.0"
 dependencies = [
  "ecs",
+ "game",
  "glam",
  "serde",
 ]

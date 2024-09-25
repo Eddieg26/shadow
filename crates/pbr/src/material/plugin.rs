@@ -1,14 +1,14 @@
 use super::{
     extractor::MaterialExtractor,
     layout::{GlobalBinding, MaterialLayout, ObjectBinding},
-    pass::{DrawMesh, DrawMeshPartition, ForwardPass},
+    pass::{DrawMesh, ForwardPass},
     pipeline::{MaterialPipeline, MaterialPipelineRegistry, MaterialPipelines},
     Material, MaterialInstance, MaterialTypeTracker,
 };
 use ecs::world::event::{AddResource, Events};
 use game::{Game, Plugin, Plugins};
 use graphics::{
-    camera::RenderFrames,
+    camera::RenderCamera,
     core::{RenderDevice, RenderQueue},
     plugin::{GraphicsExt, GraphicsPlugin, PreRender, RenderApp, SurfaceCreated},
     renderer::graph::RenderGraphBuilder,
@@ -27,7 +27,7 @@ impl Plugin for MaterialPlugin {
     fn start(&self, game: &mut game::Game) {
         game.register_event::<AddResource<GlobalBinding>>();
         game.register_event::<AddResource<ObjectBinding>>();
-        game.add_draw_calls::<DrawMesh>(DrawMeshPartition::new);
+        game.add_draw_calls::<DrawMesh>();
         game.resource_mut::<RenderGraphBuilder>()
             .add_node(ForwardPass::new());
 
@@ -60,16 +60,16 @@ fn create_resources(
 fn update_camera_buffer(
     device: &RenderDevice,
     queue: &RenderQueue,
-    frames: &RenderFrames,
+    cameras: &RenderAssets<RenderCamera>,
     global: &mut GlobalBinding,
 ) {
-    let len = global.camera_mut().len().min(frames.len());
+    let len = global.camera_mut().len().min(cameras.len());
     for index in 0..len {
-        global.camera_mut().update(index, frames[index].buffer);
+        global.camera_mut().set(index, cameras[index].data);
     }
 
-    for index in len..frames.len() {
-        global.camera_mut().push(frames[index].buffer);
+    for index in len..cameras.len() {
+        global.camera_mut().push(cameras[index].data);
     }
 
     global.camera_mut().commit(device, queue);

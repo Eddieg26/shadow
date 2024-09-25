@@ -1,5 +1,8 @@
 use super::World;
-use crate::core::{internal::blob::BlobCell, DenseMap, DenseSet, Resource};
+use crate::{
+    core::{internal::blob::BlobCell, DenseMap, DenseSet, Resource},
+    system::schedule::ScheduleId,
+};
 use std::{
     any::TypeId,
     hash::Hash,
@@ -138,6 +141,7 @@ impl EventMetas {
 #[derive(Clone)]
 pub struct Events {
     events: Arc<Mutex<Vec<ErasedEvent>>>,
+    deferred: Arc<Mutex<DenseMap<ScheduleId, Vec<ErasedEvent>>>>,
     metas: Arc<RwLock<EventMetas>>,
     invocations: Arc<RwLock<DenseSet<EventInvocation>>>,
 }
@@ -146,6 +150,7 @@ impl Events {
     pub fn new() -> Self {
         Self {
             events: Arc::default(),
+            deferred: Arc::default(),
             metas: Arc::default(),
             invocations: Arc::default(),
         }
@@ -175,14 +180,24 @@ impl Events {
         events.push(event.into());
     }
 
+    pub fn add_deferred(&self, schedule: ScheduleId, event: impl Into<ErasedEvent>) {
+        let mut deferred = self.deferred.lock().unwrap();
+        match deferred.get_mut(&schedule) {
+            Some(events) => events.push(event.into()),
+            None => {
+                deferred.insert(schedule, vec![event.into()]);
+            }
+        }
+    }
+
     pub fn extend(&self, events: Vec<impl Into<ErasedEvent>>) {
         let mut _events = self.events.lock().unwrap();
         _events.extend(events.into_iter().map(|e| e.into()));
     }
 
     pub fn remove<E: Event>(&self) -> Vec<ErasedEvent> {
+        let mut drained = vec![];
         let mut events = self.events.lock().unwrap();
-        let mut drained = Vec::new();
         let mut index = 0;
         while index < events.len() {
             if events[index].ty == TypeId::of::<E>() {
@@ -195,9 +210,16 @@ impl Events {
         drained
     }
 
-    pub fn drain(&self) -> Vec<ErasedEvent> {
+    pub fn drain(&self, schedule: Option<ScheduleId>) -> Vec<ErasedEvent> {
+        let mut deferred = self.deferred.lock().unwrap();
+        let mut drained = {
+            schedule
+                .and_then(|id| deferred.remove(&id))
+                .unwrap_or_default()
+        };
         let mut events = self.events.lock().unwrap();
-        events.drain(..).collect::<Vec<_>>()
+        drained.extend(events.drain(..));
+        drained
     }
 
     pub(crate) fn invoked<E: Event>(&self) {

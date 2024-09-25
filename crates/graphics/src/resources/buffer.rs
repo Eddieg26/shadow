@@ -1,5 +1,3 @@
-use std::num::NonZero;
-
 use crate::core::{RenderDevice, RenderQueue};
 use wgpu::util::DeviceExt;
 
@@ -18,6 +16,13 @@ impl Indices {
         match self {
             Indices::U16(v) => v.len(),
             Indices::U32(v) => v.len(),
+        }
+    }
+
+    pub fn size(&self) -> usize {
+        match self {
+            Indices::U16(v) => std::mem::size_of::<u16>() * v.len(),
+            Indices::U32(v) => std::mem::size_of::<u32>() * v.len(),
         }
     }
 
@@ -138,61 +143,307 @@ impl<'de> serde::Deserialize<'de> for BufferFlags {
 pub trait Vertex: bytemuck::Pod + bytemuck::Zeroable + 'static {}
 
 pub struct VertexBuffer {
-    label: Option<&'static str>,
-    buffer: Option<wgpu::Buffer>,
-    data: Vec<u8>,
+    buffer: wgpu::Buffer,
     flags: BufferFlags,
-    size: usize,
-    dirty: bool,
+    len: u64,
 }
 
 impl VertexBuffer {
-    pub fn new<V: Vertex>(vertices: &[V], flags: BufferFlags) -> Self {
-        Self {
+    pub fn new<V: Vertex>(device: &RenderDevice, vertices: &[V], flags: BufferFlags) -> Self {
+        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: None,
-            buffer: None,
-            data: bytemuck::cast_slice(vertices).to_vec(),
-            flags,
-            size: std::mem::size_of::<V>(),
-            dirty: false,
-        }
+            contents: bytemuck::cast_slice(vertices),
+            usage: flags.usages(BufferKind::Vertex),
+        });
+
+        let len = vertices.len() as u64;
+
+        Self { buffer, flags, len }
     }
 
-    pub fn with_label(mut self, label: &'static str) -> Self {
-        self.label = Some(label);
-        self
+    pub fn id(&self) -> wgpu::Id<wgpu::Buffer> {
+        self.buffer.global_id()
     }
 
-    pub fn label(&self) -> Option<&'static str> {
-        self.label
-    }
-
-    pub fn buffer(&self) -> Option<&wgpu::Buffer> {
-        self.buffer.as_ref()
-    }
-
-    pub fn data(&self) -> &[u8] {
-        &self.data
+    pub fn buffer(&self) -> &wgpu::Buffer {
+        &self.buffer
     }
 
     pub fn flags(&self) -> BufferFlags {
         self.flags
     }
 
-    pub fn size(&self) -> usize {
-        self.size
+    pub fn len(&self) -> u64 {
+        self.len
+    }
+
+    pub fn update<V: Vertex>(
+        &mut self,
+        device: &RenderDevice,
+        queue: &RenderQueue,
+        offset: u64,
+        vertices: &[V],
+    ) {
+        if self.flags.is_write() {
+            let len = vertices.len() as u64;
+            if offset + len > self.len {
+                self.buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                    label: None,
+                    size: len * std::mem::size_of::<V>() as u64,
+                    usage: self.flags.usages(BufferKind::Vertex),
+                    mapped_at_creation: false,
+                });
+                self.len = len + offset
+            }
+
+            queue.write_buffer(&self.buffer, offset, bytemuck::cast_slice(vertices));
+        }
+    }
+}
+
+impl std::ops::Deref for VertexBuffer {
+    type Target = wgpu::Buffer;
+
+    fn deref(&self) -> &Self::Target {
+        &self.buffer
+    }
+}
+
+pub struct IndexBuffer {
+    buffer: wgpu::Buffer,
+    flags: BufferFlags,
+    format: wgpu::IndexFormat,
+    len: u64,
+}
+
+impl IndexBuffer {
+    pub fn new(device: &RenderDevice, indices: Indices, flags: BufferFlags) -> Self {
+        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents: indices.bytes(),
+            usage: flags.usages(BufferKind::Index),
+        });
+
+        Self {
+            buffer,
+            flags,
+            len: indices.len() as u64,
+            format: indices.format(),
+        }
+    }
+
+    pub fn id(&self) -> wgpu::Id<wgpu::Buffer> {
+        self.buffer.global_id()
+    }
+
+    pub fn buffer(&self) -> &wgpu::Buffer {
+        &self.buffer
+    }
+
+    pub fn flags(&self) -> BufferFlags {
+        self.flags
+    }
+
+    pub fn format(&self) -> wgpu::IndexFormat {
+        self.format
+    }
+
+    pub fn len(&self) -> u64 {
+        self.len
+    }
+
+    pub fn update(
+        &mut self,
+        device: &RenderDevice,
+        queue: &RenderQueue,
+        offset: u64,
+        indices: &Indices,
+    ) {
+        if self.flags.is_write() {
+            let len = indices.len() as u64;
+            if offset + len > self.len {
+                self.buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                    label: None,
+                    size: indices.size() as u64,
+                    usage: self.flags.usages(BufferKind::Index),
+                    mapped_at_creation: false,
+                });
+                self.len = len + offset
+            }
+
+            queue.write_buffer(&self.buffer, offset, indices.bytes());
+        }
+    }
+}
+
+impl std::ops::Deref for IndexBuffer {
+    type Target = wgpu::Buffer;
+
+    fn deref(&self) -> &Self::Target {
+        &self.buffer
+    }
+}
+
+pub struct UniformBuffer<T: BufferData> {
+    value: T,
+    buffer: wgpu::Buffer,
+    flags: BufferFlags,
+}
+
+impl<T: BufferData> UniformBuffer<T> {
+    pub fn new(device: &RenderDevice, value: T, flags: BufferFlags) -> Self {
+        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents: bytemuck::bytes_of(&value),
+            usage: flags.usages(BufferKind::Uniform),
+        });
+
+        Self {
+            buffer,
+            value,
+            flags,
+        }
+    }
+
+    pub fn value(&self) -> &T {
+        &self.value
+    }
+
+    pub fn id(&self) -> wgpu::Id<wgpu::Buffer> {
+        self.buffer.global_id()
+    }
+
+    pub fn buffer(&self) -> &wgpu::Buffer {
+        &self.buffer
+    }
+
+    pub fn flags(&self) -> BufferFlags {
+        self.flags
+    }
+
+    pub fn binding(&self) -> wgpu::BindingResource {
+        self.buffer.as_entire_binding()
+    }
+
+    pub fn update(&mut self, queue: &RenderQueue, value: T) {
+        if self.flags.is_write() {
+            self.value = value;
+            queue.write_buffer(&self.buffer, 0, bytemuck::bytes_of(&self.value));
+        }
+    }
+}
+
+pub struct StorageBuffer<T: BufferData> {
+    value: T,
+    buffer: wgpu::Buffer,
+    flags: BufferFlags,
+}
+
+impl<T: BufferData> StorageBuffer<T> {
+    pub fn new(device: &RenderDevice, value: T, flags: BufferFlags) -> Self {
+        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents: bytemuck::bytes_of(&value),
+            usage: flags.usages(BufferKind::Storage),
+        });
+
+        Self {
+            buffer,
+            value,
+            flags,
+        }
+    }
+
+    pub fn value(&self) -> &T {
+        &self.value
+    }
+
+    pub fn id(&self) -> wgpu::Id<wgpu::Buffer> {
+        self.buffer.global_id()
+    }
+
+    pub fn buffer(&self) -> &wgpu::Buffer {
+        &self.buffer
+    }
+
+    pub fn flags(&self) -> BufferFlags {
+        self.flags
+    }
+
+    pub fn binding(&self) -> wgpu::BindingResource {
+        self.buffer.as_entire_binding()
+    }
+
+    pub fn update(&mut self, queue: &RenderQueue, value: T) {
+        if self.flags.is_write() {
+            self.value = value;
+            queue.write_buffer(&self.buffer, 0, bytemuck::bytes_of(&self.value));
+        }
+    }
+}
+
+pub struct UniformBufferArray<T: BufferData> {
+    data: Vec<u8>,
+    buffer: Option<wgpu::Buffer>,
+    flags: BufferFlags,
+    element_size: usize,
+    dirty: bool,
+    _marker: std::marker::PhantomData<T>,
+}
+
+impl<T: BufferData> UniformBufferArray<T> {
+    pub fn new(flags: BufferFlags) -> Self {
+        Self {
+            data: vec![],
+            buffer: None,
+            flags,
+            element_size: std::mem::size_of::<T>(),
+            dirty: false,
+            _marker: Default::default(),
+        }
+    }
+
+    pub fn buffer(&self) -> Option<&wgpu::Buffer> {
+        self.buffer.as_ref()
+    }
+
+    pub fn flags(&self) -> BufferFlags {
+        self.flags
+    }
+
+    pub fn element_size(&self) -> usize {
+        self.element_size
     }
 
     pub fn dirty(&self) -> bool {
         self.dirty
     }
 
-    pub fn len(&self) -> usize {
-        self.data.len() / self.size
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
     }
 
-    pub fn set<V: Vertex>(&mut self, vertices: &[V]) {
-        self.data = bytemuck::cast_slice(vertices).to_vec();
+    pub fn push(&mut self, value: T) {
+        self.data.extend(bytemuck::bytes_of(&value));
+        self.dirty = true;
+    }
+
+    pub fn len(&self) -> usize {
+        self.data.len() * self.element_size
+    }
+
+    pub fn set(&mut self, index: usize, value: T) {
+        let offset = index * self.element_size;
+        if offset > self.data.len() - offset {
+            panic!("Index out of bounds.")
+        }
+
+        unsafe {
+            let dst = self.data.as_mut_ptr().wrapping_add(offset);
+            let src = bytemuck::bytes_of(&value);
+            std::ptr::copy_nonoverlapping(src.as_ptr(), dst, src.len());
+        }
+
         self.dirty = true;
     }
 
@@ -201,215 +452,49 @@ impl VertexBuffer {
         self.dirty = true;
     }
 
-    pub fn create(&mut self, device: &RenderDevice) -> bool {
-        let buffer_size = self.buffer.as_ref().map_or(0, |buffer| buffer.size());
+    pub fn binding(&self) -> Option<wgpu::BindingResource> {
+        Some(self.buffer.as_ref()?.as_entire_binding())
+    }
+
+    pub fn commit(&mut self, device: &RenderDevice, queue: &RenderQueue) {
+        let buffer_cap = self.buffer.as_ref().map(|a| a.size()).unwrap_or(0);
         let size = self.data.len() as u64;
 
-        if size > 0 && (self.dirty || buffer_size != size) {
+        if buffer_cap < size || ((self.dirty || self.buffer.is_none()) && size > 0) {
             let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: self.label,
+                label: None,
                 contents: &self.data,
-                usage: self.flags.usages(BufferKind::Vertex),
-            });
-
-            self.buffer = Some(buffer);
-            self.dirty = false;
-            true
-        } else {
-            false
-        }
-    }
-
-    pub fn commit(&mut self, device: &RenderDevice, queue: &RenderQueue) {
-        if !self.create(device) && self.flags.is_write() {
-            self.buffer.as_ref().map(|buffer| {
-                queue.write_buffer(buffer, 0, &self.data[..self.data.len()]);
-            });
-        }
-    }
-}
-
-pub struct IndexBuffer {
-    buffer: Option<wgpu::Buffer>,
-    indices: Indices,
-    flags: BufferFlags,
-    dirty: bool,
-}
-
-impl IndexBuffer {
-    pub fn new(indices: Indices, flags: BufferFlags) -> Self {
-        Self {
-            buffer: None,
-            indices: indices,
-            flags,
-            dirty: false,
-        }
-    }
-
-    pub fn buffer(&self) -> Option<&wgpu::Buffer> {
-        self.buffer.as_ref()
-    }
-
-    pub fn indices(&self) -> &Indices {
-        &self.indices
-    }
-
-    pub fn indices_mut(&mut self) -> &mut Indices {
-        &mut self.indices
-    }
-
-    pub fn push(&mut self, vertex: u32) {
-        match &mut self.indices {
-            Indices::U16(v) => v.push(vertex as u16),
-            Indices::U32(v) => v.push(vertex),
-        }
-
-        self.dirty = true;
-    }
-
-    pub fn append(&mut self, indices: Indices) {
-        match (&mut self.indices, indices) {
-            (Indices::U16(v1), Indices::U16(v2)) => v1.extend_from_slice(&v2),
-            (Indices::U32(v1), Indices::U32(v2)) => v1.extend_from_slice(&v2),
-            _ => (),
-        }
-
-        self.dirty = true;
-    }
-
-    pub fn set(&mut self, indices: Indices) {
-        self.indices = indices;
-        self.dirty = true;
-    }
-
-    pub fn len(&self) -> usize {
-        match &self.indices {
-            Indices::U16(v) => v.len(),
-            Indices::U32(v) => v.len(),
-        }
-    }
-
-    pub fn clear(&mut self) {
-        match &mut self.indices {
-            Indices::U16(v) => v.clear(),
-            Indices::U32(v) => v.clear(),
-        }
-
-        self.dirty = true;
-    }
-
-    pub fn create(&mut self, device: &RenderDevice) -> bool {
-        let buffer_size = self.buffer.as_ref().map_or(0, |buffer| buffer.size());
-        let size = match &self.indices {
-            Indices::U16(v) => (v.len() * std::mem::size_of::<u16>()) as u64,
-            Indices::U32(v) => (v.len() * std::mem::size_of::<u32>()) as u64,
-        };
-
-        if size > 0 && (self.dirty || buffer_size != size) {
-            let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: None,
-                contents: self.indices.bytes(),
-                usage: self.flags.usages(BufferKind::Index),
-            });
-
-            self.buffer = Some(buffer);
-            self.dirty = false;
-            true
-        } else {
-            false
-        }
-    }
-
-    pub fn commit(&mut self, device: &RenderDevice, queue: &RenderQueue) {
-        if !self.create(device) && self.flags.is_write() {
-            self.buffer.as_ref().map(|buffer| {
-                queue.write_buffer(buffer, 0, &self.indices.bytes());
-            });
-        }
-    }
-}
-
-pub struct UniformBuffer<T: BufferData> {
-    value: T,
-    buffer: Option<wgpu::Buffer>,
-    flags: BufferFlags,
-    dirty: bool,
-}
-
-impl<T: BufferData> UniformBuffer<T> {
-    pub fn new(value: T, flags: BufferFlags) -> Self {
-        Self {
-            value,
-            buffer: None,
-            flags,
-            dirty: false,
-        }
-    }
-
-    pub fn buffer(&self) -> Option<&wgpu::Buffer> {
-        self.buffer.as_ref()
-    }
-
-    pub fn value(&self) -> T {
-        self.value
-    }
-
-    pub fn flags(&self) -> BufferFlags {
-        self.flags
-    }
-
-    pub fn binding(&self) -> Option<wgpu::BindingResource> {
-        let binding = self.buffer.as_ref()?.as_entire_buffer_binding();
-        Some(wgpu::BindingResource::Buffer(binding))
-    }
-
-    pub fn update(&mut self, value: T) {
-        self.dirty = true;
-        self.value = value;
-    }
-
-    pub fn create(&mut self, device: &RenderDevice) -> bool {
-        let buffer_size = self.buffer.as_ref().map_or(0, |buffer| buffer.size());
-        let size = std::mem::size_of::<T>() as u64;
-
-        if size > 0 && (self.dirty || buffer_size != size) {
-            let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: None,
-                contents: bytemuck::bytes_of(&self.value),
                 usage: self.flags.usages(BufferKind::Uniform),
             });
 
             self.buffer = Some(buffer);
             self.dirty = false;
-            true
-        } else {
-            false
-        }
-    }
-
-    pub fn commit(&mut self, device: &RenderDevice, queue: &RenderQueue) {
-        if (!self.create(device)) && self.flags.is_write() {
-            self.buffer.as_ref().map(|buffer| {
-                queue.write_buffer(buffer, 0, bytemuck::bytes_of(&self.value));
-            });
+        } else if let Some(buffer) = self.buffer() {
+            queue.write_buffer(buffer, 0, &self.data);
+        } else if size == 0 {
+            self.buffer = None;
         }
     }
 }
 
-pub struct UniformBufferArray<T: BufferData> {
-    values: Vec<T>,
+pub struct StorageBufferArray<T: BufferData> {
+    data: Vec<u8>,
     buffer: Option<wgpu::Buffer>,
     flags: BufferFlags,
+    element_size: usize,
     dirty: bool,
+    _marker: std::marker::PhantomData<T>,
 }
 
-impl<T: BufferData> UniformBufferArray<T> {
+impl<T: BufferData> StorageBufferArray<T> {
     pub fn new(flags: BufferFlags) -> Self {
         Self {
-            flags,
-            values: vec![],
+            data: vec![],
             buffer: None,
+            flags,
+            element_size: std::mem::size_of::<T>(),
             dirty: false,
+            _marker: Default::default(),
         }
     }
 
@@ -417,239 +502,72 @@ impl<T: BufferData> UniformBufferArray<T> {
         self.buffer.as_ref()
     }
 
-    pub fn values(&self) -> &[T] {
-        &self.values
-    }
-
     pub fn flags(&self) -> BufferFlags {
         self.flags
     }
 
+    pub fn element_size(&self) -> usize {
+        self.element_size
+    }
+
+    pub fn dirty(&self) -> bool {
+        self.dirty
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
+    }
+
+    pub fn push(&mut self, value: &T) {
+        self.data.extend(bytemuck::bytes_of(value));
+        self.dirty = true;
+    }
+
     pub fn len(&self) -> usize {
-        self.values.len()
+        self.data.len() * self.element_size
+    }
+
+    pub fn set(&mut self, index: usize, value: &T) {
+        let offset = index * self.element_size;
+        if offset > self.data.len() - offset {
+            panic!("Index out of bounds.")
+        }
+
+        unsafe {
+            let dst = self.data.as_mut_ptr().wrapping_add(offset);
+            let src = bytemuck::bytes_of(value);
+            std::ptr::copy_nonoverlapping(src.as_ptr(), dst, src.len());
+        }
+
+        self.dirty = true;
+    }
+
+    pub fn clear(&mut self) {
+        self.data.clear();
+        self.dirty = true;
     }
 
     pub fn binding(&self) -> Option<wgpu::BindingResource> {
         Some(self.buffer.as_ref()?.as_entire_binding())
     }
 
-    pub fn binding_offset(&self, index: u64) -> Option<wgpu::BindingResource> {
-        let buffer = self.buffer.as_ref()?;
-        let size = std::mem::size_of::<T>() as u64;
-        let binding = wgpu::BufferBinding {
-            buffer,
-            offset: index * size,
-            size: NonZero::<u64>::new(size),
-        };
-
-        Some(wgpu::BindingResource::Buffer(binding))
-    }
-
-    pub fn push(&mut self, value: T) {
-        self.dirty = true;
-        self.values.push(value);
-    }
-
-    pub fn update(&mut self, index: usize, value: T) {
-        if index >= self.values.len() {
-            panic!("Index out of bounds");
-        }
-
-        self.dirty = true;
-        self.values[index] = value;
-    }
-
-    pub fn append(&mut self, values: &[T]) {
-        self.dirty = true;
-        self.values.extend_from_slice(values);
-    }
-
-    pub fn clear(&mut self) {
-        self.dirty = true;
-        self.values.clear();
-    }
-
-    pub fn create(&mut self, device: &RenderDevice) -> bool {
-        let buffer_size = self.buffer.as_ref().map_or(0, |buffer| buffer.size());
-        let size = (self.values.len() * std::mem::size_of::<T>()) as u64;
-
-        if size > 0 && (self.dirty || buffer_size != size) {
-            let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: None,
-                contents: bytemuck::cast_slice(&self.values),
-                usage: self.flags.usages(BufferKind::Uniform),
-            });
-
-            self.buffer = Some(buffer);
-            self.dirty = false;
-            true
-        } else {
-            false
-        }
-    }
-
     pub fn commit(&mut self, device: &RenderDevice, queue: &RenderQueue) {
-        if (!self.create(device) || self.dirty) && self.flags.is_write() {
-            self.buffer.as_ref().map(|buffer| {
-                queue.write_buffer(buffer, 0, bytemuck::cast_slice(&self.values));
-            });
-        }
-    }
-}
+        let buffer_cap = self.buffer.as_ref().map(|a| a.size()).unwrap_or(0);
+        let size = self.data.len() as u64;
 
-pub struct StorageBuffer<T: BufferData> {
-    value: T,
-    buffer: Option<wgpu::Buffer>,
-    flags: BufferFlags,
-    dirty: bool,
-}
-
-impl<T: BufferData> StorageBuffer<T> {
-    pub fn new(value: T, flags: BufferFlags) -> Self {
-        Self {
-            value,
-            buffer: None,
-            flags,
-            dirty: false,
-        }
-    }
-
-    pub fn buffer(&self) -> Option<&wgpu::Buffer> {
-        self.buffer.as_ref()
-    }
-
-    pub fn value(&self) -> T {
-        self.value
-    }
-
-    pub fn flags(&self) -> BufferFlags {
-        self.flags
-    }
-
-    pub fn binding(&self) -> Option<wgpu::BindingResource> {
-        let binding = self.buffer.as_ref()?.as_entire_buffer_binding();
-        Some(wgpu::BindingResource::Buffer(binding))
-    }
-
-    pub fn update(&mut self, value: T) {
-        self.dirty = true;
-        self.value = value;
-    }
-
-    pub fn create(&mut self, device: &RenderDevice) -> bool {
-        let buffer_size = self.buffer.as_ref().map_or(0, |buffer| buffer.size());
-        let size = std::mem::size_of::<T>() as u64;
-
-        if size > 0 && buffer_size != size {
+        if buffer_cap < size || ((self.dirty || self.buffer.is_none()) && size > 0) {
             let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: None,
-                contents: bytemuck::bytes_of(&self.value),
-                usage: self.flags.usages(BufferKind::Uniform),
-            });
-
-            self.buffer = Some(buffer);
-            self.dirty = false;
-            true
-        } else {
-            false
-        }
-    }
-
-    pub fn commit(&mut self, device: &RenderDevice, queue: &RenderQueue) {
-        if (!self.create(device) || self.dirty) && self.flags.is_write() {
-            self.buffer.as_ref().map(|buffer| {
-                queue.write_buffer(buffer, 0, bytemuck::bytes_of(&self.value));
-            });
-        }
-    }
-}
-
-pub struct StorageBufferArray<T: BufferData> {
-    values: Vec<T>,
-    buffer: Option<wgpu::Buffer>,
-    flags: BufferFlags,
-    dirty: bool,
-}
-
-impl<T: BufferData> StorageBufferArray<T> {
-    pub fn new(flags: BufferFlags) -> Self {
-        Self {
-            flags,
-            values: vec![],
-            buffer: None,
-            dirty: false,
-        }
-    }
-
-    pub fn buffer(&self) -> Option<&wgpu::Buffer> {
-        self.buffer.as_ref()
-    }
-
-    pub fn values(&self) -> &[T] {
-        &self.values
-    }
-
-    pub fn flags(&self) -> BufferFlags {
-        self.flags
-    }
-
-    pub fn len(&self) -> usize {
-        self.values.len()
-    }
-
-    pub fn binding(&self) -> Option<wgpu::BindingResource> {
-        let binding = self.buffer.as_ref()?.as_entire_buffer_binding();
-        Some(wgpu::BindingResource::Buffer(binding))
-    }
-
-    pub fn push(&mut self, value: T) {
-        self.dirty = true;
-        self.values.push(value);
-    }
-
-    pub fn update(&mut self, index: usize, value: T) {
-        if index >= self.values.len() {
-            panic!("Index out of bounds");
-        }
-
-        self.dirty = true;
-        self.values[index] = value;
-    }
-
-    pub fn append(&mut self, values: &[T]) {
-        self.dirty = true;
-        self.values.extend_from_slice(values);
-    }
-
-    pub fn clear(&mut self) {
-        self.dirty = true;
-        self.values.clear();
-    }
-
-    pub fn create(&mut self, device: &RenderDevice) -> bool {
-        let buffer_size = self.buffer.as_ref().map_or(0, |buffer| buffer.size());
-        let size = (self.values.len() * std::mem::size_of::<T>()) as u64;
-
-        if self.dirty || (size > 0 && buffer_size != size) {
-            let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: None,
-                contents: bytemuck::cast_slice(&self.values),
+                contents: &self.data,
                 usage: self.flags.usages(BufferKind::Storage),
             });
 
             self.buffer = Some(buffer);
             self.dirty = false;
-            true
-        } else {
-            false
-        }
-    }
-
-    pub fn commit(&mut self, device: &RenderDevice, queue: &RenderQueue) {
-        if (!self.create(device) || self.dirty) && self.flags.is_write() {
-            self.buffer.as_ref().map(|buffer| {
-                queue.write_buffer(buffer, 0, bytemuck::cast_slice(&self.values));
-            });
+        } else if let Some(buffer) = self.buffer() {
+            queue.write_buffer(buffer, 0, &self.data);
+        } else if size == 0 {
+            self.buffer = None;
         }
     }
 }

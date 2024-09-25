@@ -1,5 +1,5 @@
 use crate::{
-    camera::RenderFrame,
+    camera::RenderCamera,
     core::device::{RenderDevice, RenderQueue},
     resources::ResourceId,
 };
@@ -10,6 +10,7 @@ use resources::{
     BufferDesc, RenderGraphBuffer, RenderGraphResources, RenderGraphTexture, RenderTarget,
     TextureDesc,
 };
+use spatial::Size;
 
 pub mod context;
 pub mod node;
@@ -127,12 +128,16 @@ impl RenderGraph {
         }
     }
 
-    pub fn resources(&self) -> &RenderGraphResources {
-        &self.resources
+    pub fn set_size(&mut self, size: Size) {
+        self.resources.set_size(size);
     }
 
-    pub fn resources_mut(&mut self) -> &mut RenderGraphResources {
-        &mut self.resources
+    pub fn import_buffer(&mut self, id: ResourceId, buffer: RenderGraphBuffer) {
+        self.resources.import_buffer(id, buffer);
+    }
+
+    pub fn import_texture(&mut self, id: ResourceId, texture: RenderGraphTexture) {
+        self.resources.import_texture(id, texture);
     }
 
     pub fn run(
@@ -140,25 +145,25 @@ impl RenderGraph {
         world: &World,
         device: &RenderDevice,
         queue: &RenderQueue,
-        frame: &RenderFrame,
-        frame_index: usize,
-        frame_count: usize,
         target: &RenderTarget,
+        camera: &RenderCamera,
+        camera_index: usize,
+        camera_count: usize,
     ) {
         let groups = match self.groups.take() {
             Some(groups) => groups,
             None => return,
         };
-        
+
         for group in &groups {
             let mut actions = vec![];
 
             for index in &group.nodes {
                 let ctx = RenderContext::new(
                     world,
-                    &frame,
-                    frame_index,
-                    frame_count,
+                    &camera,
+                    camera_index,
+                    camera_count,
                     target,
                     device,
                     queue,

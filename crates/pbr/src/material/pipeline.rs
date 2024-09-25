@@ -175,7 +175,7 @@ impl MaterialPipelines {
             depth_state: Some(wgpu::DepthStencilState {
                 format: surface.depth_format(),
                 depth_write_enabled: self.depth_write == DepthWrite::On,
-                depth_compare: wgpu::CompareFunction::LessEqual,
+                depth_compare: wgpu::CompareFunction::Always,
                 stencil: Default::default(),
                 bias: Default::default(),
             }),

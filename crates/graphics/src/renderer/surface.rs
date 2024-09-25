@@ -1,5 +1,6 @@
 use crate::resources::ResourceId;
 use ecs::core::Resource;
+use spatial::Size;
 use wgpu::{
     rwh::{HasDisplayHandle, HasWindowHandle},
     SurfaceTargetUnsafe,
@@ -22,7 +23,7 @@ impl From<wgpu::CreateSurfaceError> for RenderSurfaceError {
 pub struct RenderSurface {
     id: ResourceId,
     window: Window,
-    inner: Box<wgpu::Surface<'static>>,
+    inner: wgpu::Surface<'static>,
     adapter: wgpu::Adapter,
     config: wgpu::SurfaceConfiguration,
     format: wgpu::TextureFormat,
@@ -73,7 +74,7 @@ impl RenderSurface {
             .find(|f| f.is_srgb())
             .unwrap_or(surface_caps.formats[0]);
 
-        let depth_format = wgpu::TextureFormat::Depth24Plus;
+        let depth_format = wgpu::TextureFormat::Depth32Float;
 
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -89,7 +90,7 @@ impl RenderSurface {
         Ok(Self {
             id: Self::id_static(),
             window: window.clone(),
-            inner: Box::new(surface),
+            inner: surface,
             adapter,
             config,
             format: surface_format,
@@ -109,9 +110,9 @@ impl RenderSurface {
         &self.window
     }
 
-    pub fn resize(&mut self, device: &wgpu::Device, width: u32, height: u32) {
-        self.config.width = width;
-        self.config.height = height;
+    pub fn resize(&mut self, device: &wgpu::Device, size: Size) {
+        self.config.width = size.width;
+        self.config.height = size.height;
         self.inner.configure(device, &self.config);
     }
 

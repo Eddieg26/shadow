@@ -1,6 +1,6 @@
 use super::resources::{RenderGraphBuffer, RenderGraphResources, RenderGraphTexture, RenderTarget};
 use crate::{
-    camera::RenderFrame,
+    camera::RenderCamera,
     core::device::{RenderDevice, RenderQueue},
     resources::ResourceId,
 };
@@ -17,9 +17,9 @@ pub enum RenderNodeAction {
 
 pub struct RenderContext<'a> {
     world: &'a World,
-    frame: &'a RenderFrame,
-    frame_index: usize,
-    frame_count: usize,
+    camera: &'a RenderCamera,
+    camera_index: usize,
+    camera_count: usize,
     target: &'a RenderTarget,
     device: &'a RenderDevice,
     queue: &'a RenderQueue,
@@ -30,9 +30,9 @@ pub struct RenderContext<'a> {
 impl<'a> RenderContext<'a> {
     pub fn new(
         world: &'a World,
-        frame: &'a RenderFrame,
-        frame_index: usize,
-        frame_count: usize,
+        camera: &'a RenderCamera,
+        camera_index: usize,
+        camera_count: usize,
         target: &'a RenderTarget,
         device: &'a RenderDevice,
         queue: &'a RenderQueue,
@@ -40,9 +40,9 @@ impl<'a> RenderContext<'a> {
     ) -> Self {
         Self {
             world,
-            frame,
-            frame_index,
-            frame_count,
+            camera,
+            camera_index,
+            camera_count,
             target,
             device,
             queue,
@@ -51,16 +51,16 @@ impl<'a> RenderContext<'a> {
         }
     }
 
-    pub fn frame(&self) -> &RenderFrame {
-        self.frame
+    pub fn camera(&self) -> &RenderCamera {
+        self.camera
     }
 
-    pub fn frame_index(&self) -> usize {
-        self.frame_index
+    pub fn camera_index(&self) -> usize {
+        self.camera_index
     }
 
-    pub fn frame_count(&self) -> usize {
-        self.frame_count
+    pub fn camera_count(&self) -> usize {
+        self.camera_count
     }
 
     pub fn device(&self) -> &RenderDevice {
@@ -120,7 +120,8 @@ impl<'a> RenderContext<'a> {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default())
     }
 
-    pub fn submit(&self, buffer: wgpu::CommandBuffer) {
+    pub fn submit(&self, encoder: wgpu::CommandEncoder) {
+        let buffer = encoder.finish();
         self.actions
             .lock()
             .unwrap()
@@ -139,9 +140,9 @@ impl<'a> Clone for RenderContext<'a> {
     fn clone(&self) -> Self {
         Self {
             world: self.world,
-            frame: self.frame,
-            frame_index: self.frame_index,
-            frame_count: self.frame_count,
+            camera: self.camera,
+            camera_index: self.camera_index,
+            camera_count: self.camera_count,
             target: self.target,
             device: self.device,
             queue: self.queue,
