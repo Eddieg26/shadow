@@ -3,7 +3,8 @@ use crate::{
     app::{SubApp, SubAppBuilders, SubApps, SubEvents},
     phases::{Execute, Shutdown, Startup},
     plugin::Plugin,
-    PostExecute, PreExecute,
+    time::Time,
+    First, PostExecute, PreExecute,
 };
 use ecs::{
     core::{Component, LocalResource, Resource},
@@ -33,6 +34,8 @@ impl Game {
         world.add_phase::<Execute>();
         world.add_phase::<PostExecute>();
         world.add_phase::<Shutdown>();
+        world.add_resource(Time::new());
+        world.add_system(First, |time: &mut Time| time.update());
 
         Self {
             world,

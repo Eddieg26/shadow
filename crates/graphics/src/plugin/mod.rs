@@ -268,7 +268,7 @@ fn extract_draw_calls<D: DrawCallExtractor>(
     calls: &mut DrawCalls<D::Draw>,
     arg: StaticSystemArg<D::Arg>,
 ) {
-    D::extract(calls, &arg);
+    D::extract(calls, arg.into_inner());
 }
 
 pub fn remove_discarded_assets<R: RenderAssetExtractor>(

@@ -34,5 +34,5 @@ pub trait DrawCallExtractor: 'static {
     type Draw: Draw;
     type Arg: SystemArg;
 
-    fn extract(draw: &mut DrawCalls<Self::Draw>, arg: &ArgItem<Self::Arg>);
+    fn extract(draw: &mut DrawCalls<Self::Draw>, arg: ArgItem<Self::Arg>);
 }
