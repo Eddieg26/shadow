@@ -1,7 +1,4 @@
-use ecs::{
-    core::{Component, Entities, Entity},
-    world::query::Query,
-};
+use ecs::core::Component;
 use glam::{Mat4, Quat, Vec3};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -148,39 +145,5 @@ impl Default for LocalToWorld {
 impl LocalToWorld {
     pub fn update(&mut self, transform: &Transform, parent: Option<&LocalToWorld>) {
         self.0 = transform.matrix(parent.map(|p| p.0));
-    }
-}
-
-pub fn update_transforms(
-    parents: Query<(Entity, &Transform, &mut LocalToWorld)>,
-    transforms: Query<(Entity, &Transform, &mut LocalToWorld)>,
-    entities: &Entities,
-) {
-    for (entity, transform, global) in parents.filter(|(e, _, _)| entities.parent(e).is_none()) {
-        global.update(transform, None);
-        update_transforms_recursive(&entity, &transforms, global, entities);
-    }
-}
-
-fn update_transforms_recursive(
-    entity: &Entity,
-    transforms: &Query<(Entity, &Transform, &mut LocalToWorld)>,
-    parent: &mut LocalToWorld,
-    entities: &Entities,
-) {
-    if let Some(children) = entities.children(&entity) {
-        for child in children {
-            unsafe {
-                let global = transforms.get_mut::<LocalToWorld>(*child);
-                let transform = transforms.get::<Transform>(*child);
-                match (global, transform) {
-                    (Some(global), Some(transform)) => {
-                        global.update(transform, Some(parent));
-                        update_transforms_recursive(child, transforms, global, entities);
-                    }
-                    _ => {}
-                }
-            }
-        }
     }
 }

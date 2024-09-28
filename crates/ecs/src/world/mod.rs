@@ -1,11 +1,11 @@
 use self::event::{
-    AddChildren, AddComponent, AddComponents, ComponentEvents, Despawn, RemoveChildren,
-    RemoveComponent, RemoveComponents, SetParent, Spawn,
+    AddComponent, AddComponents, ComponentEvents, Despawn, RemoveComponent, RemoveComponents,
+    SetParent, Spawn,
 };
 use super::{
     archetype::{ArchetypeId, ArchetypeMove, Archetypes},
     core::{
-        Component, ComponentId, Components, DenseMap, DenseSet, Entities, Entity, LocalResource,
+        Component, ComponentId, Components, DenseSet, Entities, Entity, LocalResource,
         LocalResources, Resource, Resources,
     },
     system::{
@@ -19,9 +19,11 @@ use crate::{
     archetype::table::EntityRow,
     system::schedule::{Schedule, ScheduleId},
 };
-use event::{Event, Events};
+use components::Children;
+use event::{AddChild, Event, Events, RemoveChild};
 use std::collections::HashSet;
 
+pub mod components;
 pub mod event;
 pub mod query;
 
@@ -245,17 +247,29 @@ impl World {
 }
 
 impl World {
-    pub fn spawn(&mut self, parent: Option<Entity>) -> Entity {
-        let entity = self.entities.spawn(parent.as_ref());
+    pub fn spawn(&mut self) -> Entity {
+        let entity = self.entities.spawn();
         self.archetypes.add_entity(&entity);
         entity
     }
 
-    pub fn despawn(&mut self, entity: &Entity) -> DenseMap<Entity, EntityRow> {
-        let mut despawned = DenseMap::new();
-        for entity in self.entities.despawn(entity) {
-            if let Some((_, set)) = self.archetypes.remove_entity(&entity) {
-                despawned.insert(entity, set);
+    pub fn despawn(&mut self, entity: &Entity) -> Vec<Entity> {
+        let mut despawned = Vec::new();
+
+        if self.entities.despawn(entity) {
+            if let Some((_, mut row)) = self.archetypes.remove_entity(entity) {
+                if let Some(children) = row.get_mut::<Children>() {
+                    for child in children.iter() {
+                        despawned.append(&mut self.despawn(child));
+                    }
+                }
+
+                for (id, cell) in row.drain() {
+                    let meta = self.components.extension::<ComponentEvents>(&id);
+                    meta.remove(&self, &entity, cell);
+                }
+
+                despawned.push(*entity);
             }
         }
 
@@ -311,10 +325,6 @@ impl World {
         components: impl Into<DenseSet<ComponentId>>,
     ) -> Option<ArchetypeMove> {
         self.archetypes.remove_components(entity, components.into())
-    }
-
-    pub fn set_parent(&mut self, entity: &Entity, parent: Option<&Entity>) -> Option<Entity> {
-        self.entities.set_parent(entity, parent)
     }
 
     pub fn activate_system_group(&mut self, tag: impl Into<SystemTag>) {
@@ -395,8 +405,8 @@ impl World {
         resources.add(events.register::<Spawn>());
         resources.add(events.register::<Despawn>());
         resources.add(events.register::<SetParent>());
-        resources.add(events.register::<AddChildren>());
-        resources.add(events.register::<RemoveChildren>());
+        resources.add(events.register::<AddChild>());
+        resources.add(events.register::<RemoveChild>());
         resources.add(events.register::<AddComponents>());
         resources.add(events.register::<RemoveComponents>());
 

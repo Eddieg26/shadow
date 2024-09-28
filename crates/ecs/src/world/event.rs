@@ -349,6 +349,7 @@ pub mod internal {
         archetype::table::EntityRow,
         core::{ColumnCell, Component, ComponentId, DenseSet, Entity, Resource},
         system::schedule::SystemTag,
+        world::components::{Children, Parent},
     };
 
     pub struct Spawn {
@@ -380,9 +381,9 @@ pub mod internal {
         const PRIORITY: i32 = i32::MAX - 1000;
 
         fn invoke(self, world: &mut super::World) -> Option<Self::Output> {
-            let entity = world.spawn(self.parent);
-            if matches!(self.parent, Some(_)) {
-                world.events().add(SetParent::new(entity, self.parent));
+            let entity = world.spawn();
+            if let Some(parent) = self.parent {
+                world.events().add(SetParent::new(parent, entity));
             }
 
             if let Some(result) = world.add_components(&entity, self.components) {
@@ -411,138 +412,140 @@ pub mod internal {
         const PRIORITY: i32 = i32::MIN + 1000;
 
         fn invoke(self, world: &mut super::World) -> Option<Self::Output> {
-            let mut entities = vec![];
-            for (entity, mut components) in world.despawn(&self.entity).drain() {
-                entities.push(entity);
-                for (id, cell) in components.drain() {
-                    let meta = world.components().extension::<ComponentEvents>(&id);
-                    meta.remove(world, &entity, cell);
-                }
-            }
+            let entities = world.despawn(&self.entity);
 
             (!entities.is_empty()).then_some(entities)
         }
     }
 
-    pub struct ParentUpdate {
-        entity: Entity,
-        parent: Option<Entity>,
-        old_parent: Option<Entity>,
-    }
-
-    impl ParentUpdate {
-        fn new(entity: Entity, parent: Option<Entity>, old_parent: Option<Entity>) -> Self {
-            Self {
-                entity,
-                parent,
-                old_parent,
-            }
-        }
-
-        pub fn entity(&self) -> Entity {
-            self.entity
-        }
-
-        pub fn parent(&self) -> Option<Entity> {
-            self.parent
-        }
-
-        pub fn old_parent(&self) -> Option<Entity> {
-            self.old_parent
-        }
-    }
-
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     pub struct SetParent {
-        entity: Entity,
-        parent: Option<Entity>,
+        pub parent: Entity,
+        pub child: Entity,
     }
 
     impl SetParent {
-        pub fn new(entity: Entity, parent: Option<Entity>) -> Self {
-            Self { entity, parent }
-        }
-
-        pub fn none(entity: Entity) -> Self {
-            Self {
-                entity,
-                parent: None,
-            }
+        #[inline]
+        pub fn new(parent: Entity, child: Entity) -> Self {
+            Self { parent, child }
         }
     }
 
     impl Event for SetParent {
-        type Output = ParentUpdate;
-        const PRIORITY: i32 = Spawn::PRIORITY - 1000;
+        type Output = Self;
 
         fn invoke(self, world: &mut super::World) -> Option<Self::Output> {
-            let old_parent = world.set_parent(&self.entity, self.parent.as_ref());
-            Some(ParentUpdate::new(self.entity, self.parent, old_parent))
+            // let mut parent = self.parent;
+            // while let Some(grand) = world.archetypes().component::<Parent>(&parent) {
+            //     let grand = **grand;
+            //     match grand == self.child {
+            //         true => return None,
+            //         false => parent = grand,
+            //     }
+            // }
+
+            match world.archetypes().component_mut::<Parent>(&self.child) {
+                Some(parent) => {
+                    if let Some(children) = world.archetypes().component_mut::<Children>(&parent) {
+                        children.remove(&self.child);
+                    };
+                    *parent = Parent::from(self.parent);
+                }
+                None => {
+                    world.add_component(&self.child, Parent::from(self.parent));
+                    match world.archetypes().component_mut::<Children>(&self.parent) {
+                        Some(children) => children.add(self.child),
+                        None => {
+                            world.add_component(&self.parent, Children::from(self.child));
+                        }
+                    }
+                }
+            };
+
+            Some(self)
         }
     }
 
-    pub struct AddChildren {
-        parent: Entity,
-        children: Vec<Entity>,
+    pub struct RemoveParent {
+        pub parent: Entity,
+        pub child: Entity,
     }
 
-    impl AddChildren {
-        pub fn new(parent: Entity, children: Vec<Entity>) -> Self {
-            Self { parent, children }
+    impl RemoveParent {
+        #[inline]
+        pub fn new(parent: Entity, child: Entity) -> Self {
+            Self { parent, child }
         }
     }
 
-    impl Event for AddChildren {
-        type Output = Vec<ParentUpdate>;
-        const PRIORITY: i32 = SetParent::PRIORITY - 1000;
+    impl Event for RemoveParent {
+        type Output = Self;
 
-        fn invoke(self, world: &mut super::World) -> Option<Self::Output> {
-            let updates = self
-                .children
-                .iter()
-                .map(|child| {
-                    let old_parent = world.set_parent(child, Some(&self.parent));
-                    ParentUpdate::new(*child, Some(self.parent), old_parent)
-                })
-                .collect::<Vec<_>>();
+        fn invoke(self, world: &mut crate::world::World) -> Option<Self::Output> {
+            if let Some(parent) = world.archetypes().component_mut::<Parent>(&self.child) {
+                if **parent == self.parent {
+                    world.remove_component(&self.child, &ComponentId::new::<Parent>());
+                    return Some(self);
+                }
+            }
 
-            Some(updates)
+            None
         }
     }
 
-    pub struct RemoveChildren {
-        parent: Entity,
-        children: Vec<Entity>,
+    pub struct AddChild {
+        pub parent: Entity,
+        pub child: Entity,
     }
 
-    impl RemoveChildren {
-        pub fn new(parent: Entity, children: Vec<Entity>) -> Self {
-            Self { parent, children }
-        }
-
-        pub fn parent(&self) -> Entity {
-            self.parent
-        }
-
-        pub fn children(&self) -> &[Entity] {
-            &self.children
+    impl AddChild {
+        #[inline]
+        pub fn new(parent: Entity, child: Entity) -> Self {
+            Self { parent, child }
         }
     }
 
-    impl Event for RemoveChildren {
-        type Output = Vec<ParentUpdate>;
-        const PRIORITY: i32 = AddChildren::PRIORITY - 1000;
+    impl Event for AddChild {
+        type Output = Self;
 
-        fn invoke(self, world: &mut super::World) -> Option<Self::Output> {
-            let updates = self
-                .children
-                .iter()
-                .map(|child| {
-                    let old_parent = world.set_parent(child, None);
-                    ParentUpdate::new(*child, None, old_parent)
-                })
-                .collect::<Vec<_>>();
+        fn invoke(self, world: &mut crate::world::World) -> Option<Self::Output> {
+            let event = SetParent {
+                parent: self.parent,
+                child: self.child,
+            };
 
-            Some(updates)
+            match event.invoke(world) {
+                Some(_) => Some(Self { ..self }),
+                None => None,
+            }
+        }
+    }
+
+    pub struct RemoveChild {
+        pub parent: Entity,
+        pub child: Entity,
+    }
+
+    impl RemoveChild {
+        #[inline]
+        pub fn new(parent: Entity, child: Entity) -> Self {
+            Self { parent, child }
+        }
+    }
+
+    impl Event for RemoveChild {
+        type Output = Self;
+
+        fn invoke(self, world: &mut crate::world::World) -> Option<Self::Output> {
+            let event = RemoveParent {
+                parent: self.parent,
+                child: self.child,
+            };
+
+            match event.invoke(world) {
+                Some(_) => Some(Self { ..self }),
+                None => None,
+            }
         }
     }
 
@@ -778,7 +781,7 @@ pub mod internal {
             system::schedule::Root,
             world::{
                 event::{
-                    AddComponent, Despawn, Events, ParentUpdate, RemoveChildren, RemoveComponent,
+                    AddChild, AddComponent, Despawn, Events, RemoveChild, RemoveComponent,
                     RemoveComponents, RemovedComponent, SetParent,
                 },
                 World,
@@ -789,13 +792,6 @@ pub mod internal {
 
         #[test]
         fn spawn() {
-            let mut world = World::new();
-            let entity = world.spawn(None);
-            assert_eq!(entity.id(), 0);
-        }
-
-        #[test]
-        fn on_spawn() {
             let mut world = World::new();
             struct Spawned(bool);
             impl Resource for Spawned {}
@@ -814,7 +810,7 @@ pub mod internal {
         }
 
         #[test]
-        fn on_add_component() {
+        fn add_component() {
             struct Player;
             impl Component for Player {}
             struct Added(bool);
@@ -836,7 +832,7 @@ pub mod internal {
         }
 
         #[test]
-        fn on_add_components() {
+        fn add_components() {
             struct Player;
             impl Component for Player {}
             struct Health;
@@ -872,7 +868,7 @@ pub mod internal {
         }
 
         #[test]
-        fn on_remove_components() {
+        fn remove_components() {
             struct Player;
             impl Component for Player {}
             struct Health;
@@ -918,7 +914,7 @@ pub mod internal {
         }
 
         #[test]
-        fn on_remove_component() {
+        fn remove_component() {
             struct Player;
             impl Component for Player {}
             struct Removed(bool);
@@ -946,7 +942,7 @@ pub mod internal {
         }
 
         #[test]
-        fn on_despawn() {
+        fn despawn() {
             struct Despawned(bool);
             impl Resource for Despawned {}
 
@@ -970,47 +966,20 @@ pub mod internal {
 
         #[test]
         fn set_parent() {
-            let mut world = World::new();
-            let parent = world.spawn(None);
-            let child = world.spawn(Some(parent));
-
-            let children = world.entities().children(&parent);
-            let has_child = children
-                .map(|children| children.contains(&child))
-                .unwrap_or_default();
-            assert!(has_child);
-
-            let child_parent = world.entities().parent(&child);
-            assert_eq!(child_parent, Some(&parent));
-
-            world.set_parent(&child, None);
-
-            let children = world.entities().children(&parent);
-            let has_child = children
-                .map(|children| children.contains(&child))
-                .unwrap_or_default();
-            assert!(!has_child);
-
-            let child_parent = world.entities().parent(&child);
-            assert_eq!(child_parent, None);
-        }
-
-        #[test]
-        fn on_set_parent() {
             struct Parented(bool);
             impl Resource for Parented {}
 
             let mut world = World::new();
             world.add_resource(Parented(false));
 
-            world.observe::<SetParent, _>(|updates: &[ParentUpdate], parented: &mut Parented| {
+            world.observe::<SetParent, _>(|updates: &[SetParent], parented: &mut Parented| {
                 parented.0 = updates.len() == 1;
             });
 
-            let parent = world.spawn(None);
-            let child = world.spawn(None);
+            let parent = world.spawn();
+            let child = world.spawn();
 
-            world.events().add(SetParent::new(child, Some(parent)));
+            world.events().add(SetParent::new(child, parent));
 
             world.run(Root);
 
@@ -1018,34 +987,31 @@ pub mod internal {
         }
 
         #[test]
-        fn on_remove_children() {
-            struct RemovedChildren(usize);
-            impl Resource for RemovedChildren {}
+        fn remove_child() {
+            struct RemovedChild(bool);
+            impl Resource for RemovedChild {}
 
             let mut world = World::new();
-            world.add_resource(RemovedChildren(0));
+            world.add_resource(RemovedChild(false));
 
-            let parent = world.spawn(None);
-            let children = (0..10)
-                .map(|_| world.spawn(Some(parent)))
-                .collect::<Vec<_>>();
+            let parent = world.spawn();
+            let child = world.spawn();
 
-            let child_count = children.len();
-
-            world.observe::<RemoveChildren, _>(
-                move |updates: &[Vec<ParentUpdate>], removed: &mut RemovedChildren| {
+            world.observe::<RemoveChild, _>(
+                move |updates: &[RemoveChild], removed: &mut RemovedChild| {
                     removed.0 = updates
                         .first()
-                        .map(|updates| updates.len())
+                        .map(|update| update.child == child)
                         .unwrap_or_default();
                 },
             );
 
-            world.events().add(RemoveChildren::new(parent, children));
+            world.events().add(AddChild::new(parent, child));
+            world.events().add(RemoveChild::new(parent, child));
 
             world.run(Root);
 
-            assert_eq!(world.resource::<RemovedChildren>().0, child_count);
+            assert!(world.resource::<RemovedChild>().0);
         }
     }
 }

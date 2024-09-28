@@ -1,11 +1,14 @@
 use asset::{database::events::AssetLoaded, embed_asset, plugin::AssetExt, AssetHandle, AssetId};
 use ecs::{
-    core::Resource,
+    core::{
+        internal::blob::{Blob, BlobCell},
+        Entity, Resource,
+    },
     system::{
         unlifetime::{Read, StaticQuery},
         ArgItem, StaticSystemArg,
     },
-    world::{event::Spawn, query::Query},
+    world::{components::Children, event::Spawn, query::Query},
 };
 use game::{
     game::Game,
@@ -52,7 +55,7 @@ const MATERIAL_ID: AssetId = AssetId::raw(400);
 const TRIANGLE_ID: AssetId = AssetId::raw(500);
 
 fn main() {
-    Game::new().add_plugin(BasicPlugin).run();
+    // Game::new().add_plugin(BasicPlugin).run();
 
     // let shader = Opaque3D::shader().generate();
     // let source = match shader {
@@ -308,9 +311,11 @@ impl BasicRenderPipeline {
         object: &ObjectBinding,
         shaders: &RenderAssets<Shader>,
     ) -> Option<Self> {
+        let layout: &[&wgpu::BindGroupLayout] = &[camera.binding.data(), object.binding.data()];
+
         let desc = RenderPipelineDesc {
             label: Some("BasicRenderPipeline"),
-            layout: &[camera.binding.data(), object.binding.data()],
+            layout: Some(layout),
             vertex: VertexState {
                 shader: AssetHandle::<Shader>::Id(SHADER_ID),
                 entry: "vs_main".into(),
@@ -403,11 +408,10 @@ impl RenderGraphNode for BasicRenderNode {
             let object = ctx.resource_mut::<ObjectBinding>();
             let pipeline = ctx.resource::<BasicRenderPipeline>();
 
-            camera.buffer.update(queue, ctx.camera().data);
-
             commands.set_pipeline(pipeline);
             commands.set_bind_group(0, &camera.binding, &[]);
             commands.set_bind_group(1, &object.binding, &[]);
+            camera.buffer.update(queue, ctx.camera().data);
 
             for call in draws.iter() {
                 let mesh = match meshes.get(&call.mesh) {

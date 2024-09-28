@@ -319,7 +319,7 @@ mod tests {
     #[test]
     fn query() {
         let mut world = World::new();
-        let entity = world.spawn(None);
+        let entity = world.spawn();
         let mut components = EntityRow::new();
         components.add_component(A);
         components.add_component(B);
@@ -336,7 +336,7 @@ mod tests {
     #[test]
     fn query_filter_with() {
         let mut world = World::new();
-        let entity = world.spawn(None);
+        let entity = world.spawn();
         let mut components = EntityRow::new();
         components.add_component(A);
         components.add_component(B);
@@ -353,7 +353,7 @@ mod tests {
     #[test]
     fn query_filter_not() {
         let mut world = World::new();
-        let entity = world.spawn(None);
+        let entity = world.spawn();
         let mut components = EntityRow::new();
         components.add_component(A);
         components.add_component(B);

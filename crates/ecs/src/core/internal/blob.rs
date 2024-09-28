@@ -384,7 +384,7 @@ impl From<BlobCell> for Blob {
     fn from(mut cell: BlobCell) -> Self {
         let data = std::mem::take(&mut cell.data);
         let layout = cell.layout;
-        let drop = cell.drop;
+        let drop = cell.drop.take();
         let aligned_layout = layout.pad_to_align();
 
         Self {
@@ -404,9 +404,15 @@ impl From<Blob> for BlobCell {
             panic!("Blob length must be 1.")
         }
 
-        let data = std::mem::take(&mut blob.data);
+        let mut data = std::mem::take(&mut blob.data);
         let layout = blob.layout;
         let drop = blob.drop;
+        blob.length = 0;
+        blob.capacity = 0;
+
+        unsafe {
+            data.set_len(layout.size());
+        }
 
         Self { data, layout, drop }
     }
@@ -430,6 +436,7 @@ impl BlobCell {
         let data = unsafe {
             let ptr = std::ptr::addr_of!(value) as *mut u8;
             let mut data = Vec::with_capacity(layout.size());
+            data.set_len(layout.size());
             std::ptr::copy(ptr, data.as_mut_ptr(), layout.size());
             std::mem::forget(value);
             data

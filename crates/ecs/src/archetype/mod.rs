@@ -270,6 +270,22 @@ impl Archetypes {
         })
     }
 
+    pub fn component<C: Component>(&self, entity: &Entity) -> Option<&C> {
+        self.entities.get(entity).and_then(|id| {
+            self.archetypes
+                .get(id)
+                .and_then(|archetype| archetype.component(entity))
+        })
+    }
+
+    pub fn component_mut<C: Component>(&self, entity: &Entity) -> Option<&mut C> {
+        self.entities.get(entity).and_then(|id| {
+            self.archetypes
+                .get(id)
+                .and_then(|archetype| archetype.component_mut(entity))
+        })
+    }
+
     pub fn add_component<C: Component>(
         &mut self,
         entity: &Entity,

@@ -18,10 +18,12 @@ impl RenderPipeline {
         desc: RenderPipelineDesc,
         shaders: &RenderAssets<Shader>,
     ) -> Option<Self> {
-        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: None,
-            bind_group_layouts: desc.layout,
-            push_constant_ranges: &[],
+        let layout = desc.layout.map(|layout| {
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: None,
+                bind_group_layouts: layout,
+                push_constant_ranges: &[],
+            })
         });
 
         let vertex_shader = match &desc.vertex.shader {
@@ -62,7 +64,7 @@ impl RenderPipeline {
 
         let desc = wgpu::RenderPipelineDescriptor {
             label: desc.label,
-            layout: Some(&layout),
+            layout: layout.as_ref(),
             vertex,
             primitive: desc.primitive,
             depth_stencil: desc.depth_state,
@@ -88,26 +90,6 @@ pub struct VertexBufferLayout {
 }
 
 impl VertexBufferLayout {
-    // pub fn from(step_mode: wgpu::VertexStepMode, layout: &[MeshAttributeKind]) -> Self {
-    //     let mut offset = 0;
-    //     let mut attributes = vec![];
-    //     for (location, attribute) in layout.iter().enumerate() {
-    //         let attribute = wgpu::VertexAttribute {
-    //             format: attribute.format(),
-    //             offset,
-    //             shader_location: location as u32,
-    //         };
-    //         offset += attribute.format.size();
-    //         attributes.push(attribute);
-    //     }
-
-    //     Self {
-    //         array_stride: offset as wgpu::BufferAddress,
-    //         step_mode,
-    //         attributes,
-    //     }
-    // }
-
     pub fn from(step_mode: wgpu::VertexStepMode, layout: &[MeshAttributeKind]) -> Vec<Self> {
         layout
             .iter()
@@ -139,7 +121,7 @@ pub struct FragmentState {
 
 pub struct RenderPipelineDesc<'a> {
     pub label: Option<&'a str>,
-    pub layout: &'a [&'a wgpu::BindGroupLayout],
+    pub layout: Option<&'a [&'a wgpu::BindGroupLayout]>,
     pub vertex: VertexState,
     pub fragment: Option<FragmentState>,
     pub primitive: wgpu::PrimitiveState,

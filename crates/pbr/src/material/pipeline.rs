@@ -150,13 +150,15 @@ impl MaterialPipelines {
             return Some(());
         }
 
-        let global = global_binding.layout();
-        let model = object_binding.layout();
-        let layout = layouts.get(&ty)?;
+        let layout: &[&wgpu::BindGroupLayout] = &[
+            global_binding.layout(),
+            object_binding.layout(),
+            layouts.get(&ty)?,
+        ];
 
         let desc = RenderPipelineDesc {
             label: Some("Material Pipeline"),
-            layout: &[global, model, layout],
+            layout: Some(layout),
             vertex: VertexState {
                 shader: asset::AssetHandle::Asset(self.shader().clone()),
                 entry: std::borrow::Cow::Borrowed("main"),

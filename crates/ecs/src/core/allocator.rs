@@ -2,26 +2,26 @@ use std::collections::HashMap;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct GenId {
-    id: usize,
-    gen: usize,
+    id: u32,
+    gen: u32,
 }
 
 impl GenId {
-    pub fn new(id: usize, gen: usize) -> GenId {
+    pub fn new(id: u32, gen: u32) -> GenId {
         GenId { id, gen }
     }
 
-    pub fn id(&self) -> usize {
+    pub fn id(&self) -> u32 {
         self.id
     }
 
-    pub fn gen(&self) -> usize {
+    pub fn gen(&self) -> u32 {
         self.gen
     }
 }
 
 impl std::ops::Deref for GenId {
-    type Target = usize;
+    type Target = u32;
 
     fn deref(&self) -> &Self::Target {
         &self.id
@@ -29,9 +29,9 @@ impl std::ops::Deref for GenId {
 }
 
 pub struct Allocator {
-    current: usize,
-    generations: HashMap<usize, usize>,
-    free: Vec<usize>,
+    current: u32,
+    generations: HashMap<u32, u32>,
+    free: Vec<u32>,
 }
 
 impl Allocator {
@@ -57,12 +57,19 @@ impl Allocator {
         return GenId { id, gen: *gen };
     }
 
-    pub fn free(&mut self, id: &GenId) {
+    pub fn free(&mut self, id: &GenId) -> bool {
         if let Some(gen) = self.generations.get(id) {
             if *gen == id.gen {
                 self.free.push(**id);
                 self.generations.insert(**id, gen + 1);
+                return true;
             }
         }
+
+        false
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (u32, u32)> + '_ {
+        self.generations.iter().map(|(id, gen)| (*id, *gen))
     }
 }
