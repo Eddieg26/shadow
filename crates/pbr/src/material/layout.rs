@@ -57,7 +57,7 @@ impl GlobalBinding {
             }),
         );
 
-        let mut camera = UniformBufferArray::<CameraData>::new(BufferFlags::COPY_DST);
+        let mut camera = UniformBufferArray::<CameraData>::new(device, BufferFlags::COPY_DST);
         camera.push(CameraData::default());
 
         let binding = BindGroup::create(
@@ -65,7 +65,7 @@ impl GlobalBinding {
             &layout.clone(),
             &[wgpu::BindGroupEntry {
                 binding: CAMERA_BINDING,
-                resource: camera.binding().unwrap(),
+                resource: camera.binding(),
             }],
             layout,
         );

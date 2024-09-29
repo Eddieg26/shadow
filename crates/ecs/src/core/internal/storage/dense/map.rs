@@ -189,16 +189,21 @@ impl<K: Hash + Eq, V> DenseMap<K, V> {
         self.values.drain(..)
     }
 
-    pub fn sort(&mut self, mut sorter: impl FnMut(&K, &K) -> std::cmp::Ordering) {
-        let mut keys = std::mem::take(&mut self.keys);
-        let values = std::mem::take(&mut self.values);
-        keys.sort_by(|a, b| sorter(a, b));
-        for (index, key) in keys.iter().enumerate() {
-            let hash = hash_value(key);
+    pub fn sort(&mut self, sorter: impl FnMut(&(K, V), &(K, V)) -> std::cmp::Ordering) {
+        let mut values = self
+            .keys
+            .drain(..)
+            .zip(self.values.drain(..))
+            .collect::<Vec<_>>();
+        values.sort_by(sorter);
+
+        for (key, value) in values {
+            let index = self.keys.len();
+            let hash = hash_value(&key);
             self.map.insert(hash, index);
+            self.keys.push(key);
+            self.values.push(value);
         }
-        self.keys = keys;
-        self.values = values;
     }
 
     pub fn iter(&self) -> std::iter::Zip<std::slice::Iter<K>, std::slice::Iter<V>> {

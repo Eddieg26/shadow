@@ -37,7 +37,7 @@ use game::{
     plugin::{Plugin, Plugins},
     Main, SubApp, SubEvents,
 };
-use spatial::{plugin::SpatialPlugin, transform::Transform, Size};
+use spatial::{plugin::SpatialPlugin, Size, Transform};
 use window::{
     events::{Resized, WindowCreated},
     plugin::WindowPlugin,
@@ -199,11 +199,11 @@ fn extract_cameras(
     cameras: &mut RenderAssets<RenderCamera>,
 ) {
     for (camera, transform) in sources.into_inner() {
-        let render_camera = RenderCamera::new(camera, transform.matrix(None));
-        cameras.add(camera.depth, render_camera);
+        let world = transform.local_to_world;
+        cameras.add(camera.depth, RenderCamera::new(camera, world));
     }
 
-    cameras.sort(|a, b| a.cmp(b));
+    cameras.sort(|a, b| a.0.cmp(&b.0));
 }
 
 fn extract_render_asset_render_world<R: RenderAssetExtractor>(
@@ -445,7 +445,7 @@ impl GraphicsExt for Game {
                 app.add_system(ExtractBindGroup, extract_render_resource::<R>);
                 app.observe::<R::Event, _>(
                     |_: &[<R::Event as Event>::Output], events: &SubEvents<RenderApp>| {
-                        // events.add_deferred(ExtractBindGroup.id(), ExtractResource::<R>::new());
+                        events.add_deferred(ExtractBindGroup.id(), ExtractResource::<R>::new());
                     },
                 );
             }
@@ -453,7 +453,7 @@ impl GraphicsExt for Game {
                 app.add_system(ExtractPipeline, extract_render_resource::<R>);
                 app.observe::<R::Event, _>(
                     |_: &[<R::Event as Event>::Output], events: &SubEvents<RenderApp>| {
-                        // events.add_deferred(ExtractPipeline.id(), ExtractResource::<R>::new());
+                        events.add_deferred(ExtractPipeline.id(), ExtractResource::<R>::new());
                     },
                 );
             }
@@ -461,7 +461,7 @@ impl GraphicsExt for Game {
                 app.add_system(Extract, extract_render_resource::<R>);
                 app.observe::<R::Event, _>(
                     |_: &[<R::Event as Event>::Output], events: &SubEvents<RenderApp>| {
-                        // events.add_deferred(Extract.id(), ExtractResource::<R>::new());
+                        events.add_deferred(Extract.id(), ExtractResource::<R>::new());
                     },
                 );
             }

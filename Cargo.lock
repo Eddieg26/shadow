@@ -602,6 +602,7 @@ dependencies = [
  "ahash",
  "crc32fast",
  "downcast-rs",
+ "rayon",
  "serde",
  "ulid",
 ]
@@ -2129,6 +2130,7 @@ dependencies = [
  "ecs",
  "game",
  "glam",
+ "rayon",
  "serde",
 ]
 

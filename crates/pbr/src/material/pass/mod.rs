@@ -16,7 +16,7 @@ use graphics::{
         graph::{
             context::RenderContext,
             node::{NodeInfo, RenderGraphNode},
-            pass::{Attachment, LoadOp, Operations, RenderCommands, RenderPass, StoreOp},
+            pass::{Attachment, LoadOp, Operations, RenderPass, StoreOp},
         },
     },
     resources::{mesh::MeshBuffers, RenderAssets},
@@ -173,7 +173,7 @@ impl<'a> RenderGroupContext<'a> {
 }
 
 pub trait RenderGroup: Send + Sync + 'static {
-    fn render<'a>(&self, ctx: &'a RenderGroupContext<'a>, commands: &mut RenderCommands<'a>);
+    fn render<'a>(&self, ctx: &'a RenderGroupContext<'a>, pass: &mut wgpu::RenderPass<'a>);
 }
 
 pub struct DrawMesh {
@@ -279,7 +279,7 @@ impl<M: MaterialPipeline> RenderMeshGroup<M> {
 }
 
 impl<M: MaterialPipeline> RenderGroup for RenderMeshGroup<M> {
-    fn render<'a>(&self, ctx: &'a RenderGroupContext<'a>, commands: &mut RenderCommands<'a>) {
+    fn render<'a>(&self, ctx: &'a RenderGroupContext<'a>, commands: &mut wgpu::RenderPass<'a>) {
         let calls = ctx.resource::<DrawCalls<DrawMesh>>();
         let global = ctx.resource::<GlobalBinding>();
         let object = ctx.resource_mut::<ObjectBinding>();
@@ -305,7 +305,7 @@ impl<M: MaterialPipeline> RenderGroup for RenderMeshGroup<M> {
             for (slot, attribute) in material_pipelines.layout().iter().enumerate() {
                 if let Some(index) = buffers.attribute_index(*attribute) {
                     let buffer = buffers.get_vertex_buffer(index).unwrap();
-                    commands.set_vertex_buffer(buffer.global_id(), slot as u32, buffer.slice(..))
+                    commands.set_vertex_buffer(slot as u32, buffer.slice(..))
                 }
             }
 
@@ -320,7 +320,7 @@ impl<M: MaterialPipeline> RenderGroup for RenderMeshGroup<M> {
 
             if let Some(buffer) = buffers.index_buffer() {
                 let format = buffer.format();
-                commands.set_index_buffer(buffer.global_id(), buffer.slice(..), format);
+                commands.set_index_buffer(buffer.slice(..), format);
                 commands.draw_indexed(0..buffer.len() as u32, 0, 0..1);
             } else {
                 commands.draw(0..buffers.vertex_count() as u32, 0..1);

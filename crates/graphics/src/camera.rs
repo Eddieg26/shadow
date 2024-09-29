@@ -10,6 +10,12 @@ pub enum ClearFlag {
     Color(Color),
 }
 
+impl From<Color> for ClearFlag {
+    fn from(color: Color) -> Self {
+        Self::Color(color)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Viewport {
     pub position: Size,
@@ -54,6 +60,37 @@ pub struct Camera {
     pub depth: u32,
 }
 
+impl Camera {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_clear(mut self, clear: impl Into<ClearFlag>) -> Self {
+        self.clear = Some(clear.into());
+        self
+    }
+
+    pub fn with_viewport(mut self, viewport: Viewport) -> Self {
+        self.viewport = viewport;
+        self
+    }
+
+    pub fn with_projection(mut self, projection: Projection) -> Self {
+        self.projection = projection;
+        self
+    }
+
+    pub fn with_target(mut self, target: AssetId) -> Self {
+        self.target = Some(target);
+        self
+    }
+
+    pub fn with_depth(mut self, depth: u32) -> Self {
+        self.depth = depth;
+        self
+    }
+}
+
 impl Default for Camera {
     fn default() -> Self {
         Self {
@@ -65,14 +102,6 @@ impl Default for Camera {
                 near: 0.3,
                 far: 1000.0,
             },
-            // projection: Projection::Orthographic {
-            //     left: -1.0,
-            //     right: 1.0,
-            //     bottom: -1.0,
-            //     top: 1.0,
-            //     near: 0.3,
-            //     far: 1000.0,
-            // },
             target: None,
             depth: 0,
         }

@@ -87,6 +87,8 @@ impl ComponentMeta {
     }
 }
 
+
+#[derive(Clone)]
 pub struct Components {
     metas: DenseMap<ComponentId, ComponentMeta>,
 }

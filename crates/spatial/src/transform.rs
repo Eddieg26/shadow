@@ -1,4 +1,12 @@
-use ecs::core::Component;
+use ecs::{
+    core::Component,
+    task::{max_thread_count, ScopedTaskPool},
+    world::{
+        components::{Children, Parent},
+        query::{FilterQuery, Not, Query, With},
+        World,
+    },
+};
 use glam::{Mat4, Quat, Vec3};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -14,10 +22,12 @@ pub enum Axis {
     Z,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Transform {
     pub position: Vec3,
     pub rotation: Quat,
     pub scale: Vec3,
+    pub local_to_world: Mat4,
 }
 
 impl Default for Transform {
@@ -26,17 +36,39 @@ impl Default for Transform {
             position: Vec3::ZERO,
             rotation: Quat::IDENTITY,
             scale: Vec3::ONE,
+            local_to_world: Mat4::IDENTITY,
         }
     }
 }
 
 impl Transform {
     pub fn new(position: Vec3, rotation: Quat, scale: Vec3) -> Self {
+        let local_to_world = Mat4::from_scale_rotation_translation(scale, rotation, position);
         Self {
             position,
             rotation,
             scale,
+            local_to_world,
         }
+    }
+
+    pub fn zero() -> Self {
+        Self::default()
+    }
+
+    pub fn with_position(mut self, position: Vec3) -> Self {
+        self.position = position;
+        self
+    }
+
+    pub fn with_rotation(mut self, rotation: Quat) -> Self {
+        self.rotation = rotation;
+        self
+    }
+
+    pub fn with_scale(mut self, scale: Vec3) -> Self {
+        self.scale = scale;
+        self
     }
 
     pub fn from_mat4(mat: Mat4) -> Self {
@@ -45,6 +77,7 @@ impl Transform {
             position,
             rotation,
             scale,
+            local_to_world: mat,
         }
     }
 
@@ -128,22 +161,38 @@ impl Transform {
 
         self
     }
+
+    pub fn update(&mut self, parent: Option<&Transform>) {
+        self.local_to_world = self.matrix(parent.map(|p| p.local_to_world));
+    }
 }
 
 impl Component for Transform {}
 
-pub struct LocalToWorld(pub Mat4);
+pub fn update_transforms(
+    query: Query<(&mut Transform, Option<&Children>), Not<Parent>>,
+    world: &World,
+) {
+    let mut scoped = ScopedTaskPool::new(max_thread_count());
+    for (transform, children) in query {
+        transform.update(None);
 
-impl Component for LocalToWorld {}
-
-impl Default for LocalToWorld {
-    fn default() -> Self {
-        Self(Mat4::IDENTITY)
+        if let Some(children) = children {
+            scoped.spawn(move || {
+                update_child_transforms(children, &transform, world);
+            });
+        }
     }
 }
 
-impl LocalToWorld {
-    pub fn update(&mut self, transform: &Transform, parent: Option<&LocalToWorld>) {
-        self.0 = transform.matrix(parent.map(|p| p.0));
+pub fn update_child_transforms(children: &Children, parent: &Transform, world: &World) {
+    for (transform, children) in
+        FilterQuery::<(&mut Transform, Option<&Children>), With<Parent>>::new(world, *&children)
+    {
+        transform.update(Some(parent));
+
+        if let Some(children) = children {
+            update_child_transforms(children, &transform, world);
+        }
     }
 }

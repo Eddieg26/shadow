@@ -30,7 +30,7 @@ impl Blob {
         }
     }
 
-    pub fn from<T: 'static>(value: T) -> Self {
+    pub fn from_value<T: 'static>(value: T) -> Self {
         let layout = Layout::new::<T>();
         let aligned_layout = layout.pad_to_align();
         let mut data = Vec::with_capacity(aligned_layout.size() * 2);
@@ -200,7 +200,10 @@ impl Blob {
 
     pub fn extend(&mut self, mut blob: Blob) {
         if blob.aligned_layout != self.aligned_layout || blob.layout != self.layout {
-            panic!("Layouts are different")
+            panic!(
+                "Layouts are different: {:?} != {:?}",
+                blob.layout, self.layout
+            )
         }
 
         self.reserve(blob.length);

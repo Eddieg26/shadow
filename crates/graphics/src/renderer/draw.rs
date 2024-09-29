@@ -23,6 +23,10 @@ impl<D: Draw> DrawCalls<D> {
         self.calls.items()
     }
 
+    pub fn len(&self) -> usize {
+        self.calls.len()
+    }
+
     pub fn clear(&mut self) {
         self.calls.clear();
     }

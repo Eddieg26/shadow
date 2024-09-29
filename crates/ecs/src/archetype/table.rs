@@ -69,7 +69,7 @@ impl EntityRow {
     }
 
     pub fn sort(&mut self) {
-        self.components.sort(|a, b| a.cmp(b));
+        self.components.sort(|a, b| a.0.cmp(&b.0));
     }
 
     pub fn len(&self) -> usize {
@@ -191,8 +191,7 @@ impl TableBuilder {
         self.components.remove(id);
     }
 
-    pub fn build(mut self) -> EntityTable {
-        self.components.sort(|a, b| a.cmp(b));
+    pub fn build(self) -> EntityTable {
         EntityTable {
             rows: DenseSet::new(),
             components: self.components,

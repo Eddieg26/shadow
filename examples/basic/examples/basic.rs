@@ -1,25 +1,30 @@
 use asset::{database::events::AssetLoaded, embed_asset, plugin::AssetExt, AssetHandle, AssetId};
 use ecs::{
+    archetype::table::EntityRow,
     core::{
         internal::blob::{Blob, BlobCell},
-        Entity, Resource,
+        Component, ComponentId, Entity, Resource,
     },
     system::{
-        unlifetime::{Read, StaticQuery},
+        unlifetime::{Read, StaticQuery, Write},
         ArgItem, StaticSystemArg,
     },
-    world::{components::Children, event::Spawn, query::Query},
+    world::{
+        event::Spawn,
+        query::{Query, With},
+        World,
+    },
 };
 use game::{
     game::Game,
     plugin::{Plugin, Plugins},
     time::Time,
-    Extract, Main, Update,
+    Extract, Main, MainWorld, Update,
 };
 use glam::{Vec2, Vec3};
 use graphics::{
-    camera::{Camera, CameraData, RenderCamera},
-    core::{Color, RenderDevice, RenderInstance},
+    camera::{Camera, CameraData, ClearFlag, RenderCamera},
+    core::{Color, RenderDevice, RenderQueue},
     plugin::{GraphicsExt, GraphicsPlugin, RenderApp},
     renderer::{
         draw::{Draw, DrawCallExtractor, DrawCalls},
@@ -34,8 +39,11 @@ use graphics::{
         surface::RenderSurface,
     },
     resources::{
-        binding::BindGroup,
-        buffer::{BufferFlags, Indices, UniformBuffer},
+        binding::{BindGroup, CreateBindGroup},
+        buffer::{
+            BatchIndex, BatchedUniformBuffer, BufferFlags, Indices, UniformBuffer,
+            UniformBufferArray,
+        },
         mesh::{Mesh, MeshAttribute, MeshAttributeKind, MeshBuffers, MeshTopology},
         pipeline::{
             FragmentState, RenderPipeline, RenderPipelineDesc, VertexBufferLayout, VertexState,
@@ -45,26 +53,31 @@ use graphics::{
     },
 };
 use spatial::{Axis, Transform};
-use std::{collections::HashMap, sync::Arc, u32};
+use std::{sync::Arc, u32};
 use window::events::WindowCreated;
 
 const TEST_ID: AssetId = AssetId::raw(100);
 const CUBE_ID: AssetId = AssetId::raw(200);
 const SHADER_ID: AssetId = AssetId::raw(300);
 const MATERIAL_ID: AssetId = AssetId::raw(400);
-const TRIANGLE_ID: AssetId = AssetId::raw(500);
 
 fn main() {
-    // Game::new().add_plugin(BasicPlugin).run();
-
-    // let shader = Opaque3D::shader().generate();
-    // let source = match shader {
-    //     ShaderSource::Wgsl(source) => source,
-    //     _ => panic!("Expected WGSL shader"),
-    // };
-
-    // std::fs::write("mesh_shader.wgsl", source.deref()).unwrap();
+    Game::new().add_plugin(BasicPlugin).run();
 }
+
+#[derive(Debug, Clone, Copy)]
+pub struct MeshRenderer {
+    pub mesh: AssetId,
+    pub material: AssetId,
+}
+
+impl MeshRenderer {
+    pub fn new(mesh: AssetId, material: AssetId) -> Self {
+        Self { mesh, material }
+    }
+}
+
+impl Component for MeshRenderer {}
 
 pub struct BasicPlugin;
 
@@ -80,52 +93,56 @@ impl Plugin for BasicPlugin {
         embed_asset!(game, CUBE_ID, "cube.obj");
         embed_asset!(game, SHADER_ID, "shader.wgsl");
 
-        let mut triangle = Mesh::new(MeshTopology::TriangleList);
-        triangle.add_attribute(MeshAttribute::Position(vec![
-            Vec3::new(-1.0, -1.0, 0.0),
-            Vec3::new(1.0, -1.0, 0.0),
-            Vec3::new(0.0, 1.0, 0.0),
-        ]));
-
-        triangle.add_attribute(MeshAttribute::TexCoord0(vec![
-            Vec2::new(0.0, 0.0),
-            Vec2::new(1.0, 0.0),
-            Vec2::new(0.5, 1.0),
-        ]));
-
-        triangle.set_indices(Indices::U32(vec![0, 1, 2]));
-
-        game.events().add(AssetLoaded::add(TRIANGLE_ID, triangle));
-        game.events().add(Spawn::new().with(Transform::default()));
+        game.register::<MeshRenderer>();
+        game.events().add(
+            Spawn::new()
+                .with(
+                    Transform::default()
+                        .with_scale((0.5, 0.5, 0.5).into())
+                        .with_position(Vec3::new(1.0, 0.0, 0.0)),
+                )
+                .with(MeshRenderer::new(CUBE_ID, MATERIAL_ID)),
+        );
+        game.events().add(
+            Spawn::new()
+                .with(
+                    Transform::default()
+                        .with_scale((0.5, 0.5, 0.5).into())
+                        .with_position(Vec3::new(0.0, 1.0, 0.0)),
+                )
+                .with(MeshRenderer::new(CUBE_ID, MATERIAL_ID)),
+        );
+        game.events().add(
+            Spawn::new()
+                .with(Camera::default().with_clear(Color::blue()))
+                .with(Transform::zero().with_position(Vec3::new(0.0, 0.0, 10.0))),
+        );
         game.add_draw_call_extractor::<DrawMeshExtractor>();
         game.add_render_resource_extractor::<CameraBinding>();
-        game.add_render_resource_extractor::<ObjectBinding>();
+        game.add_render_resource_extractor::<ObjectBindings>();
         game.add_render_resource_extractor::<BasicRenderPipeline>();
         game.add_render_node(BasicRenderNode::new());
 
         let app = game.sub_app_mut::<RenderApp>().unwrap();
-        app.add_system(Extract, |cameras: &mut RenderAssets<RenderCamera>| {
-            let world = glam::Mat4::from_translation(Vec3::new(0.0, 0.0, 10.0));
-            cameras.add(0, RenderCamera::new(&Camera::default(), world));
-        });
-        game.add_system(Update, |transforms: Query<&mut Transform>, time: &Time| {
-            for transform in transforms {
-                transform.rotate_around(Axis::Y, (45.0 * time.delta_secs()).to_radians());
-            }
-        });
+        app.add_system(
+            Extract,
+            |query: Main<Query<(&Camera, &Transform)>>,
+             cameras: &mut RenderAssets<RenderCamera>| {
+                for (camera, transform) in query.into_inner() {
+                    let world = transform.local_to_world;
+                    cameras.add(camera.depth, RenderCamera::new(camera, world));
+                }
+            },
+        );
+        game.add_system(
+            Update,
+            |transforms: Query<&mut Transform, With<MeshRenderer>>, time: &Time| {
+                for transform in transforms {
+                    transform.rotate_around(Axis::Y, (45.0 * time.delta_secs()).to_radians());
+                }
+            },
+        );
     }
-}
-
-pub async fn create_device() -> (wgpu::Device, wgpu::Queue) {
-    let instance = RenderInstance::create();
-    let adapter = instance
-        .request_adapter(&wgpu::RequestAdapterOptionsBase::default())
-        .await
-        .unwrap();
-    adapter
-        .request_device(&wgpu::DeviceDescriptor::default(), None)
-        .await
-        .unwrap()
 }
 
 pub struct BasicRenderNode {
@@ -155,7 +172,8 @@ impl BasicRenderNode {
 }
 
 pub struct CameraBinding {
-    pub binding: BindGroup<Arc<wgpu::BindGroupLayout>>,
+    pub layout: wgpu::BindGroupLayout,
+    pub binding: BindGroup,
     pub buffer: UniformBuffer<CameraData>,
 }
 
@@ -175,19 +193,19 @@ impl CameraBinding {
                 count: None,
             }],
         });
-        let layout = Arc::new(layout);
 
         let binding = BindGroup::create(
             device,
-            &layout.clone(),
+            &layout,
             &[wgpu::BindGroupEntry {
                 binding: 0,
                 resource: camera.buffer().as_entire_binding(),
             }],
-            layout,
+            (),
         );
 
         Self {
+            layout,
             binding,
             buffer: camera,
         }
@@ -216,9 +234,83 @@ impl From<glam::Mat4> for ModelData {
     }
 }
 
+pub struct ObjectBindings {
+    layout: wgpu::BindGroupLayout,
+    buffers: BatchedUniformBuffer<ModelData>,
+    bind_groups: Vec<BindGroup>,
+}
+
+impl ObjectBindings {
+    pub fn new(device: &RenderDevice) -> Self {
+        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: None,
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: true,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
+
+        Self {
+            layout,
+            buffers: BatchedUniformBuffer::new(device, BufferFlags::COPY_DST),
+            bind_groups: Vec::new(),
+        }
+    }
+
+    pub fn push(&mut self, model: ModelData) -> BatchIndex<ModelData> {
+        self.buffers.push(model)
+    }
+
+    pub fn binding(&self, index: usize) -> &BindGroup {
+        &self.bind_groups[index]
+    }
+
+    pub fn commit(&mut self, device: &RenderDevice, queue: &RenderQueue) {
+        self.buffers.commit(device, queue);
+
+        for index in self.bind_groups.len()..self.buffers.buffer_count() {
+            let buffer = self.buffers.buffer(index);
+
+            let binding = BindGroup::create(
+                device,
+                &self.layout,
+                &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer,
+                        offset: 0,
+                        size: wgpu::BufferSize::new(std::mem::size_of::<ModelData>() as u64),
+                    }),
+                }],
+                (),
+            );
+
+            self.bind_groups.push(binding);
+        }
+    }
+}
+
+impl Resource for ObjectBindings {}
+
+impl RenderResourceExtractor for ObjectBindings {
+    type Event = WindowCreated;
+    type Target = ObjectBindings;
+    type Arg = StaticSystemArg<'static, Read<RenderDevice>>;
+
+    fn extract(device: &ArgItem<Self::Arg>) -> Option<Self::Target> {
+        Some(Self::new(device))
+    }
+}
+
 pub struct DrawMesh {
     pub mesh: AssetId,
-    pub world: glam::Mat4,
+    pub batch_index: BatchIndex<ModelData>,
 }
 
 impl Draw for DrawMesh {}
@@ -227,77 +319,23 @@ pub struct DrawMeshExtractor;
 
 impl DrawCallExtractor for DrawMeshExtractor {
     type Draw = DrawMesh;
-    type Arg = StaticSystemArg<'static, Main<'static, StaticQuery<Read<Transform>>>>;
+    type Arg = StaticSystemArg<
+        'static,
+        (
+            Main<'static, StaticQuery<(Read<MeshRenderer>, Read<Transform>)>>,
+            Write<ObjectBindings>,
+        ),
+    >;
 
     fn extract(draw: &mut DrawCalls<Self::Draw>, arg: ArgItem<Self::Arg>) {
-        for transform in arg.into_inner().into_inner() {
-            let world = glam::Mat4::from_scale_rotation_translation(
-                transform.scale,
-                transform.rotation,
-                transform.position,
-            );
-
+        let (main, bindings) = arg.into_inner();
+        for (renderer, transform) in main.into_inner() {
+            let batch_index = bindings.push(transform.local_to_world.into());
             draw.add(DrawMesh {
-                mesh: CUBE_ID,
-                world,
+                mesh: renderer.mesh,
+                batch_index,
             });
         }
-    }
-}
-
-pub struct ObjectBinding {
-    pub binding: BindGroup<Arc<wgpu::BindGroupLayout>>,
-    pub buffer: UniformBuffer<ModelData>,
-}
-
-impl ObjectBinding {
-    pub fn new(device: &RenderDevice) -> Self {
-        let model = UniformBuffer::new(
-            device,
-            ModelData(glam::Mat4::IDENTITY),
-            BufferFlags::COPY_DST,
-        );
-        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: None,
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-        });
-        let layout = Arc::new(layout);
-
-        let binding = BindGroup::create(
-            device,
-            &layout.clone(),
-            &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: model.buffer().as_entire_binding(),
-            }],
-            layout,
-        );
-
-        Self {
-            binding,
-            buffer: model,
-        }
-    }
-}
-
-impl Resource for ObjectBinding {}
-
-impl RenderResourceExtractor for ObjectBinding {
-    type Event = WindowCreated;
-    type Target = ObjectBinding;
-    type Arg = StaticSystemArg<'static, Read<RenderDevice>>;
-
-    fn extract(device: &ArgItem<Self::Arg>) -> Option<Self::Target> {
-        Some(Self::new(device))
     }
 }
 
@@ -308,10 +346,10 @@ impl BasicRenderPipeline {
         device: &RenderDevice,
         surface: &RenderSurface,
         camera: &CameraBinding,
-        object: &ObjectBinding,
+        object: &ObjectBindings,
         shaders: &RenderAssets<Shader>,
     ) -> Option<Self> {
-        let layout: &[&wgpu::BindGroupLayout] = &[camera.binding.data(), object.binding.data()];
+        let layout: &[&wgpu::BindGroupLayout] = &[&camera.layout, &object.layout];
 
         let desc = RenderPipelineDesc {
             label: Some("BasicRenderPipeline"),
@@ -364,7 +402,7 @@ impl RenderResourceExtractor for BasicRenderPipeline {
             Read<RenderDevice>,
             Read<RenderSurface>,
             Read<CameraBinding>,
-            Read<ObjectBinding>,
+            Read<ObjectBindings>,
             Read<RenderAssets<Shader>>,
         ),
     >;
@@ -402,16 +440,17 @@ impl RenderGraphNode for BasicRenderNode {
         let mut encoder = ctx.encoder();
         if let Some(mut commands) = self.pass.begin(ctx, &mut encoder) {
             let queue = ctx.queue();
+            let device = ctx.device();
             let draws = ctx.resource::<DrawCalls<DrawMesh>>();
             let meshes = ctx.resource::<RenderAssets<MeshBuffers>>();
             let camera = ctx.resource_mut::<CameraBinding>();
-            let object = ctx.resource_mut::<ObjectBinding>();
+            let object = ctx.resource_mut::<ObjectBindings>();
             let pipeline = ctx.resource::<BasicRenderPipeline>();
 
+            object.commit(device, queue);
+            camera.buffer.update(queue, ctx.camera().data);
             commands.set_pipeline(pipeline);
             commands.set_bind_group(0, &camera.binding, &[]);
-            commands.set_bind_group(1, &object.binding, &[]);
-            camera.buffer.update(queue, ctx.camera().data);
 
             for call in draws.iter() {
                 let mesh = match meshes.get(&call.mesh) {
@@ -429,13 +468,11 @@ impl RenderGraphNode for BasicRenderNode {
                     None => continue,
                 };
 
-                object.buffer.update(queue, call.world.into());
-                commands.set_vertex_buffer(vertex_buffer.id(), 0, vertex_buffer.slice(..));
-                commands.set_index_buffer(
-                    index_buffer.id(),
-                    index_buffer.slice(..),
-                    index_buffer.format(),
-                );
+                let index = call.batch_index.index();
+                let offset = call.batch_index.offset();
+                commands.set_bind_group(1, &object.binding(index), &[offset]);
+                commands.set_vertex_buffer(0, vertex_buffer.slice(..));
+                commands.set_index_buffer(index_buffer.slice(..), index_buffer.format());
                 commands.draw_indexed(0..index_buffer.len() as u32, 0, 0..1);
             }
         }

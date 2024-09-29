@@ -10,3 +10,4 @@ ecs = { path = "../ecs" }
 game = { path = "../game" }
 glam = { workspace = true }
 serde = { workspace = true }
+rayon = { workspace = true }

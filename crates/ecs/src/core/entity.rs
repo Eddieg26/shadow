@@ -7,6 +7,8 @@ pub struct Entity {
 }
 
 impl Entity {
+    pub const ZERO: Entity = Entity { id: 0, gen: 0 };
+
     pub fn new(id: u32, gen: u32) -> Entity {
         Entity { id, gen }
     }

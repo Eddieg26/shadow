@@ -117,7 +117,7 @@ impl Column {
         ColumnCell { data }
     }
 
-    pub fn swap_remoe_cell(&mut self, index: usize) -> ColumnCell {
+    pub fn swap_remove_cell(&mut self, index: usize) -> ColumnCell {
         let data = self.data.swap_remove_blob(index).into();
         ColumnCell { data }
     }
@@ -138,15 +138,7 @@ impl Column {
 impl From<ColumnCell> for Column {
     fn from(cell: ColumnCell) -> Self {
         Column {
-            data: cell.data.into(),
-        }
-    }
-}
-
-impl From<&ColumnCell> for Column {
-    fn from(cell: &ColumnCell) -> Self {
-        Column {
-            data: Blob::with_layout(cell.data.layout().clone(), 0, cell.data.drop().copied()),
+            data: Blob::from(cell.data),
         }
     }
 }
@@ -248,7 +240,7 @@ impl Row {
     pub fn table_layout<R: RowIndex>(&self) -> TableLayout<R> {
         let mut layout = TableLayout::new();
         for (key, cell) in self.columns.iter() {
-            layout.add_column(*key, Column::from(cell));
+            layout.add_column(*key, Column::copy_cell(cell));
         }
 
         layout
@@ -424,7 +416,7 @@ impl<R: RowIndex> Table<R> {
         Some(self.rows.swap_remove_at(idx));
         let mut row = Row::new();
         for (field, column) in &mut self.columns {
-            let cell = column.swap_remoe_cell(idx);
+            let cell = column.swap_remove_cell(idx);
             row.add_cell(field.clone(), cell);
         }
 

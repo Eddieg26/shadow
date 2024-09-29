@@ -120,6 +120,9 @@ impl<'a> ScopedTaskPool<'a> {
 
     pub fn spawn(&mut self, task: impl FnOnce() + Send + 'a) -> &mut Self {
         self.queue.push_back(Box::new(task));
+        if self.queue.len() >= self.size {
+            self.run();
+        }
         self
     }
 

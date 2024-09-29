@@ -58,60 +58,28 @@ impl ArchetypeId {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum EdgeId {
-    Component(ComponentId),
-    Archetype(ArchetypeId),
-}
-
-impl EdgeId {
-    pub fn new(ids: &[ComponentId]) -> Self {
-        if ids.len() == 1 {
-            EdgeId::Component(ids[0])
-        } else {
-            EdgeId::Archetype(ArchetypeId::new(ids))
-        }
-    }
-}
-
-impl From<ComponentId> for EdgeId {
+impl From<ComponentId> for ArchetypeId {
     fn from(id: ComponentId) -> Self {
-        EdgeId::Component(id)
+        ArchetypeId::new(&[id])
     }
 }
 
-impl From<ArchetypeId> for EdgeId {
-    fn from(id: ArchetypeId) -> Self {
-        EdgeId::Archetype(id)
-    }
-}
-
-impl From<&ComponentId> for EdgeId {
+impl From<&ComponentId> for ArchetypeId {
     fn from(id: &ComponentId) -> Self {
-        EdgeId::Component(*id)
+        ArchetypeId::new(&[*id])
     }
 }
 
-impl From<&ArchetypeId> for EdgeId {
-    fn from(id: &ArchetypeId) -> Self {
-        EdgeId::Archetype(*id)
-    }
-}
-
-impl From<&[ComponentId]> for EdgeId {
+impl From<&[ComponentId]> for ArchetypeId {
     fn from(ids: &[ComponentId]) -> Self {
-        if ids.len() == 1 {
-            EdgeId::Component(ids[0])
-        } else {
-            EdgeId::Archetype(ArchetypeId::new(ids))
-        }
+        ArchetypeId::new(ids)
     }
 }
 
 pub struct Archetype {
     id: ArchetypeId,
-    add_edges: HashMap<EdgeId, ArchetypeId>,
-    remove_edges: HashMap<EdgeId, ArchetypeId>,
+    add_edges: HashMap<ArchetypeId, ArchetypeId>,
+    remove_edges: HashMap<ArchetypeId, ArchetypeId>,
     table: EntityTable,
 }
 
@@ -145,14 +113,14 @@ impl Archetype {
         self.table.entities()
     }
 
-    pub fn edge(&self, id: impl Into<EdgeId>, ty: EdgeType) -> Option<&ArchetypeId> {
+    pub fn edge(&self, id: impl Into<ArchetypeId>, ty: EdgeType) -> Option<&ArchetypeId> {
         match ty {
             EdgeType::Add => self.add_edges.get(&id.into()),
             EdgeType::Remove => self.remove_edges.get(&id.into()),
         }
     }
 
-    pub fn insert_edge(&mut self, id: impl Into<EdgeId>, target: ArchetypeId, ty: EdgeType) {
+    pub fn insert_edge(&mut self, id: impl Into<ArchetypeId>, target: ArchetypeId, ty: EdgeType) {
         match ty {
             EdgeType::Add => {
                 self.add_edges.insert(id.into(), target);
@@ -289,19 +257,19 @@ impl Archetypes {
     pub fn add_component<C: Component>(
         &mut self,
         entity: &Entity,
-        id: &ComponentId,
         component: C,
     ) -> Option<ArchetypeMove> {
+        let id = ComponentId::new::<C>();
         let (archetype, mut components) = self.remove_entity(entity)?;
         let mut added = DenseSet::new();
         let mut removed = EntityRow::new();
         components.add_component(component).map(|c| {
-            removed.add_cell(*id, c);
+            removed.add_cell(id, c);
         });
         components.sort();
-        added.insert(*id);
+        added.insert(id);
 
-        let edge = EdgeId::from(id);
+        let edge = ArchetypeId::from(id);
         let ty = MoveType::Add(added, removed);
         self.move_entity(entity, &archetype, &edge, components, ty)
     }
@@ -315,10 +283,9 @@ impl Archetypes {
         let mut added = DenseSet::<ComponentId>::new();
         let mut removed = EntityRow::new();
         let mut unique = DenseSet::new();
-        row.sort();
         for (id, cell) in row.drain() {
             added.insert(id);
-            if components.contains_id(&id) {
+            if !components.contains_id(&id) {
                 unique.insert(id);
             }
             components.add_cell(id, cell).map(|c| {
@@ -326,8 +293,9 @@ impl Archetypes {
             });
         }
         components.sort();
+        unique.sort();
 
-        let edge = EdgeId::from(unique.keys());
+        let edge = ArchetypeId::from(unique.keys());
         let ty = MoveType::Add(added, removed);
         self.move_entity(entity, &archetype, &edge, components, ty)
     }
@@ -339,7 +307,7 @@ impl Archetypes {
             removed.add_cell(*id, c);
         });
 
-        let edge = EdgeId::from(id);
+        let edge = ArchetypeId::from(id);
         let ty = MoveType::Remove(removed);
         self.move_entity(entity, &archetype, &edge, components, ty)
     }
@@ -361,7 +329,7 @@ impl Archetypes {
             });
         }
 
-        let edge = EdgeId::from(removed.components());
+        let edge = ArchetypeId::from(removed.components());
         let ty = MoveType::Remove(removed);
         self.move_entity(entity, &archetype, &edge, components, ty)
     }
@@ -383,7 +351,7 @@ impl Archetypes {
     fn next_archetype(
         &mut self,
         id: &ArchetypeId,
-        edge: &EdgeId,
+        edge: &ArchetypeId,
         ty: EdgeType,
     ) -> Option<&mut Archetype> {
         let id = self.get(id)?.edge(*edge, ty).copied()?;
@@ -394,7 +362,7 @@ impl Archetypes {
         &mut self,
         entity: &Entity,
         from: &ArchetypeId,
-        edge: &EdgeId,
+        edge: &ArchetypeId,
         row: EntityRow,
         ty: EdgeType,
     ) -> ArchetypeId {
@@ -413,7 +381,7 @@ impl Archetypes {
         &mut self,
         entity: &Entity,
         from: &ArchetypeId,
-        edge: &EdgeId,
+        edge: &ArchetypeId,
         components: EntityRow,
         ty: MoveType,
     ) -> Option<ArchetypeMove> {
@@ -423,7 +391,7 @@ impl Archetypes {
         };
 
         let next = if let Some(next) = self.next_archetype(from, edge, ty) {
-            next.insert(entity, components.into());
+            next.insert(entity, components);
             next.id()
         } else {
             let next_id = self.new_edge(entity, from, &edge, components, ty);

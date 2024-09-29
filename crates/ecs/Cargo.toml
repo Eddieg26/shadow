@@ -6,8 +6,9 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+ahash = "0.8.11"
 ulid = { workspace = true }
 crc32fast = { workspace = true }
 downcast-rs = { workspace = true }
 serde = { workspace = true }
-ahash = "0.8.11"
+rayon = { workspace = true }

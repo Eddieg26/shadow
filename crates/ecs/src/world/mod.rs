@@ -19,7 +19,7 @@ use crate::{
     archetype::table::EntityRow,
     system::schedule::{Schedule, ScheduleId},
 };
-use components::Children;
+use components::{Children, Parent};
 use event::{AddChild, Event, Events, RemoveChild};
 use std::collections::HashSet;
 
@@ -61,7 +61,7 @@ impl World {
     pub fn new() -> Self {
         let (resources, events) = Self::init();
 
-        Self {
+        let mut world = Self {
             id: WorldId::new(),
             kind: WorldKind::Main,
             resources,
@@ -74,13 +74,16 @@ impl World {
             archetypes: Archetypes::new(),
             observers: EventObservers::new(),
             tasks: TaskPool::new(max_thread_count().min(3)),
-        }
+        };
+
+        world.register::<Parent>().register::<Children>();
+        world
     }
 
     pub fn sub(&self) -> World {
         let (resources, events) = Self::init();
 
-        World {
+        let mut world = World {
             id: WorldId::new(),
             kind: WorldKind::Sub,
             resources,
@@ -93,7 +96,10 @@ impl World {
             archetypes: Archetypes::new(),
             observers: EventObservers::new(),
             tasks: self.tasks.clone(),
-        }
+        };
+
+        world.register::<Parent>().register::<Children>();
+        world
     }
 
     pub fn id(&self) -> WorldId {
@@ -299,8 +305,7 @@ impl World {
         entity: &Entity,
         component: C,
     ) -> Option<ArchetypeMove> {
-        let id = ComponentId::new::<C>();
-        self.archetypes.add_component(entity, &id, component)
+        self.archetypes.add_component(entity, component)
     }
 
     pub fn add_components(

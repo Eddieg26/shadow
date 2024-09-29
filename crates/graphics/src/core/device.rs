@@ -35,6 +35,20 @@ impl RenderDevice {
 
         Ok((RenderDevice(Arc::new(device)), RenderQueue(Arc::new(queue))))
     }
+
+    pub async fn dummy() -> (Self, RenderQueue) {
+        let instance = RenderInstance::create();
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptionsBase::default())
+            .await
+            .unwrap();
+        let (device, queue) = adapter
+            .request_device(&wgpu::DeviceDescriptor::default(), None)
+            .await
+            .unwrap();
+
+        (RenderDevice(Arc::new(device)), RenderQueue(Arc::new(queue)))
+    }
 }
 
 impl std::ops::Deref for RenderDevice {
@@ -46,7 +60,6 @@ impl std::ops::Deref for RenderDevice {
 }
 
 impl Resource for RenderDevice {}
-
 
 #[derive(Clone)]
 pub struct RenderQueue(Arc<wgpu::Queue>);

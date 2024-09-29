@@ -1,5 +1,4 @@
 use crate::core::{Component, Entity};
-use ahash::{HashSet, HashSetExt};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Parent(Entity);
@@ -57,6 +56,14 @@ impl Children {
 
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
+    }
+}
+
+impl std::ops::Deref for Children {
+    type Target = [Entity];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 

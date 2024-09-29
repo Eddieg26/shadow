@@ -365,7 +365,7 @@ pub mod internal {
             }
         }
 
-        pub fn set_parent(mut self, parent: Entity) -> Self {
+        pub fn with_parent(mut self, parent: Entity) -> Self {
             self.parent = Some(parent);
             self
         }

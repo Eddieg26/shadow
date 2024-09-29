@@ -7,11 +7,7 @@ use crate::{
     },
     resources::ResourceId,
 };
-use std::{
-    collections::HashMap,
-    hash::Hash,
-    ops::{Deref, Range},
-};
+use std::{hash::Hash, ops::Deref};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Attachment {
@@ -136,7 +132,7 @@ impl RenderPass {
         &self,
         ctx: &RenderContext,
         encoder: &'a mut wgpu::CommandEncoder,
-    ) -> Option<RenderCommands<'a>> {
+    ) -> Option<wgpu::RenderPass<'a>> {
         let camera = ctx.camera();
         let mut color_attachments = vec![];
         for color in self.colors.iter() {
@@ -207,109 +203,6 @@ impl RenderPass {
             ..Default::default()
         });
 
-        Some(RenderCommands::new(pass))
-    }
-}
-
-pub struct RenderCommands<'a> {
-    pass: wgpu::RenderPass<'a>,
-    binding: Option<u32>,
-    render_pipeline: Option<wgpu::Id<wgpu::RenderPipeline>>,
-    vertex_buffers: HashMap<u32, wgpu::Id<wgpu::Buffer>>,
-    index_buffer: Option<wgpu::Id<wgpu::Buffer>>,
-}
-
-impl<'a> RenderCommands<'a> {
-    fn new(pass: wgpu::RenderPass<'a>) -> Self {
-        Self {
-            pass,
-            binding: None,
-            render_pipeline: None,
-            vertex_buffers: HashMap::new(),
-            index_buffer: None,
-        }
-    }
-
-    pub fn set_bind_group(
-        &mut self,
-        index: u32,
-        binding: &wgpu::BindGroup,
-        offsets: &[wgpu::DynamicOffset],
-    ) {
-        let hash = Some(Self::hash((index, binding.global_id(), offsets)));
-        if hash != self.binding {
-            self.pass.set_bind_group(index, binding, offsets);
-            self.binding = hash;
-        }
-    }
-
-    pub fn set_pipeline(&mut self, pipeline: &wgpu::RenderPipeline) {
-        let id = Some(pipeline.global_id());
-        if id != self.render_pipeline {
-            self.pass.set_pipeline(pipeline);
-            self.render_pipeline = id;
-        }
-    }
-
-    pub fn set_index_buffer(
-        &mut self,
-        id: wgpu::Id<wgpu::Buffer>,
-        buffer_slice: wgpu::BufferSlice<'a>,
-        format: wgpu::IndexFormat,
-    ) {
-        let id = Some(id);
-        if id != self.index_buffer {
-            self.pass.set_index_buffer(buffer_slice, format);
-            self.index_buffer = id;
-        }
-    }
-
-    pub fn set_vertex_buffer(
-        &mut self,
-        id: wgpu::Id<wgpu::Buffer>,
-        location: u32,
-        buffer_slice: wgpu::BufferSlice<'a>,
-    ) {
-        if self
-            .vertex_buffers
-            .get(&location)
-            .map(|b| b != &id)
-            .unwrap_or(true)
-        {}
-        {
-            self.pass.set_vertex_buffer(location, buffer_slice);
-            self.vertex_buffers.insert(location, id);
-        }
-    }
-
-    pub fn draw(&mut self, vertices: Range<u32>, instances: Range<u32>) {
-        self.pass.draw(vertices, instances);
-    }
-
-    pub fn draw_indirect(
-        &mut self,
-        indirect_buffer: &'a wgpu::Buffer,
-        indirect_offset: wgpu::BufferAddress,
-    ) {
-        self.pass.draw_indirect(indirect_buffer, indirect_offset);
-    }
-
-    pub fn draw_indexed(&mut self, indices: Range<u32>, base_vertex: i32, instances: Range<u32>) {
-        self.pass.draw_indexed(indices, base_vertex, instances);
-    }
-
-    pub fn draw_indexed_indirect(
-        &mut self,
-        indirect_buffer: &'a wgpu::Buffer,
-        indirect_offset: wgpu::BufferAddress,
-    ) {
-        self.pass
-            .draw_indexed_indirect(indirect_buffer, indirect_offset);
-    }
-
-    fn hash(value: impl Hash) -> u32 {
-        let mut hasher = crc32fast::Hasher::new();
-        value.hash(&mut hasher);
-        hasher.finalize()
+        Some(pass)
     }
 }

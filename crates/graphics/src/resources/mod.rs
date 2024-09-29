@@ -117,7 +117,7 @@ impl<R: RenderAsset> RenderAssets<R> {
         self.assets.iter_mut()
     }
 
-    pub fn sort(&mut self, sorter: impl FnMut(&R::Id, &R::Id) -> std::cmp::Ordering) {
+    pub fn sort(&mut self, sorter: impl FnMut(&(R::Id, R), &(R::Id, R)) -> std::cmp::Ordering) {
         self.assets.sort(sorter);
     }
 }

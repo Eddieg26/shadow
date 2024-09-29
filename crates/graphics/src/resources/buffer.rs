@@ -1,3 +1,5 @@
+use std::num::NonZero;
+
 use crate::core::{RenderDevice, RenderQueue};
 use wgpu::util::DeviceExt;
 
@@ -288,6 +290,7 @@ pub struct UniformBuffer<T: BufferData> {
     value: T,
     buffer: wgpu::Buffer,
     flags: BufferFlags,
+    size: NonZero<u64>,
 }
 
 impl<T: BufferData> UniformBuffer<T> {
@@ -302,6 +305,7 @@ impl<T: BufferData> UniformBuffer<T> {
             buffer,
             value,
             flags,
+            size: NonZero::new(std::mem::size_of::<T>() as u64).unwrap(),
         }
     }
 
@@ -321,15 +325,18 @@ impl<T: BufferData> UniformBuffer<T> {
         self.flags
     }
 
+    pub fn size(&self) -> NonZero<u64> {
+        self.size
+    }
+
     pub fn binding(&self) -> wgpu::BindingResource {
         self.buffer.as_entire_binding()
     }
 
     pub fn update(&mut self, queue: &RenderQueue, value: T) {
-        if self.flags.is_write() {
-            self.value = value;
-            queue.write_buffer(&self.buffer, 0, bytemuck::bytes_of(&self.value));
-        }
+        self.value = value;
+        let bytes = bytemuck::bytes_of(&self.value);
+        queue.write_buffer(&self.buffer, 0, bytes);
     }
 }
 
@@ -383,28 +390,57 @@ impl<T: BufferData> StorageBuffer<T> {
 }
 
 pub struct UniformBufferArray<T: BufferData> {
-    data: Vec<u8>,
-    buffer: Option<wgpu::Buffer>,
+    data: Vec<T>,
+    buffer: wgpu::Buffer,
     flags: BufferFlags,
     element_size: usize,
+    offset: usize,
+    len: usize,
     dirty: bool,
-    _marker: std::marker::PhantomData<T>,
 }
 
 impl<T: BufferData> UniformBufferArray<T> {
-    pub fn new(flags: BufferFlags) -> Self {
+    pub fn new(device: &RenderDevice, flags: BufferFlags) -> Self {
+        let alignment = device.limits().min_uniform_buffer_offset_alignment as usize;
+        let layout = std::alloc::Layout::new::<T>().align_to(alignment).unwrap();
+        let size = layout.align();
+        let buffer = Self::create_buffer(device, &vec![0; alignment], flags);
+
         Self {
             data: vec![],
-            buffer: None,
+            buffer,
             flags,
-            element_size: std::mem::size_of::<T>(),
+            element_size: size,
+            offset: layout.align() / size,
+            len: 0,
             dirty: false,
-            _marker: Default::default(),
         }
     }
 
-    pub fn buffer(&self) -> Option<&wgpu::Buffer> {
-        self.buffer.as_ref()
+    pub fn with_amount(device: &RenderDevice, flags: BufferFlags, amount: usize) -> Self {
+        let alignment = device.limits().min_uniform_buffer_offset_alignment as usize;
+        let layout = std::alloc::Layout::new::<T>().align_to(alignment).unwrap();
+        let size = layout.align();
+        let max_amount = device.limits().max_uniform_buffer_binding_size as usize / size;
+        let amount = amount.min(max_amount);
+        let offset = layout.align() / layout.size();
+
+        let data = vec![T::zeroed(); amount];
+        let buffer = Self::create_buffer(device, bytemuck::cast_slice(&data), flags);
+
+        Self {
+            data,
+            buffer,
+            flags,
+            element_size: size,
+            offset,
+            len: 0,
+            dirty: false,
+        }
+    }
+
+    pub fn buffer(&self) -> &wgpu::Buffer {
+        &self.buffer
     }
 
     pub fn flags(&self) -> BufferFlags {
@@ -424,55 +460,52 @@ impl<T: BufferData> UniformBufferArray<T> {
     }
 
     pub fn push(&mut self, value: T) {
-        self.data.extend(bytemuck::bytes_of(&value));
+        self.data.push(value);
+        self.len += 1;
         self.dirty = true;
     }
 
+    pub fn reserve(&mut self, additional: usize) {
+        self.data.extend((0..additional).map(|_| T::zeroed()));
+    }
+
     pub fn len(&self) -> usize {
-        self.data.len() * self.element_size
+        self.len
     }
 
     pub fn set(&mut self, index: usize, value: T) {
-        let offset = index * self.element_size;
-        if offset > self.data.len() - offset {
-            panic!("Index out of bounds.")
-        }
-
-        unsafe {
-            let dst = self.data.as_mut_ptr().wrapping_add(offset);
-            let src = bytemuck::bytes_of(&value);
-            std::ptr::copy_nonoverlapping(src.as_ptr(), dst, src.len());
-        }
-
+        self.data[index * self.offset] = value;
+        self.len = self.len.max(index + 1);
         self.dirty = true;
     }
 
     pub fn clear(&mut self) {
-        self.data.clear();
+        bytemuck::fill_zeroes(&mut self.data);
+        self.len = 0;
         self.dirty = true;
     }
 
-    pub fn binding(&self) -> Option<wgpu::BindingResource> {
-        Some(self.buffer.as_ref()?.as_entire_binding())
+    pub fn binding(&self) -> wgpu::BindingResource {
+        self.buffer.as_entire_binding()
+    }
+
+    fn create_buffer(device: &RenderDevice, data: &[u8], flags: BufferFlags) -> wgpu::Buffer {
+        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents: data,
+            usage: flags.usages(BufferKind::Uniform),
+        })
     }
 
     pub fn commit(&mut self, device: &RenderDevice, queue: &RenderQueue) {
-        let buffer_cap = self.buffer.as_ref().map(|a| a.size()).unwrap_or(0);
-        let size = self.data.len() as u64;
+        let buffer_cap = self.buffer.size();
+        let size = (self.len * self.element_size) as u64;
 
-        if buffer_cap < size || ((self.dirty || self.buffer.is_none()) && size > 0) {
-            let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: None,
-                contents: &self.data,
-                usage: self.flags.usages(BufferKind::Uniform),
-            });
-
-            self.buffer = Some(buffer);
+        if buffer_cap < size {
+            self.buffer = Self::create_buffer(device, bytemuck::cast_slice(&self.data), self.flags);
             self.dirty = false;
-        } else if let Some(buffer) = self.buffer() {
-            queue.write_buffer(buffer, 0, &self.data);
-        } else if size == 0 {
-            self.buffer = None;
+        } else if self.dirty {
+            queue.write_buffer(&self.buffer, 0, bytemuck::cast_slice(&self.data));
         }
     }
 }
@@ -569,5 +602,155 @@ impl<T: BufferData> StorageBufferArray<T> {
         } else if size == 0 {
             self.buffer = None;
         }
+    }
+}
+
+pub struct BatchIndex<T: BufferData> {
+    index: usize,
+    offset: u32,
+    _marker: std::marker::PhantomData<T>,
+}
+
+impl<T: BufferData> BatchIndex<T> {
+    pub fn new(index: usize, offset: u32) -> Self {
+        Self {
+            index,
+            offset,
+            _marker: Default::default(),
+        }
+    }
+
+    pub fn index(&self) -> usize {
+        self.index
+    }
+
+    pub fn offset(&self) -> u32 {
+        self.offset
+    }
+}
+
+impl<T: BufferData> Clone for BatchIndex<T> {
+    fn clone(&self) -> Self {
+        Self::new(self.index, self.offset)
+    }
+}
+impl<T: BufferData> Copy for BatchIndex<T> {}
+
+pub struct BatchedUniformBuffer<T: BufferData> {
+    data: Vec<u8>,
+    buffers: Vec<wgpu::Buffer>,
+    flags: BufferFlags,
+    alignment: usize,
+    batch_size: usize,
+    _marker: std::marker::PhantomData<T>,
+}
+
+impl<T: BufferData> BatchedUniformBuffer<T> {
+    pub fn new(device: &RenderDevice, flags: BufferFlags) -> Self {
+        let alignment = device.limits().min_uniform_buffer_offset_alignment as usize;
+        let layout = std::alloc::Layout::new::<T>().align_to(alignment).unwrap();
+        let alignment = layout.align();
+        let batch_size = device.limits().max_uniform_buffer_binding_size as usize;
+
+        Self {
+            data: vec![],
+            buffers: vec![],
+            flags,
+            alignment,
+            batch_size,
+            _marker: Default::default(),
+        }
+    }
+
+    pub fn buffer(&self, index: usize) -> &wgpu::Buffer {
+        &self.buffers[index]
+    }
+
+    pub fn flags(&self) -> BufferFlags {
+        self.flags
+    }
+
+    pub fn stride(&self) -> usize {
+        self.alignment
+    }
+
+    pub fn batch_size(&self) -> usize {
+        self.batch_size
+    }
+
+    pub fn buffer_count(&self) -> usize {
+        self.buffers.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
+    }
+
+    pub fn get(&self, index: BatchIndex<T>) -> Option<&T> {
+        let offset = index.index * self.batch_size + index.offset as usize;
+        let bytes = std::mem::size_of::<T>();
+        let end = offset + bytes;
+
+        if end > self.data.len() {
+            return None;
+        }
+
+        let bytes = &self.data[offset..end];
+        Some(bytemuck::from_bytes(bytes))
+    }
+
+    pub fn get_mut(&mut self, index: BatchIndex<T>) -> Option<&mut T> {
+        let offset = index.index * self.batch_size + index.offset as usize;
+        let bytes = std::mem::size_of::<T>();
+        let end = offset + bytes;
+
+        if end > self.data.len() {
+            return None;
+        }
+
+        let bytes = &mut self.data[offset..end];
+        Some(bytemuck::from_bytes_mut(bytes))
+    }
+
+    pub fn push(&mut self, value: T) -> BatchIndex<T> {
+        self.data.resize(self.data.len() + self.alignment, 0);
+        let offset = self.data.len() - self.alignment;
+        let bytes = bytemuck::bytes_of(&value);
+        self.data[offset..offset + bytes.len()].copy_from_slice(bytes);
+
+        let batch_index = offset / self.batch_size;
+        let dynamic_offset = offset % self.batch_size;
+
+        BatchIndex::new(batch_index, dynamic_offset as u32)
+    }
+
+    pub fn commit(&mut self, device: &RenderDevice, queue: &RenderQueue) {
+        let max_buffers = match self.data.is_empty() {
+            true => 0,
+            false => (self.data.len() / self.batch_size) + 1,
+        };
+
+        let buffers_needed = max_buffers.max(self.buffers.len()) - self.buffers.len();
+
+        for _ in 0..buffers_needed {
+            let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                label: None,
+                size: self.batch_size as u64,
+                usage: self.flags.usages(BufferKind::Uniform),
+                mapped_at_creation: false,
+            });
+            self.buffers.push(buffer);
+        }
+
+        for (index, chunk) in self.data.chunks(self.batch_size).enumerate() {
+            queue.write_buffer(&self.buffers[index], 0, chunk);
+        }
+
+        self.data.clear();
+    }
+
+    pub fn reset(&mut self) {
+        self.data.clear();
+        self.buffers.clear();
     }
 }

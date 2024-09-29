@@ -1,3 +1,4 @@
+use super::World;
 use crate::{
     archetype::{Archetype, ArchetypeId},
     core::{Component, ComponentId, Entity},
@@ -8,13 +9,11 @@ use crate::{
 };
 use std::collections::HashSet;
 
-use super::World;
-
-pub trait BaseQuery {
+pub trait BaseQuery: Send + Sync {
     type Item<'a>: Send + Sync;
 
     fn init(_: &World, _: &mut QueryState) {}
-    fn fetch(archetype: &Archetype, entity: Entity) -> Self::Item<'_>;
+    fn fetch(world: &World, entity: Entity) -> Self::Item<'_>;
     fn access() -> Vec<WorldAccess>;
 }
 
@@ -25,8 +24,8 @@ impl<C: Component> BaseQuery for &C {
         state.add_component(ComponentId::new::<C>());
     }
 
-    fn fetch(archetype: &Archetype, entity: Entity) -> Self::Item<'_> {
-        archetype.component::<C>(&entity).unwrap()
+    fn fetch(world: &World, entity: Entity) -> Self::Item<'_> {
+        world.archetypes().component::<C>(&entity).unwrap()
     }
 
     fn access() -> Vec<WorldAccess> {
@@ -44,8 +43,8 @@ impl<C: Component> BaseQuery for &mut C {
         state.add_component(ComponentId::new::<C>());
     }
 
-    fn fetch(archetype: &Archetype, entity: Entity) -> Self::Item<'_> {
-        archetype.component_mut::<C>(&entity).unwrap()
+    fn fetch(world: &World, entity: Entity) -> Self::Item<'_> {
+        world.archetypes().component_mut::<C>(&entity).unwrap()
     }
 
     fn access() -> Vec<WorldAccess> {
@@ -59,8 +58,8 @@ impl<C: Component> BaseQuery for &mut C {
 impl<C: Component> BaseQuery for Option<&C> {
     type Item<'a> = Option<&'a C>;
 
-    fn fetch(archetype: &Archetype, entity: Entity) -> Self::Item<'_> {
-        archetype.component::<C>(&entity)
+    fn fetch(world: &World, entity: Entity) -> Self::Item<'_> {
+        world.archetypes().component::<C>(&entity)
     }
 
     fn access() -> Vec<WorldAccess> {
@@ -74,8 +73,8 @@ impl<C: Component> BaseQuery for Option<&C> {
 impl<C: Component> BaseQuery for Option<&mut C> {
     type Item<'a> = Option<&'a mut C>;
 
-    fn fetch(archetype: &Archetype, entity: Entity) -> Self::Item<'_> {
-        archetype.component_mut::<C>(&entity)
+    fn fetch(world: &World, entity: Entity) -> Self::Item<'_> {
+        world.archetypes().component_mut::<C>(&entity)
     }
 
     fn access() -> Vec<WorldAccess> {
@@ -89,7 +88,7 @@ impl<C: Component> BaseQuery for Option<&mut C> {
 impl BaseQuery for Entity {
     type Item<'a> = Entity;
 
-    fn fetch(_: &Archetype, entity: Entity) -> Self::Item<'_> {
+    fn fetch(_: &World, entity: Entity) -> Self::Item<'_> {
         entity
     }
 
@@ -99,7 +98,7 @@ impl BaseQuery for Entity {
     }
 }
 
-pub trait FilterQuery {
+pub trait QueryFilter {
     fn init(world: &World, state: &mut QueryState);
 }
 
@@ -107,7 +106,7 @@ pub struct With<C: Component> {
     _marker: std::marker::PhantomData<C>,
 }
 
-impl<C: Component> FilterQuery for With<C> {
+impl<C: Component> QueryFilter for With<C> {
     fn init(_: &World, state: &mut QueryState) {
         state.add_component(ComponentId::new::<C>());
     }
@@ -117,17 +116,17 @@ pub struct Not<C: Component> {
     _marker: std::marker::PhantomData<C>,
 }
 
-impl<C: Component> FilterQuery for Not<C> {
+impl<C: Component> QueryFilter for Not<C> {
     fn init(_: &World, state: &mut QueryState) {
         state.exclude(ComponentId::new::<C>());
     }
 }
 
-impl FilterQuery for () {
+impl QueryFilter for () {
     fn init(_: &World, _: &mut QueryState) {}
 }
 
-pub struct Query<'a, Q: BaseQuery, F: FilterQuery = ()> {
+pub struct Query<'a, Q: BaseQuery, F: QueryFilter = ()> {
     world: &'a World,
     archetypes: Vec<ArchetypeId>,
     row_index: usize,
@@ -136,7 +135,7 @@ pub struct Query<'a, Q: BaseQuery, F: FilterQuery = ()> {
     _marker: std::marker::PhantomData<(Q, F)>,
 }
 
-impl<'a, Q: BaseQuery, F: FilterQuery> Query<'a, Q, F> {
+impl<'a, Q: BaseQuery, F: QueryFilter> Query<'a, Q, F> {
     pub fn new(world: &'a World) -> Self {
         let mut state = QueryState::new();
         Q::init(world, &mut state);
@@ -157,20 +156,36 @@ impl<'a, Q: BaseQuery, F: FilterQuery> Query<'a, Q, F> {
         }
     }
 
-    pub unsafe fn get<C: Component>(&self, entity: Entity) -> Option<&C> {
-        let archetypes = self.world.archetypes();
-        archetypes
-            .entity_archetype(&entity)
-            .and_then(|id| archetypes.get(&id))
-            .and_then(|archetype| archetype.component::<C>(&entity))
+    pub fn filter(&self, entities: &'a [Entity]) -> FilterQuery<'a, Q, F> {
+        FilterQuery::new(self.world, entities)
     }
+}
 
-    pub unsafe fn get_mut<C: Component>(&self, entity: Entity) -> Option<&mut C> {
-        let archetypes = self.world.archetypes();
-        archetypes
-            .entity_archetype(&entity)
-            .and_then(|id| archetypes.get(&id))
-            .and_then(|archetype| archetype.component_mut::<C>(&entity))
+pub struct FilterQuery<'a, Q: BaseQuery, F: QueryFilter = ()> {
+    world: &'a World,
+    archetypes: HashSet<ArchetypeId>,
+    entities: &'a [Entity],
+    index: usize,
+    _marker: std::marker::PhantomData<(Q, F)>,
+}
+
+impl<'a, Q: BaseQuery, F: QueryFilter> FilterQuery<'a, Q, F> {
+    pub fn new(world: &'a World, entities: &'a [Entity]) -> Self {
+        let mut state = QueryState::new();
+        Q::init(world, &mut state);
+        F::init(world, &mut state);
+
+        let archetypes = world
+            .archetypes()
+            .query(state.components(), &state.excluded);
+
+        Self {
+            world,
+            archetypes: archetypes.into_iter().collect(),
+            entities,
+            index: 0,
+            _marker: std::marker::PhantomData,
+        }
     }
 }
 
@@ -205,7 +220,7 @@ impl QueryState {
     }
 }
 
-impl<'a, Q: BaseQuery, F: FilterQuery> Iterator for Query<'a, Q, F> {
+impl<'a, Q: BaseQuery, F: QueryFilter> Iterator for Query<'a, Q, F> {
     type Item = Q::Item<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -225,12 +240,31 @@ impl<'a, Q: BaseQuery, F: FilterQuery> Iterator for Query<'a, Q, F> {
             let entity = archetype.entities()[self.row_index];
             self.row_index += 1;
 
-            Some(Q::fetch(archetype, entity))
+            Some(Q::fetch(&self.world, entity))
         }
     }
 }
 
-impl<Q: BaseQuery, F: FilterQuery> SystemArg for Query<'_, Q, F> {
+impl<'a, Q: BaseQuery, F: QueryFilter> Iterator for FilterQuery<'a, Q, F> {
+    type Item = Q::Item<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let archetypes = self.world.archetypes();
+        if self.index >= self.entities.len() {
+            return None;
+        } else if let Some(entity) = archetypes.entity_archetype(&self.entities[self.index]) {
+            if !self.archetypes.contains(&entity) {
+                return self.next();
+            }
+
+            Some(Q::fetch(&self.world, self.entities[self.index]))
+        } else {
+            return self.next();
+        }
+    }
+}
+
+impl<Q: BaseQuery, F: QueryFilter> SystemArg for Query<'_, Q, F> {
     type Item<'a> = Query<'a, Q, F>;
 
     fn get<'a>(world: &'a World) -> Self::Item<'a> {
@@ -255,8 +289,8 @@ macro_rules! impl_base_query_for_tuples {
                     )+
                 }
 
-                fn fetch(archetype: &Archetype, entity: Entity) -> Self::Item<'_> {
-                    ($($name::fetch(archetype, entity),)+)
+                fn fetch(world: &World, entity: Entity) -> Self::Item<'_> {
+                    ($($name::fetch(world, entity),)+)
                 }
 
                 fn access() -> Vec<WorldAccess> {
