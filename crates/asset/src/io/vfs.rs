@@ -1,4 +1,4 @@
-use super::{AssetFileSystem, AssetIoError, AssetReader, AssetWriter, PathExt};
+use super::{AssetBufReader, AssetFileSystem, AssetIoError, AssetReader, AssetWriter, PathExt};
 use std::{
     ffi::{OsStr, OsString},
     path::{Path, PathBuf},
@@ -73,7 +73,7 @@ impl AssetReader for Entry {
         &self.buffer
     }
 
-    fn buf_reader(&self) -> Result<Box<dyn std::io::BufRead + '_>, AssetIoError> {
+    fn buf_reader(&self) -> Result<Box<dyn AssetBufReader + '_>, AssetIoError> {
         Ok(Box::new(std::io::Cursor::new(&self.buffer)))
     }
 

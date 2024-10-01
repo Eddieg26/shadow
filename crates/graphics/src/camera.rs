@@ -115,6 +115,7 @@ impl Component for Camera {}
 pub struct CameraData {
     pub view: glam::Mat4,
     pub projection: glam::Mat4,
+    pub projection_inv: glam::Mat4,
     pub world: glam::Vec3,
     pub _padding: f32,
 }
@@ -124,6 +125,7 @@ impl CameraData {
         Self {
             view,
             projection,
+            projection_inv: projection.inverse(),
             world,
             _padding: 0.0,
         }
@@ -135,6 +137,7 @@ impl Default for CameraData {
         Self {
             view: glam::Mat4::IDENTITY,
             projection: glam::Mat4::IDENTITY,
+            projection_inv: glam::Mat4::IDENTITY,
             world: Vec3::ZERO,
             _padding: 0.0,
         }

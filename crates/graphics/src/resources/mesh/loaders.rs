@@ -76,7 +76,7 @@ impl AssetImporter for ObjImporter {
             let uvs = model
                 .mesh
                 .texcoord_indices
-                .chunks(3)
+                .chunks(2)
                 .map(|chunk| {
                     let u = model.mesh.texcoords[chunk[0] as usize];
                     let v = model.mesh.texcoords[chunk[1] as usize];

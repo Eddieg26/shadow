@@ -89,6 +89,7 @@ impl Plugin for GraphicsPlugin {
     fn run(&mut self, game: &mut Game) {
         game.add_render_asset_extractor::<Mesh>();
         game.add_render_asset_extractor::<Shader>();
+        game.add_render_asset_extractor::<Texture2d>();
         game.observe::<WindowCreated, _>(on_window_created);
         game.observe::<Resized, _>(|resized: &[Resized], events: &SubEvents<RenderApp>| {
             let resized = resized.last().unwrap();
@@ -259,7 +260,7 @@ fn extract_render_resource<R: RenderResourceExtractor>(
     events: &Events,
     arg: StaticSystemArg<R::Arg>,
 ) {
-    if let Some(resource) = R::extract(&arg) {
+    if let Some(resource) = R::extract(arg.into_inner()) {
         events.add(AddResource::new(resource));
     }
 }

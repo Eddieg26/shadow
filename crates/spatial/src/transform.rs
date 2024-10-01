@@ -115,40 +115,28 @@ impl Transform {
         mat
     }
 
-    pub fn translate(&mut self, translation: Vec3, space: Space) -> &mut Self {
-        match space {
-            Space::Local => {
-                self.position += self.rotation * translation;
-            }
-            Space::World => {
-                self.position += translation;
-            }
-        }
-
-        self
+    pub fn translate(&mut self, translation: Vec3) {
+        self.position += translation;
     }
 
-    pub fn rotate(&mut self, rotation: Quat) -> &mut Self {
+    pub fn rotate(&mut self, rotation: Quat) {
         self.rotation = self.rotation * rotation;
-        self
     }
 
-    pub fn rotate_around(&mut self, axis: Axis, angle: f32) -> &mut Self {
+    pub fn rotate_around(&mut self, axis: Axis, angle: f32) {
         let rotation = match axis {
             Axis::X => Quat::from_axis_angle(Vec3::X, angle),
             Axis::Y => Quat::from_axis_angle(Vec3::Y, angle),
             Axis::Z => Quat::from_axis_angle(Vec3::Z, angle),
         };
         self.rotation = self.rotation * rotation;
-        self
     }
 
-    pub fn scale(&mut self, scale: Vec3) -> &mut Self {
+    pub fn scale(&mut self, scale: Vec3) {
         self.scale *= scale;
-        self
     }
 
-    pub fn look_at(&mut self, target: Vec3, up: Vec3) -> &mut Self {
+    pub fn look_at(&mut self, target: Vec3, up: Vec3) {
         let f = (target - self.position).normalize();
         let r = up.cross(f).normalize();
         let u = f.cross(r).normalize();
@@ -158,8 +146,6 @@ impl Transform {
             f.extend(0.0),
             Vec3::ZERO.extend(1.0),
         ));
-
-        self
     }
 
     pub fn update(&mut self, parent: Option<&Transform>) {

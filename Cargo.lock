@@ -203,6 +203,7 @@ dependencies = [
  "game",
  "glam",
  "graphics",
+ "image",
  "pbr",
  "pollster",
  "serde",

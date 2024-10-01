@@ -22,6 +22,6 @@ bitflags = { workspace = true }
 downcast-rs = { workspace = true }
 either = { workspace = true }
 slab = { workspace = true }
+image = { workspace = true }
 naga = "22.1.0"
-image = "0.25.2"
 tobj = "4.0.2"

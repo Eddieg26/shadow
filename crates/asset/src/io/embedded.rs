@@ -1,8 +1,8 @@
-use super::{AssetIoError, AssetReader};
+use super::{AssetBufReader, AssetIoError, AssetReader};
 use crate::{AssetId, AssetKind};
 use ecs::core::{DenseMap, Resource};
 use std::{
-    io::{BufRead, Cursor},
+    io::Cursor,
     path::{Path, PathBuf},
 };
 
@@ -54,7 +54,7 @@ impl AssetReader for EmbeddedReader {
         &self.bytes
     }
 
-    fn buf_reader(&self) -> Result<Box<dyn BufRead + '_>, AssetIoError> {
+    fn buf_reader(&self) -> Result<Box<dyn AssetBufReader + '_>, AssetIoError> {
         Ok(Box::new(Cursor::new(&self.bytes)))
     }
 

@@ -206,7 +206,7 @@ pub trait RenderResourceExtractor: Send + Sync + 'static {
     type Target: Resource;
     type Arg: SystemArg;
 
-    fn extract(arg: &ArgItem<Self::Arg>) -> Option<Self::Target>;
+    fn extract(arg: ArgItem<Self::Arg>) -> Option<Self::Target>;
 
     fn extracted_resource() -> Option<ExtractedResource> {
         None
@@ -231,7 +231,7 @@ impl<R: RenderResourceExtractor> Event for ExtractResource<R> {
     fn invoke(self, world: &mut ecs::world::World) -> Option<Self::Output> {
         let resource = {
             let arg = R::Arg::get(world);
-            R::extract(&arg)?
+            R::extract(arg)?
         };
         world.add_resource(resource);
         Some(())

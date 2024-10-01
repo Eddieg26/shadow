@@ -211,8 +211,8 @@ impl Events {
     }
 
     pub fn drain(&self, schedule: Option<ScheduleId>) -> Vec<ErasedEvent> {
-        let mut deferred = self.deferred.lock().unwrap();
         let mut drained = {
+            let mut deferred = self.deferred.lock().unwrap();
             schedule
                 .and_then(|id| deferred.remove(&id))
                 .unwrap_or_default()

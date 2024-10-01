@@ -1,5 +1,11 @@
-use super::{FilterMode, Texture, TextureDimension, TextureFormat, WrapMode};
+use crate::{
+    core::{RenderDevice, RenderQueue},
+    resources::RenderAssetExtractor,
+};
+
+use super::{FilterMode, GpuTexture, Texture, TextureDimension, TextureFormat, WrapMode};
 use asset::{importer::AssetImporter, Asset, Settings};
+use ecs::system::{unlifetime::Read, StaticSystemArg};
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct Texture2d {
@@ -107,7 +113,7 @@ impl Default for Texture2dSettings {
         Self {
             format: TextureFormat::Rgba8Unorm,
             filter_mode: FilterMode::Linear,
-            wrap_mode: WrapMode::ClampToEdge,
+            wrap_mode: WrapMode::Repeat,
             mipmaps: false,
         }
     }
@@ -124,7 +130,10 @@ impl AssetImporter for Texture2d {
         ctx: &mut asset::importer::ImportContext<Self::Settings>,
         reader: &mut dyn asset::io::AssetReader,
     ) -> Result<Self::Asset, Self::Error> {
-        let image = image::ImageReader::open(reader.path())?.decode()?;
+        reader.read_to_end().map_err(|e| {
+            image::ImageError::IoError(std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+        })?;
+        let image = image::load_from_memory(reader.bytes())?;
         let width = image.width();
         let height = image.height();
 
@@ -275,5 +284,32 @@ impl ScaleNumber<u32> for u16 {
         let value = *self as f32;
         let percentage = (value / 65535.0) * 100.0;
         percentage as u32 * (u32::MAX / 100)
+    }
+}
+
+impl RenderAssetExtractor for Texture2d {
+    type Source = Texture2d;
+    type Target = GpuTexture;
+    type Arg = StaticSystemArg<'static, (Read<RenderDevice>, Read<RenderQueue>)>;
+
+    fn extract(
+        id: &asset::AssetId,
+        source: &mut Self::Source,
+        arg: &mut ecs::system::ArgItem<Self::Arg>,
+        assets: &mut crate::resources::RenderAssets<Self::Target>,
+    ) -> Option<crate::resources::AssetUsage> {
+        let (device, queue) = **arg;
+        let texture = GpuTexture::create(device, queue, source);
+        assets.add(*id, texture);
+
+        Some(crate::resources::AssetUsage::Discard)
+    }
+
+    fn remove(
+        id: &asset::AssetId,
+        assets: &mut crate::resources::RenderAssets<Self::Target>,
+        _: &mut ecs::system::ArgItem<Self::Arg>,
+    ) {
+        assets.remove(id);
     }
 }

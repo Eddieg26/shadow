@@ -754,3 +754,89 @@ impl<T: BufferData> BatchedUniformBuffer<T> {
         self.buffers.clear();
     }
 }
+
+pub struct ArrayBuffer<T: BufferData> {
+    data: Vec<T>,
+    kind: BufferKind,
+    flags: BufferFlags,
+    buffer: Option<wgpu::Buffer>,
+    dirty: bool,
+}
+
+impl<T: BufferData> ArrayBuffer<T> {
+    pub fn new(kind: BufferKind, flags: BufferFlags) -> Self {
+        Self {
+            data: vec![],
+            kind,
+            flags,
+            buffer: None,
+            dirty: false,
+        }
+    }
+
+    pub fn buffer(&self) -> Option<&wgpu::Buffer> {
+        self.buffer.as_ref()
+    }
+
+    pub fn flags(&self) -> BufferFlags {
+        self.flags
+    }
+
+    pub fn kind(&self) -> BufferKind {
+        self.kind
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
+
+    pub fn push(&mut self, value: T) {
+        self.data.push(value);
+        self.dirty = true;
+    }
+
+    pub fn set(&mut self, index: usize, value: T) {
+        self.data[index] = value;
+        self.dirty = true;
+    }
+
+    pub fn resize(&mut self, len: usize, value: T) {
+        self.data.resize(len, value);
+        self.dirty = true;
+    }
+
+    pub fn extend(&mut self, values: &[T]) -> usize {
+        let offset = self.data.len() * std::mem::size_of::<T>();
+        self.data.extend_from_slice(values);
+        self.dirty = true;
+        offset
+    }
+
+    pub fn clear(&mut self) {
+        self.data.clear();
+    }
+
+    pub fn commit(&mut self, device: &RenderDevice, queue: &RenderQueue) {
+        let buffer_cap = self.buffer.as_ref().map(|a| a.size()).unwrap_or(0);
+        let size = (self.data.len() * std::mem::size_of::<T>()) as u64;
+
+        if buffer_cap < size || ((self.dirty || self.buffer.is_none()) && size > 0) {
+            let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: None,
+                contents: bytemuck::cast_slice(&self.data),
+                usage: self.flags.usages(self.kind),
+            });
+
+            self.buffer = Some(buffer);
+            self.dirty = false;
+        } else if let Some(buffer) = self.buffer() {
+            queue.write_buffer(buffer, 0, bytemuck::cast_slice(&self.data));
+        } else if size == 0 {
+            self.buffer = None;
+        }
+    }
+}

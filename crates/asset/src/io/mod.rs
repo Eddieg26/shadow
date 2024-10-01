@@ -79,6 +79,10 @@ impl From<Box<dyn Error + Send + Sync + 'static>> for AssetIoError {
 
 pub type Result<T> = std::result::Result<T, AssetIoError>;
 
+pub trait AssetBufReader: std::io::BufRead + std::io::Seek + Send + Sync {}
+
+impl<T: std::io::BufRead + std::io::Seek + Send + Sync> AssetBufReader for T {}
+
 pub trait AssetReader {
     fn path(&self) -> &Path;
     fn read(&mut self, amount: usize) -> Result<usize>;
@@ -90,7 +94,7 @@ pub trait AssetReader {
             .map_err(|e| AssetIoError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, e)))
     }
     fn bytes(&self) -> &[u8];
-    fn buf_reader(&self) -> Result<Box<dyn std::io::BufRead + '_>>;
+    fn buf_reader(&self) -> Result<Box<dyn AssetBufReader + '_>>;
     fn flush(&mut self) -> Result<Vec<u8>>;
 }
 
@@ -115,7 +119,7 @@ impl AssetReader for Box<dyn AssetReader> {
         self.as_ref().bytes()
     }
 
-    fn buf_reader(&self) -> Result<Box<dyn std::io::BufRead + '_>> {
+    fn buf_reader(&self) -> Result<Box<dyn AssetBufReader + '_>> {
         self.as_ref().buf_reader()
     }
 

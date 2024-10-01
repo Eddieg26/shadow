@@ -82,6 +82,12 @@ impl RenderPipeline {
     }
 }
 
+impl From<wgpu::RenderPipeline> for RenderPipeline {
+    fn from(pipeline: wgpu::RenderPipeline) -> Self {
+        Self(pipeline)
+    }
+}
+
 #[derive(Debug, Clone, Default, Hash, PartialEq, Eq)]
 pub struct VertexBufferLayout {
     pub array_stride: wgpu::BufferAddress,

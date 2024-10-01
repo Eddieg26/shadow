@@ -19,3 +19,4 @@ bytemuck = { workspace = true }
 serde = { workspace = true }
 glam = { workspace = true }
 pollster = { workspace = true }
+image = { workspace = true }
