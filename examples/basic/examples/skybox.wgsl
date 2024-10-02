@@ -20,6 +20,7 @@ var<uniform> camera: Camera;
 @vertex
 fn vs_sky(input: VertexInput) -> SkyOutput {
     var output: SkyOutput;
+
     output.position = camera.projection * camera.view * vec4<f32>(input.position, 1.0);
     output.uv = input.position;
     return output;

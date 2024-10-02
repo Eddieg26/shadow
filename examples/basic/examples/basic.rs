@@ -19,7 +19,7 @@ use game::{
     time::Time,
     Extract, Main, Update,
 };
-use glam::{Vec2, Vec3};
+use glam::{Mat3, Mat4, Vec2, Vec3};
 use graphics::{
     camera::{Camera, CameraData, RenderCamera},
     core::{Color, RenderDevice, RenderQueue},
@@ -276,16 +276,24 @@ impl Plugin for BasicPlugin {
                 match (event, transform) {
                     (Some(event), Some(transform)) => match event.event.physical_key {
                         PhysicalKey::Code(KeyCode::KeyW) => {
-                            transform.translate(Vec3::Y * CAMERA_SPEED * time.delta_secs())
+                            // transform.translate(Vec3::Y * CAMERA_SPEED * time.delta_secs())
+                            transform
+                                .rotate_around(Axis::X, (45.0 * time.delta_secs()).to_radians());
                         }
                         PhysicalKey::Code(KeyCode::KeyA) => {
-                            transform.translate(-Vec3::X * CAMERA_SPEED * time.delta_secs())
+                            // transform.translate(-Vec3::X * CAMERA_SPEED * time.delta_secs())
+                            transform
+                                .rotate_around(Axis::Y, (45.0 * time.delta_secs()).to_radians());
                         }
                         PhysicalKey::Code(KeyCode::KeyS) => {
-                            transform.translate(-Vec3::Y * CAMERA_SPEED * time.delta_secs())
+                            // transform.translate(-Vec3::Y * CAMERA_SPEED * time.delta_secs())
+                            transform
+                                .rotate_around(Axis::X, (-45.0 * time.delta_secs()).to_radians());
                         }
                         PhysicalKey::Code(KeyCode::KeyD) => {
-                            transform.translate(Vec3::X * CAMERA_SPEED * time.delta_secs())
+                            // transform.translate(Vec3::X * CAMERA_SPEED * time.delta_secs())
+                            transform
+                                .rotate_around(Axis::Y, (-45.0 * time.delta_secs()).to_radians());
                         }
                         _ => {}
                     },
@@ -757,7 +765,6 @@ impl SkyboxPipeline {
         surface: &RenderSurface,
         camera: &CameraBinding,
         shaders: &RenderAssets<Shader>,
-        gpu_textures: &RenderAssets<GpuTexture>,
         textures: &Assets<Texture2d>,
     ) -> Option<Self> {
         let shader = shaders.get(&SKYBOX_SHADER_ID)?;
@@ -768,15 +775,6 @@ impl SkyboxPipeline {
             textures.get(&SKYBOX_BOTTOM)?,
             textures.get(&SKYBOX_FRONT)?,
             textures.get(&SKYBOX_BACK)?,
-        ];
-
-        let gpu_textures = vec![
-            gpu_textures.get(&SKYBOX_LEFT)?,
-            gpu_textures.get(&SKYBOX_RIGHT)?,
-            gpu_textures.get(&SKYBOX_TOP)?,
-            gpu_textures.get(&SKYBOX_BOTTOM)?,
-            gpu_textures.get(&SKYBOX_FRONT)?,
-            gpu_textures.get(&SKYBOX_BACK)?,
         ];
 
         let (width, height) = textures.iter().fold((u32::MAX, u32::MAX), |(w, h), t| {
@@ -790,7 +788,7 @@ impl SkyboxPipeline {
             depth_or_array_layers: 6,
         };
 
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
+        let texture_cube = device.create_texture(&wgpu::TextureDescriptor {
             label: None,
             size,
             mip_level_count: 1,
@@ -804,7 +802,7 @@ impl SkyboxPipeline {
         for (layer, texture) in textures.iter().enumerate() {
             queue.write_texture(
                 wgpu::ImageCopyTexture {
-                    texture: gpu_textures[layer].texture(),
+                    texture: &texture_cube,
                     mip_level: 0,
                     origin: wgpu::Origin3d {
                         x: 0,
@@ -823,12 +821,12 @@ impl SkyboxPipeline {
                 wgpu::Extent3d {
                     width,
                     height,
-                    depth_or_array_layers: 0,
+                    depth_or_array_layers: 1,
                 },
             );
         }
 
-        let texture_view = texture.create_view(&wgpu::TextureViewDescriptor {
+        let texture_view = texture_cube.create_view(&wgpu::TextureViewDescriptor {
             dimension: Some(wgpu::TextureViewDimension::Cube),
             aspect: wgpu::TextureAspect::All,
             ..Default::default()
@@ -909,7 +907,7 @@ impl SkyboxPipeline {
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: surface.depth_format(),
                 depth_write_enabled: false,
-                depth_compare: wgpu::CompareFunction::Less,
+                depth_compare: wgpu::CompareFunction::LessEqual,
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
@@ -951,23 +949,14 @@ impl RenderResourceExtractor for SkyboxPipeline {
             Read<RenderSurface>,
             Read<CameraBinding>,
             Read<RenderAssets<Shader>>,
-            Read<RenderAssets<GpuTexture>>,
             Main<'static, Read<Assets<Texture2d>>>,
         ),
     >;
 
     fn extract(arg: ArgItem<Self::Arg>) -> Option<Self::Target> {
-        let (device, queue, surface, camera, shader, gpu_textures, textures) = arg.into_inner();
+        let (device, queue, surface, camera, shader, textures) = arg.into_inner();
 
-        Self::new(
-            &device,
-            &queue,
-            &surface,
-            &camera,
-            &shader,
-            &gpu_textures,
-            &textures,
-        )
+        Self::new(&device, &queue, &surface, &camera, &shader, &textures)
     }
 
     fn extracted_resource() -> Option<graphics::resources::ExtractedResource> {
@@ -1019,7 +1008,12 @@ impl RenderGraphNode for SkyboxNode {
                 None => return,
             };
 
-            camera.buffer.update(ctx.queue(), ctx.camera().data);
+            let view = Mat4::from_mat3(Mat3::from_mat4(ctx.camera().data.view));
+            let data = CameraData {
+                view,
+                ..ctx.camera().data
+            };
+            camera.buffer.update(ctx.queue(), data);
             commands.set_pipeline(pipeline.pipeline());
             commands.set_bind_group(0, &camera.binding, &[]);
             commands.set_bind_group(1, &pipeline.binding, &[]);

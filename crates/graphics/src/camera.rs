@@ -116,17 +116,17 @@ pub struct CameraData {
     pub view: glam::Mat4,
     pub projection: glam::Mat4,
     pub projection_inv: glam::Mat4,
-    pub world: glam::Vec3,
+    pub position: glam::Vec3,
     pub _padding: f32,
 }
 
 impl CameraData {
-    pub fn new(view: glam::Mat4, projection: glam::Mat4, world: glam::Vec3) -> Self {
+    pub fn new(view: glam::Mat4, projection: glam::Mat4, position: glam::Vec3) -> Self {
         Self {
             view,
             projection,
             projection_inv: projection.inverse(),
-            world,
+            position,
             _padding: 0.0,
         }
     }
@@ -138,7 +138,7 @@ impl Default for CameraData {
             view: glam::Mat4::IDENTITY,
             projection: glam::Mat4::IDENTITY,
             projection_inv: glam::Mat4::IDENTITY,
-            world: Vec3::ZERO,
+            position: Vec3::ZERO,
             _padding: 0.0,
         }
     }
@@ -151,6 +151,7 @@ pub struct RenderCamera {
     pub projection: Projection,
     pub target: Option<AssetId>,
     pub depth: u32,
+    pub world: glam::Mat4,
     pub data: CameraData,
 }
 
@@ -168,6 +169,7 @@ impl RenderCamera {
             projection: camera.projection,
             target: camera.target,
             depth: camera.depth,
+            world,
             data: CameraData::new(view, projection, translation),
         }
     }
@@ -203,6 +205,7 @@ impl Default for RenderCamera {
             projection: camera.projection,
             target: camera.target,
             depth: camera.depth,
+            world: glam::Mat4::IDENTITY,
             data: CameraData::new(glam::Mat4::IDENTITY, projection, Vec3::ZERO),
         }
     }
