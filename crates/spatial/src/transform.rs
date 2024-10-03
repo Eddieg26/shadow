@@ -119,8 +119,13 @@ impl Transform {
         self.position += translation;
     }
 
+    pub fn translate_world(&mut self, translation: Vec3) {
+        self.position += self.rotation * translation;
+    }
+
     pub fn rotate(&mut self, rotation: Quat) {
         self.rotation = self.rotation * rotation;
+        self.rotation = self.rotation.normalize();
     }
 
     pub fn rotate_around(&mut self, axis: Axis, angle: f32) {

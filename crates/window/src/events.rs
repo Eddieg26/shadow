@@ -204,6 +204,7 @@ impl Event for Focused {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct KeyboardInput {
     pub device_id: DeviceId,
     pub event: KeyEvent,

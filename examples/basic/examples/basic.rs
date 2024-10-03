@@ -17,11 +17,11 @@ use game::{
     game::Game,
     plugin::{Plugin, Plugins},
     time::Time,
-    Extract, Main, Update,
+    Extract, Last, Main, Update,
 };
-use glam::{Mat3, Mat4, Vec2, Vec3};
+use glam::{EulerRot, Mat3, Mat4, Quat, UVec2, Vec2, Vec3};
 use graphics::{
-    camera::{Camera, CameraData, RenderCamera},
+    camera::{Camera, CameraData, ClearFlag, RenderCamera},
     core::{Color, RenderDevice, RenderQueue},
     plugin::{GraphicsExt, GraphicsPlugin, RenderApp},
     renderer::{
@@ -50,11 +50,12 @@ use graphics::{
 };
 use spatial::{Axis, Transform};
 use std::{
+    collections::HashMap,
     path::{Path, PathBuf},
     u32,
 };
 use window::{
-    events::{KeyboardInput, WindowCreated},
+    events::{CursorMoved, KeyboardInput, MouseInput, WindowCreated},
     keyboard::{KeyCode, PhysicalKey},
 };
 
@@ -74,6 +75,7 @@ const PLANE: AssetId = AssetId::raw(1300);
 
 const MESH_TEXTURE: AssetId = GENGAR;
 const CAMERA_SPEED: f32 = 5.0;
+const MOUSE_SPEED: f32 = 0.75;
 
 fn main() {
     Game::new().add_plugin(BasicPlugin).run();
@@ -93,17 +95,96 @@ impl MeshRenderer {
 
 impl Component for MeshRenderer {}
 
+#[derive(Debug, Default, Clone, Copy)]
+pub struct MouseTracker {
+    pub x: f32,
+    pub y: f32,
+}
+
+impl Component for MouseTracker {}
+
+pub struct InputState {
+    keys: HashMap<window::keyboard::KeyCode, window::event::ElementState>,
+    mouse_state: HashMap<window::event::MouseButton, window::event::ElementState>,
+    cursor_position: Vec2,
+}
+
+impl InputState {
+    pub fn new() -> Self {
+        Self {
+            keys: HashMap::new(),
+            mouse_state: HashMap::new(),
+            cursor_position: Vec2::ZERO,
+        }
+    }
+
+    pub fn update(&mut self, event: &window::events::KeyboardInput) {
+        match event.event.physical_key {
+            PhysicalKey::Code(key_code) => {
+                self.keys.insert(key_code, event.event.state);
+            }
+            _ => {}
+        }
+    }
+
+    pub fn update_mouse(&mut self, event: &window::events::MouseInput) {
+        self.mouse_state.insert(event.button, event.state);
+    }
+
+    pub fn is_pressed(&self, key: window::keyboard::KeyCode) -> bool {
+        self.keys.get(&key) == Some(&window::event::ElementState::Pressed)
+    }
+
+    pub fn is_released(&self, key: window::keyboard::KeyCode) -> bool {
+        self.keys.get(&key) == Some(&window::event::ElementState::Released)
+    }
+
+    pub fn is_down(&self, key: window::keyboard::KeyCode) -> bool {
+        self.is_pressed(key) || self.is_released(key)
+    }
+
+    pub fn is_up(&self, key: window::keyboard::KeyCode) -> bool {
+        !self.is_down(key)
+    }
+
+    pub fn cursor_position(&self) -> Vec2 {
+        self.cursor_position
+    }
+
+    pub fn mouse_button_state(
+        &self,
+        button: window::event::MouseButton,
+    ) -> Option<&window::event::ElementState> {
+        self.mouse_state.get(&button)
+    }
+
+    pub fn clear(&mut self) {
+        self.keys.clear();
+        self.mouse_state.clear();
+    }
+
+    pub fn clear_released(&mut self) {
+        self.keys
+            .retain(|_, state| *state == window::event::ElementState::Pressed);
+
+        self.mouse_state
+            .retain(|_, state| *state == window::event::ElementState::Pressed);
+    }
+}
+
+impl Resource for InputState {}
+
 pub fn create_cube() -> Mesh {
     let mut mesh = Mesh::new(MeshTopology::TriangleList);
 
     mesh.add_attribute(MeshAttribute::Position(vec![
         // Front
-        Vec3::new(1.0, 1.0, -1.0),
-        Vec3::new(-1.0, 1.0, -1.0),
-        Vec3::new(-1.0, -1.0, -1.0),
-        Vec3::new(1.0, 1.0, -1.0),
-        Vec3::new(-1.0, -1.0, -1.0),
         Vec3::new(1.0, -1.0, -1.0),
+        Vec3::new(-1.0, -1.0, -1.0),
+        Vec3::new(1.0, 1.0, -1.0),
+        Vec3::new(-1.0, -1.0, -1.0),
+        Vec3::new(-1.0, 1.0, -1.0),
+        Vec3::new(1.0, 1.0, -1.0),
         // Back
         Vec3::new(1.0, 1.0, 1.0),
         Vec3::new(-1.0, 1.0, 1.0),
@@ -112,12 +193,12 @@ pub fn create_cube() -> Mesh {
         Vec3::new(-1.0, -1.0, 1.0),
         Vec3::new(1.0, -1.0, 1.0),
         // Top
-        Vec3::new(1.0, 1.0, 1.0),
-        Vec3::new(-1.0, 1.0, 1.0),
-        Vec3::new(-1.0, 1.0, -1.0),
-        Vec3::new(1.0, 1.0, 1.0),
-        Vec3::new(-1.0, 1.0, -1.0),
         Vec3::new(1.0, 1.0, -1.0),
+        Vec3::new(-1.0, 1.0, -1.0),
+        Vec3::new(1.0, 1.0, 1.0),
+        Vec3::new(-1.0, 1.0, -1.0),
+        Vec3::new(-1.0, 1.0, 1.0),
+        Vec3::new(1.0, 1.0, 1.0),
         // Bottom
         Vec3::new(1.0, -1.0, 1.0),
         Vec3::new(-1.0, -1.0, 1.0),
@@ -133,22 +214,22 @@ pub fn create_cube() -> Mesh {
         Vec3::new(1.0, -1.0, -1.0),
         Vec3::new(1.0, 1.0, -1.0),
         // Left
-        Vec3::new(-1.0, 1.0, 1.0),
+        Vec3::new(-1.0, -1.0, -1.0),
         Vec3::new(-1.0, -1.0, 1.0),
+        Vec3::new(-1.0, 1.0, 1.0),
+        Vec3::new(-1.0, 1.0, -1.0),
         Vec3::new(-1.0, -1.0, -1.0),
         Vec3::new(-1.0, 1.0, 1.0),
-        Vec3::new(-1.0, -1.0, -1.0),
-        Vec3::new(-1.0, 1.0, -1.0),
     ]));
 
     mesh.add_attribute(MeshAttribute::TexCoord0(vec![
         // Front
-        Vec2::new(1.0, 0.0),
-        Vec2::new(0.0, 0.0),
-        Vec2::new(0.0, 1.0),
-        Vec2::new(1.0, 0.0),
-        Vec2::new(0.0, 1.0),
         Vec2::new(1.0, 1.0),
+        Vec2::new(0.0, 1.0),
+        Vec2::new(1.0, 0.0),
+        Vec2::new(0.0, 1.0),
+        Vec2::new(0.0, 0.0),
+        Vec2::new(1.0, 0.0),
         // Back
         Vec2::new(1.0, 0.0),
         Vec2::new(0.0, 0.0),
@@ -157,12 +238,12 @@ pub fn create_cube() -> Mesh {
         Vec2::new(0.0, 1.0),
         Vec2::new(1.0, 1.0),
         // Top
-        Vec2::new(1.0, 0.0),
-        Vec2::new(0.0, 0.0),
-        Vec2::new(0.0, 1.0),
-        Vec2::new(1.0, 0.0),
-        Vec2::new(0.0, 1.0),
         Vec2::new(1.0, 1.0),
+        Vec2::new(0.0, 1.0),
+        Vec2::new(1.0, 0.0),
+        Vec2::new(0.0, 1.0),
+        Vec2::new(0.0, 0.0),
+        Vec2::new(1.0, 0.0),
         // Bottom
         Vec2::new(1.0, 0.0),
         Vec2::new(0.0, 0.0),
@@ -171,19 +252,19 @@ pub fn create_cube() -> Mesh {
         Vec2::new(0.0, 1.0),
         Vec2::new(1.0, 1.0),
         // Right
-        Vec2::new(1.0, 0.0),
         Vec2::new(0.0, 0.0),
         Vec2::new(0.0, 1.0),
-        Vec2::new(1.0, 0.0),
-        Vec2::new(0.0, 1.0),
         Vec2::new(1.0, 1.0),
+        Vec2::new(0.0, 0.0),
+        Vec2::new(1.0, 1.0),
+        Vec2::new(1.0, 0.0),
         // Left
+        Vec2::new(0.0, 1.0),
+        Vec2::new(1.0, 1.0),
         Vec2::new(1.0, 0.0),
         Vec2::new(0.0, 0.0),
         Vec2::new(0.0, 1.0),
         Vec2::new(1.0, 0.0),
-        Vec2::new(0.0, 1.0),
-        Vec2::new(1.0, 1.0),
     ]));
 
     mesh
@@ -228,18 +309,20 @@ impl Plugin for BasicPlugin {
 
         plane.set_indices(Indices::U32(vec![0, 1, 2, 0, 2, 3]));
 
+        game.add_resource(InputState::new());
         game.register::<MeshRenderer>();
+        game.register::<MouseTracker>();
         game.events().add(AssetLoaded::add(PLANE, plane));
         game.events().add(AssetLoaded::add(CUBE_ID, create_cube()));
-        game.events().add(
-            Spawn::new()
-                .with(
-                    Transform::default()
-                        .with_scale((0.5, 0.5, 0.5).into())
-                        .with_position(Vec3::new(1.0, 0.0, 0.0)),
-                )
-                .with(MeshRenderer::new(PLANE, MESH_TEXTURE)),
-        );
+        // game.events().add(
+        //     Spawn::new()
+        //         .with(
+        //             Transform::default()
+        //                 .with_scale((0.5, 0.5, 0.5).into())
+        //                 .with_position(Vec3::new(1.0, 0.0, 0.0)),
+        //         )
+        //         .with(MeshRenderer::new(PLANE, MESH_TEXTURE)),
+        // );
         game.events().add(
             Spawn::new()
                 .with(
@@ -251,8 +334,9 @@ impl Plugin for BasicPlugin {
         );
         game.events().add(
             Spawn::new()
-                .with(Camera::default().with_clear(Color::blue()))
-                .with(Transform::zero().with_position(Vec3::new(0.0, 0.0, 10.0))),
+                .with(Camera::default().with_clear(ClearFlag::Skybox))
+                .with(Transform::zero().with_position(Vec3::new(0.0, 0.0, 10.0)))
+                .with(MouseTracker::default()),
         );
         game.add_draw_call_extractor::<DrawMeshExtractor>();
         game.add_render_resource_extractor::<CameraBinding>();
@@ -260,44 +344,79 @@ impl Plugin for BasicPlugin {
         game.add_render_resource_extractor::<TextureBinding>();
         game.add_render_resource_extractor::<BasicRenderPipeline>();
         game.add_render_resource_extractor::<SkyboxPipeline>();
-        game.add_render_node(SkyboxNode::new());
-        // game.add_render_node(BasicRenderNode::new());
+        game.add_render_node(BasicRenderNode::new());
         game.observe::<AssetError, _>(|errors: &[AssetError]| {
             for error in errors {
                 println!("{}", error);
             }
         });
-        game.observe::<KeyboardInput, _>(
-            |events: &[KeyboardInput],
-             mut transforms: Query<&mut Transform, With<Camera>>,
-             time: &Time| {
-                let event = events.last();
-                let transform = transforms.next();
-                match (event, transform) {
-                    (Some(event), Some(transform)) => match event.event.physical_key {
-                        PhysicalKey::Code(KeyCode::KeyW) => {
-                            // transform.translate(Vec3::Y * CAMERA_SPEED * time.delta_secs())
-                            transform
-                                .rotate_around(Axis::X, (45.0 * time.delta_secs()).to_radians());
-                        }
-                        PhysicalKey::Code(KeyCode::KeyA) => {
-                            // transform.translate(-Vec3::X * CAMERA_SPEED * time.delta_secs())
-                            transform
-                                .rotate_around(Axis::Y, (45.0 * time.delta_secs()).to_radians());
-                        }
-                        PhysicalKey::Code(KeyCode::KeyS) => {
-                            // transform.translate(-Vec3::Y * CAMERA_SPEED * time.delta_secs())
-                            transform
-                                .rotate_around(Axis::X, (-45.0 * time.delta_secs()).to_radians());
-                        }
-                        PhysicalKey::Code(KeyCode::KeyD) => {
-                            // transform.translate(Vec3::X * CAMERA_SPEED * time.delta_secs())
-                            transform
-                                .rotate_around(Axis::Y, (-45.0 * time.delta_secs()).to_radians());
-                        }
-                        _ => {}
-                    },
-                    _ => (),
+        game.add_system(Last, |inputs: &mut InputState| {
+            inputs.clear_released();
+        });
+        game.observe::<KeyboardInput, _>(|events: &[KeyboardInput], inputs: &mut InputState| {
+            for event in events {
+                inputs.update(event);
+            }
+        });
+        game.observe::<CursorMoved, _>(|events: &[CursorMoved], inputs: &mut InputState| {
+            let event = events.last().unwrap();
+            inputs.cursor_position = Vec2::new(event.x as f32, event.y as f32);
+        });
+        game.observe::<MouseInput, _>(|events: &[MouseInput], inputs: &mut InputState| {
+            for event in events {
+                inputs.update_mouse(event);
+            }
+        });
+
+        game.add_system(
+            Update,
+            |transforms: Query<&mut Transform, With<Camera>>, time: &Time, inputs: &InputState| {
+                for transform in transforms {
+                    let mut translation = Vec3::ZERO;
+                    if inputs.is_pressed(KeyCode::KeyW) {
+                        translation -= Vec3::Z;
+                    }
+
+                    if inputs.is_pressed(KeyCode::KeyA) {
+                        translation -= Vec3::X;
+                    }
+
+                    if inputs.is_pressed(KeyCode::KeyS) {
+                        translation += Vec3::Z;
+                    }
+
+                    if inputs.is_pressed(KeyCode::KeyD) {
+                        translation += Vec3::X;
+                    }
+
+                    transform.translate_world(translation * CAMERA_SPEED * time.delta_secs());
+                }
+            },
+        );
+
+        game.add_system(
+            Update,
+            |cameras: Query<(&mut Transform, &mut MouseTracker), With<Camera>>,
+             inputs: &InputState| {
+                for (transform, tracker) in cameras {
+                    if inputs.mouse_button_state(window::event::MouseButton::Left)
+                        == Some(&window::event::ElementState::Pressed)
+                    {
+                        let Vec2 { x, y } = inputs.cursor_position;
+                        let delta = Vec2::new(x - tracker.x, y - tracker.y);
+
+                        tracker.x = x;
+                        tracker.y = y;
+
+                        let dx = delta.x.clamp(-1.0, 1.0);
+                        let dy = delta.y.clamp(-1.0, 1.0);
+
+                        let yaw = Quat::from_rotation_y((-dx * MOUSE_SPEED).to_radians());
+                        let pitch = Quat::from_rotation_x((-dy * MOUSE_SPEED).to_radians());
+
+                        let rotation = yaw * pitch;
+                        transform.rotate(rotation);
+                    }
                 }
             },
         );
@@ -687,6 +806,29 @@ impl BasicRenderNode {
 
         Self { pass }
     }
+
+    fn render_skybox(&self, ctx: &RenderContext, pass: &mut wgpu::RenderPass) {
+        let pipeline = ctx.resource_mut::<SkyboxPipeline>();
+        let cube = match ctx.resource::<RenderAssets<MeshBuffers>>().get(&CUBE_ID) {
+            Some(cube) => cube,
+            None => return,
+        };
+        let cube = match cube.vertex_buffer(MeshAttributeKind::Position) {
+            Some(cube) => cube,
+            None => return,
+        };
+
+        let view = Mat4::from_mat3(Mat3::from_mat4(ctx.camera().data.view));
+        let data = CameraData {
+            view,
+            ..ctx.camera().data
+        };
+        pipeline.camera.update(ctx.queue(), data);
+        pass.set_pipeline(pipeline.pipeline());
+        pass.set_bind_group(0, &pipeline.binding, &[]);
+        pass.set_vertex_buffer(0, cube.slice(..));
+        pass.draw(0..cube.len() as u32, 0..1);
+    }
 }
 
 impl RenderGraphNode for BasicRenderNode {
@@ -700,7 +842,7 @@ impl RenderGraphNode for BasicRenderNode {
 
     fn execute(&mut self, ctx: &RenderContext) {
         let mut encoder = ctx.encoder();
-        if let Some(mut commands) = self.pass.begin(ctx, &mut encoder) {
+        if let Some(mut pass) = self.pass.begin(ctx, &mut encoder) {
             let queue = ctx.queue();
             let device = ctx.device();
             let draws = ctx.resource::<DrawCalls<DrawMesh>>();
@@ -712,9 +854,9 @@ impl RenderGraphNode for BasicRenderNode {
 
             object.commit(device, queue);
             camera.buffer.update(queue, ctx.camera().data);
-            commands.set_pipeline(pipeline);
-            commands.set_bind_group(0, &camera.binding, &[]);
-            commands.set_bind_group(2, &texture.binding, &[]);
+            pass.set_pipeline(pipeline);
+            pass.set_bind_group(0, &camera.binding, &[]);
+            pass.set_bind_group(2, &texture.binding, &[]);
 
             for call in draws.iter() {
                 let mesh = match meshes.get(&call.mesh) {
@@ -734,18 +876,20 @@ impl RenderGraphNode for BasicRenderNode {
 
                 let index = call.batch_index.index();
                 let offset = call.batch_index.offset();
-                commands.set_bind_group(1, &object.binding(index), &[offset]);
-                commands.set_vertex_buffer(0, position_buffer.slice(..));
-                commands.set_vertex_buffer(1, uv_buffer.slice(..));
+                pass.set_bind_group(1, &object.binding(index), &[offset]);
+                pass.set_vertex_buffer(0, position_buffer.slice(..));
+                pass.set_vertex_buffer(1, uv_buffer.slice(..));
 
                 match mesh.index_buffer() {
                     Some(buffer) => {
-                        commands.set_index_buffer(buffer.slice(..), buffer.format());
-                        commands.draw_indexed(0..buffer.len() as u32, 0, 0..1);
+                        pass.set_index_buffer(buffer.slice(..), buffer.format());
+                        pass.draw_indexed(0..buffer.len() as u32, 0, 0..1);
                     }
-                    None => commands.draw(0..position_buffer.len() as u32, 0..1),
+                    None => pass.draw(0..position_buffer.len() as u32, 0..1),
                 }
             }
+
+            self.render_skybox(ctx, &mut pass);
         }
 
         ctx.submit(encoder);
@@ -756,6 +900,7 @@ pub struct SkyboxPipeline {
     pipeline: RenderPipeline,
     binding: BindGroup,
     sampler: wgpu::Sampler,
+    camera: UniformBuffer<CameraData>,
 }
 
 impl SkyboxPipeline {
@@ -763,14 +908,13 @@ impl SkyboxPipeline {
         device: &RenderDevice,
         queue: &RenderQueue,
         surface: &RenderSurface,
-        camera: &CameraBinding,
         shaders: &RenderAssets<Shader>,
         textures: &Assets<Texture2d>,
     ) -> Option<Self> {
         let shader = shaders.get(&SKYBOX_SHADER_ID)?;
         let textures = vec![
-            textures.get(&SKYBOX_LEFT)?,
             textures.get(&SKYBOX_RIGHT)?,
+            textures.get(&SKYBOX_LEFT)?,
             textures.get(&SKYBOX_TOP)?,
             textures.get(&SKYBOX_BOTTOM)?,
             textures.get(&SKYBOX_FRONT)?,
@@ -838,6 +982,16 @@ impl SkyboxPipeline {
             entries: &[
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Texture {
                         sample_type: wgpu::TextureSampleType::Float { filterable: true },
@@ -847,7 +1001,7 @@ impl SkyboxPipeline {
                     count: None,
                 },
                 wgpu::BindGroupLayoutEntry {
-                    binding: 1,
+                    binding: 2,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
@@ -855,16 +1009,22 @@ impl SkyboxPipeline {
             ],
         });
 
+        let camera = UniformBuffer::new(device, CameraData::default(), BufferFlags::COPY_DST);
+
         let binding = BindGroup::create(
             device,
             &bind_group_layout,
             &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&texture_view),
+                    resource: camera.binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&texture_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
                     resource: wgpu::BindingResource::Sampler(&sampler),
                 },
             ],
@@ -873,7 +1033,7 @@ impl SkyboxPipeline {
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
-            bind_group_layouts: &[&camera.layout, &bind_group_layout],
+            bind_group_layouts: &[&bind_group_layout],
             push_constant_ranges: &[],
         });
 
@@ -920,6 +1080,7 @@ impl SkyboxPipeline {
             pipeline: RenderPipeline::from(pipeline),
             binding,
             sampler,
+            camera,
         })
     }
 
@@ -934,6 +1095,14 @@ impl SkyboxPipeline {
     pub fn sampler(&self) -> &wgpu::Sampler {
         &self.sampler
     }
+
+    pub fn camera(&self) -> &UniformBuffer<CameraData> {
+        &self.camera
+    }
+
+    pub fn camera_mut(&mut self) -> &mut UniformBuffer<CameraData> {
+        &mut self.camera
+    }
 }
 
 impl Resource for SkyboxPipeline {}
@@ -947,80 +1116,18 @@ impl RenderResourceExtractor for SkyboxPipeline {
             Read<RenderDevice>,
             Read<RenderQueue>,
             Read<RenderSurface>,
-            Read<CameraBinding>,
             Read<RenderAssets<Shader>>,
             Main<'static, Read<Assets<Texture2d>>>,
         ),
     >;
 
     fn extract(arg: ArgItem<Self::Arg>) -> Option<Self::Target> {
-        let (device, queue, surface, camera, shader, textures) = arg.into_inner();
+        let (device, queue, surface, shader, textures) = arg.into_inner();
 
-        Self::new(&device, &queue, &surface, &camera, &shader, &textures)
+        Self::new(&device, &queue, &surface, &shader, &textures)
     }
 
     fn extracted_resource() -> Option<graphics::resources::ExtractedResource> {
         Some(graphics::resources::ExtractedResource::Pipeline)
-    }
-}
-
-pub struct SkyboxNode {
-    pass: RenderPass,
-}
-
-impl SkyboxNode {
-    pub fn new() -> Self {
-        let pass = RenderPass::new()
-            .with_color(Attachment::Surface, None, StoreOp::Store, None)
-            .with_depth(
-                Attachment::Surface,
-                Operations {
-                    load: LoadOp::Clear(1.0),
-                    store: StoreOp::Store,
-                },
-                None,
-            );
-
-        Self { pass }
-    }
-}
-
-impl RenderGraphNode for SkyboxNode {
-    fn name(&self) -> &str {
-        "SkyboxNode"
-    }
-
-    fn info(&self) -> graphics::renderer::graph::node::NodeInfo {
-        self.pass.info()
-    }
-
-    fn execute(&mut self, ctx: &RenderContext) {
-        let mut encoder = ctx.encoder();
-        if let Some(mut commands) = self.pass.begin(ctx, &mut encoder) {
-            let pipeline = ctx.resource::<SkyboxPipeline>();
-            let camera = ctx.resource_mut::<CameraBinding>();
-            let cube = match ctx.resource::<RenderAssets<MeshBuffers>>().get(&CUBE_ID) {
-                Some(cube) => cube,
-                None => return,
-            };
-            let cube = match cube.vertex_buffer(MeshAttributeKind::Position) {
-                Some(cube) => cube,
-                None => return,
-            };
-
-            let view = Mat4::from_mat3(Mat3::from_mat4(ctx.camera().data.view));
-            let data = CameraData {
-                view,
-                ..ctx.camera().data
-            };
-            camera.buffer.update(ctx.queue(), data);
-            commands.set_pipeline(pipeline.pipeline());
-            commands.set_bind_group(0, &camera.binding, &[]);
-            commands.set_bind_group(1, &pipeline.binding, &[]);
-            commands.set_vertex_buffer(0, cube.slice(..));
-            commands.draw(0..cube.len() as u32, 0..1);
-        }
-
-        ctx.submit(encoder);
     }
 }

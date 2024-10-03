@@ -21,13 +21,14 @@ var<uniform> camera: Camera;
 fn vs_sky(input: VertexInput) -> SkyOutput {
     var output: SkyOutput;
 
-    output.position = camera.projection * camera.view * vec4<f32>(input.position, 1.0);
+    let position = camera.projection * camera.view * vec4<f32>(input.position, 1.0);
+    output.position = position.xyww;
     output.uv = input.position;
     return output;
 }
 
-@group(1) @binding(0) var texture: texture_cube<f32>;
-@group(1) @binding(1) var tex_sampler: sampler;
+@group(0) @binding(1) var texture: texture_cube<f32>;
+@group(0) @binding(2) var tex_sampler: sampler;
 
 @fragment
 fn fs_sky(input: SkyOutput) -> @location(0) vec4<f32> {
